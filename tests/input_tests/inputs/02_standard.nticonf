@@ -1,0 +1,13 @@
+case name=standard
+density=998 kg/m^3
+dynamic viscosity=0.001 Pa*s
+re=200
+characteristic length=0.05 m
+grid spacing=0.0005 m
+relaxation time=0.8
+physical time=0.02 s
+lattice model=D3Q19
+collision model=Cumulant
+wall boundary=IBB
+inlet boundary=ZH-vel
+outlet boundary=Default

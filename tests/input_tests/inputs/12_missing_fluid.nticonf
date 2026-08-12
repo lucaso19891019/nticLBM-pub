@@ -1,0 +1,3 @@
+dynamic viscosity=0.001 Pa*s
+re=100
+characteristic length=0.1 m

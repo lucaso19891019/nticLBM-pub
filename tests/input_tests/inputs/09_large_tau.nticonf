@@ -1,0 +1,9 @@
+density=1000 kg/m^3
+dynamic viscosity=0.001 Pa*s
+re=100
+characteristic length=0.1 m
+grid spacing=0.001 m
+relaxation time=2.5
+max steps=100
+lattice model=D3Q19
+collision model=BGK
