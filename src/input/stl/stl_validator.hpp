@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stl_reader.hpp"
+#include "stl_topology.hpp"
 #include <string>
 
 namespace ntic::lbm::stl {
@@ -21,6 +22,7 @@ namespace ntic::lbm::stl {
 // A std::runtime_error is thrown if invalid STL geometry is detected.
 void validate(
     STLData& data,
-    const std::string& mode = "full");
+    const std::string& mode,
+    STLComponents& components);
 
 } // namespace ntic::lbm::stl
