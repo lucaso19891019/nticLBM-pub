@@ -42,3 +42,14 @@ $APP $STL_DIR/duplicate_cyclic_order.stl invalid test
 $APP $STL_DIR/duplicate_reversed_winding.stl invalid test
 $APP $STL_DIR/duplicate_with_small_noise.stl invalid test
 $APP $STL_DIR/close_but_distinct_facets.stl valid test
+
+#==============================================================================
+# 4. Topology tests
+#==============================================================================
+
+$APP $STL_DIR/closed_tetrahedron.stl valid full
+$APP $STL_DIR/open_tetrahedron.stl invalid full
+$APP $STL_DIR/non_manifold_edge.stl invalid full
+$APP $STL_DIR/inconsistent_winding.stl invalid full
+$APP $STL_DIR/two_closed_tetrahedra.stl valid full
+
