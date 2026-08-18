@@ -1,4 +1,5 @@
 #include "stl_validator.hpp"
+#include "stl_topology.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -43,7 +44,6 @@ struct BinKey
     }
 };
 
-
 struct BinKeyHash
 {
     std::size_t operator()(const BinKey& key) const noexcept
@@ -63,7 +63,6 @@ struct BinKeyHash
             (hz << 2);
     }
 };
-
 
 //=============================================================================
 // Triangle key
@@ -110,13 +109,6 @@ using SpatialBins =
 // Bounding Box
 //===============================================================================
 
-struct GeometryBounds
-{
-    STLVector min;
-    STLVector max;
-    double scale;
-};
-
 struct GeometricVertices
 {
     // One representative coordinate for each welded geometric vertex.
@@ -127,22 +119,6 @@ struct GeometricVertices
     // facetVertexIDs[i][0..2] correspond to the three vertices of facet i
     // in their original winding order.
     std::vector<std::array<std::size_t, 3>> facetVertexIDs;
-};
-
-using STLComponents =
-    std::vector<std::vector<std::size_t>>;
-
-struct EdgeKey
-{
-    std::size_t v0;
-    std::size_t v1;
-
-    bool operator==(const EdgeKey& other) const noexcept
-    {
-        return
-            v0 == other.v0 &&
-            v1 == other.v1;
-    }
 };
 
 struct EdgeKeyHash
@@ -159,18 +135,6 @@ struct EdgeKeyHash
             h0 ^
             (h1 << 1);
     }
-};
-
-struct EdgeUse
-{
-    std::size_t facetID;
-
-    // true:
-    //      canonical edge direction
-    //
-    // false:
-    //      opposite direction
-    bool forward;
 };
 
 using EdgeMap =
@@ -631,9 +595,96 @@ void buildComponents(
         }
 
 
+        STLComponent info;
+
+        info.facets =
+            std::move(component);
+
+
         components.push_back(
-            std::move(component));
+            std::move(info));
     }
+}
+
+void computeComponentBounds(
+    const GeometricVertices& geometry,
+    STLComponents& components)
+{
+    for(auto& component : components)
+    {
+        GeometryBounds bounds;
+
+
+        bounds.min =
+            geometry.vertices[
+                geometry.facetVertexIDs[
+                    component.facets[0]][0]
+            ];
+
+        bounds.max = bounds.min;
+
+
+        for(auto facetID : component.facets)
+        {
+            for(auto vertexID :
+                geometry.facetVertexIDs[facetID])
+            {
+                const auto& p =
+                    geometry.vertices[vertexID];
+
+
+                for(int d=0; d<3; d++)
+                {
+                    bounds.min[d] =
+                        std::min(bounds.min[d],p[d]);
+
+                    bounds.max[d] =
+                        std::max(bounds.max[d],p[d]);
+                }
+            }
+        }
+
+
+        component.bounds = bounds;
+    }
+}
+
+double computeSignedVolume(
+    const GeometricVertices& geometry,
+    const STLComponent& component)
+{
+    double volume = 0.0;
+
+
+    for(auto facetID : component.facets)
+    {
+        auto ids =
+            geometry.facetVertexIDs[facetID];
+
+
+        const auto& v0 =
+            geometry.vertices[ids[0]];
+
+        const auto& v1 =
+            geometry.vertices[ids[1]];
+
+        const auto& v2 =
+            geometry.vertices[ids[2]];
+
+
+        volume +=
+            v0[0] *
+            (v1[1]*v2[2]-v1[2]*v2[1])
+            -
+            v0[1] *
+            (v1[0]*v2[2]-v1[2]*v2[0])
+            +
+            v0[2] *
+            (v1[0]*v2[1]-v1[1]*v2[0]);
+    }
+
+
+    return volume / 6.0;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -1144,9 +1195,22 @@ void validateTopologyWindingAndComponents(
 // If required, this stage may reverse the winding of an entire connected
 // component and recompute its facet normals.
 //
-void validateNestingAndOrientation(STLData& data)
+void validateComponentConsistency(
+    const GeometricVertices& geometry,
+    STLComponents& components)
 {
-    // TODO
+    computeComponentBounds(
+        geometry,
+        components);
+
+
+    for(auto& component : components)
+    {
+        component.signedVolume =
+            computeSignedVolume(
+                geometry,
+                component);
+    }
 }
 
 } // namespace
@@ -1158,7 +1222,8 @@ void validateNestingAndOrientation(STLData& data)
 
 void validate(
     STLData& data,
-    const std::string& mode)
+    const std::string& mode,
+    STLComponents& components)
 {
     //-------------------------------------------------------------------------
     // Validate mode.
@@ -1224,9 +1289,6 @@ void validate(
     if (mode == "test") {
         return;
     }
-    //-------------------------------------------------------------------------
-
-    STLComponents components;
 
     //-------------------------------------------------------------------------
     // 4. Topology, winding, and connected components
@@ -1241,7 +1303,9 @@ void validate(
     // 5. Nesting and global orientation
     //-------------------------------------------------------------------------
 
-    validateNestingAndOrientation(data);
+    validateComponentConsistency(
+        geometry,
+        components);
 }
 
 } // namespace ntic::lbm::stl
