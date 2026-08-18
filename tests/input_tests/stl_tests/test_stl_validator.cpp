@@ -56,6 +56,27 @@ int main(int argc, char* argv[])
 
         ntic::lbm::stl::validate(data,mode,components);
 
+        if(mode == "full")
+        {
+            std::cout
+                << "       Components: "
+                << components.size()
+                << "\n";
+
+
+            for(std::size_t i = 0;
+                i < components.size();
+                ++i)
+            {
+                std::cout
+            	    << "       Component "
+            	    << i
+            	    << " volume = "
+            	    << components[i].signedVolume
+            	    << "\n";
+            }
+    	}
+
         validationSucceeded = true;
     }
     catch (const std::exception& e) {

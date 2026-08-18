@@ -53,3 +53,8 @@ $APP $STL_DIR/non_manifold_edge.stl invalid full
 $APP $STL_DIR/inconsistent_winding.stl invalid full
 $APP $STL_DIR/two_closed_tetrahedra.stl valid full
 
+#=============================================================================
+# 5. Component geometry tests
+#=============================================================================
+
+$APP $STL_DIR/large_tetrahedron.stl valid full
