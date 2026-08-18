@@ -1,5 +1,5 @@
-#include "input/stl/stl_reader.hpp"
-#include "input/stl/stl_validator.hpp"
+#include "stl_reader.hpp"
+#include "stl_validator.hpp"
 
 #include <exception>
 #include <filesystem>
