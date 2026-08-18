@@ -12,6 +12,8 @@ namespace {
 constexpr double RELATIVE_LENGTH_TOLERANCE = 1.0e-7;
 constexpr double COLLINEAR_TOLERANCE       = 1.0e-7;
 
+constexpr double NORMAL_DIRECTION_TOLERANCE = 1.0e-7;
+
 //=============================================================================
 // 1. Degenerate facets
 //=============================================================================
@@ -208,7 +210,132 @@ void validateDegenerateFacets(const STLData& data)
 //
 void validateFacetNormals(STLData& data)
 {
-    // TODO
+    for (std::size_t i = 0; i < data.facets.size(); ++i) {
+
+        auto& facet = data.facets[i];
+
+        //---------------------------------------------------------------------
+        // Check that the stored STL normal is finite and non-zero.
+        //---------------------------------------------------------------------
+
+        const double storedNx = facet.normal[0];
+        const double storedNy = facet.normal[1];
+        const double storedNz = facet.normal[2];
+
+        if (!std::isfinite(storedNx) ||
+            !std::isfinite(storedNy) ||
+            !std::isfinite(storedNz)) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " has an invalid stored normal.");
+        }
+
+        const double storedNormSquared =
+            storedNx * storedNx +
+            storedNy * storedNy +
+            storedNz * storedNz;
+
+        if (!std::isfinite(storedNormSquared) ||
+            storedNormSquared <= 0.0) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " has a zero or invalid stored normal.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // Compute the geometric normal from the vertex winding.
+        //
+        //     n = (v1 - v0) x (v2 - v0)
+        //
+        // Degenerate facets have already been rejected by the previous
+        // validation stage, so the geometric normal is guaranteed to have
+        // non-zero magnitude here.
+        //---------------------------------------------------------------------
+
+        const auto& v0 = facet.vertices[0];
+        const auto& v1 = facet.vertices[1];
+        const auto& v2 = facet.vertices[2];
+
+        const double e01x = v1[0] - v0[0];
+        const double e01y = v1[1] - v0[1];
+        const double e01z = v1[2] - v0[2];
+
+        const double e02x = v2[0] - v0[0];
+        const double e02y = v2[1] - v0[1];
+        const double e02z = v2[2] - v0[2];
+
+        const double geometricNx =
+            e01y * e02z - e01z * e02y;
+
+        const double geometricNy =
+            e01z * e02x - e01x * e02z;
+
+        const double geometricNz =
+            e01x * e02y - e01y * e02x;
+
+        const double geometricNormSquared =
+            geometricNx * geometricNx +
+            geometricNy * geometricNy +
+            geometricNz * geometricNz;
+
+        const double geometricNorm =
+            std::sqrt(geometricNormSquared);
+
+
+        //---------------------------------------------------------------------
+        // Check directional consistency between the stored STL normal and
+        // the normal implied by the vertex winding.
+        //
+        // We compare normalized directions:
+        //
+        //              n_stored . n_geometric
+        //     cos(t) = -------------------------
+        //              |n_stored| |n_geometric|
+        //
+        // A positive value means that both normals point to the same side of
+        // the facet. A zero or negative value means that the stored normal is
+        // inconsistent with the vertex winding.
+        //---------------------------------------------------------------------
+
+        const double storedNorm =
+            std::sqrt(storedNormSquared);
+
+        const double alignment =
+            (storedNx * geometricNx +
+             storedNy * geometricNy +
+             storedNz * geometricNz) /
+            (storedNorm * geometricNorm);
+
+        if (!std::isfinite(alignment) ||
+            alignment <= NORMAL_DIRECTION_TOLERANCE) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " has a stored normal inconsistent with "
+                "its vertex winding.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // Replace the stored STL normal with the unit geometric normal.
+        //
+        // From this point onward, facet.normal is derived exclusively from
+        // the vertex winding and is guaranteed to have unit length.
+        //---------------------------------------------------------------------
+
+        facet.normal[0] = geometricNx / geometricNorm;
+        facet.normal[1] = geometricNy / geometricNorm;
+        facet.normal[2] = geometricNz / geometricNorm;
+    }
 }
 
 
