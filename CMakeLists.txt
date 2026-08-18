@@ -35,13 +35,13 @@ endfunction()
 #====================================================
 
 add_executable(test_rational
-    tests/input_tests/test_rational.cpp
+    tests/input_tests/config_tests/test_rational.cpp
     src/common/rational.cpp
 )
 
 target_include_directories(test_rational PRIVATE
     src/common
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_rational)
@@ -51,7 +51,7 @@ set_input_test_output(test_rational)
 #====================================================
 
 add_executable(test_physical_dimension
-    tests/input_tests/test_physical_dimension.cpp
+    tests/input_tests/config_tests/test_physical_dimension.cpp
     src/common/rational.cpp
     src/input/config/physical_dimension.cpp
 )
@@ -59,7 +59,7 @@ add_executable(test_physical_dimension
 target_include_directories(test_physical_dimension PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_physical_dimension)
@@ -69,7 +69,7 @@ set_input_test_output(test_physical_dimension)
 #====================================================
 
 add_executable(test_parameter_registry
-    tests/input_tests/test_parameter_registry.cpp
+    tests/input_tests/config_tests/test_parameter_registry.cpp
 
     src/common/rational.cpp
 
@@ -81,7 +81,7 @@ add_executable(test_parameter_registry
 target_include_directories(test_parameter_registry PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_parameter_registry)
@@ -91,7 +91,7 @@ set_input_test_output(test_parameter_registry)
 #====================================================
 
 add_executable(test_unit
-    tests/input_tests/test_unit.cpp
+    tests/input_tests/config_tests/test_unit.cpp
 
     src/common/rational.cpp
 
@@ -103,7 +103,7 @@ add_executable(test_unit
 target_include_directories(test_unit PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_unit)
@@ -113,7 +113,7 @@ set_input_test_output(test_unit)
 #====================================================
 
 add_executable(test_prefix_registry
-    tests/input_tests/test_prefix_registry.cpp
+    tests/input_tests/config_tests/test_prefix_registry.cpp
 
     src/input/config/prefix.cpp
     src/input/config/prefix_registry.cpp
@@ -121,7 +121,7 @@ add_executable(test_prefix_registry
 
 target_include_directories(test_prefix_registry PRIVATE
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_prefix_registry)
@@ -131,7 +131,7 @@ set_input_test_output(test_prefix_registry)
 #====================================================
 
 add_executable(test_unit_expression
-    tests/input_tests/test_unit_expression.cpp
+    tests/input_tests/config_tests/test_unit_expression.cpp
 
     src/common/rational.cpp
 
@@ -144,7 +144,7 @@ add_executable(test_unit_expression
 target_include_directories(test_unit_expression PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_unit_expression)
@@ -154,7 +154,7 @@ set_input_test_output(test_unit_expression)
 #====================================================
 
 add_executable(test_quantity
-    tests/input_tests/test_quantity.cpp
+    tests/input_tests/config_tests/test_quantity.cpp
 
     src/common/rational.cpp
 
@@ -167,7 +167,7 @@ add_executable(test_quantity
 target_include_directories(test_quantity PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_quantity)
@@ -178,7 +178,7 @@ set_input_test_output(test_quantity)
 
 add_executable(test_parameter
 
-    tests/input_tests/test_parameter.cpp
+    tests/input_tests/config_tests/test_parameter.cpp
 
     src/common/rational.cpp
 
@@ -193,7 +193,7 @@ add_executable(test_parameter
 target_include_directories(test_parameter PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_parameter)
@@ -203,7 +203,7 @@ set_input_test_output(test_parameter)
 #====================================================
 
 add_executable(test_lexer
-    tests/input_tests/test_lexer.cpp
+    tests/input_tests/config_tests/test_lexer.cpp
 
     src/input/config/token.cpp
     src/input/config/lexer.cpp
@@ -211,7 +211,7 @@ add_executable(test_lexer
 
 target_include_directories(test_lexer PRIVATE
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_lexer)
@@ -221,7 +221,7 @@ set_input_test_output(test_lexer)
 #====================================================
 
 add_executable(test_token_stream
-    tests/input_tests/test_token_stream.cpp
+    tests/input_tests/config_tests/test_token_stream.cpp
 
     src/input/config/token.cpp
     src/input/config/lexer.cpp
@@ -230,7 +230,7 @@ add_executable(test_token_stream
 
 target_include_directories(test_token_stream PRIVATE
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_token_stream)
@@ -240,7 +240,7 @@ set_input_test_output(test_token_stream)
 #====================================================
 
 add_executable(test_unit_parser
-    tests/input_tests/test_unit_parser.cpp
+    tests/input_tests/config_tests/test_unit_parser.cpp
 
     src/common/rational.cpp
 
@@ -264,7 +264,7 @@ add_executable(test_unit_parser
 target_include_directories(test_unit_parser PRIVATE
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_unit_parser)
@@ -275,7 +275,7 @@ set_input_test_output(test_unit_parser)
 
 add_executable(test_quantity_parser
 
-    tests/input_tests/test_quantity_parser.cpp
+    tests/input_tests/config_tests/test_quantity_parser.cpp
 
     src/common/rational.cpp
 
@@ -304,7 +304,7 @@ target_include_directories(test_quantity_parser PRIVATE
 
     src/input/config
 
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_quantity_parser)
@@ -315,7 +315,7 @@ set_input_test_output(test_quantity_parser)
 
 add_executable(test_parameter_parser
 
-    tests/input_tests/test_parameter_parser.cpp
+    tests/input_tests/config_tests/test_parameter_parser.cpp
 
     src/common/rational.cpp
 
@@ -346,7 +346,7 @@ target_include_directories(test_parameter_parser PRIVATE
 
     src/input/config
 
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_parameter_parser)
@@ -357,7 +357,7 @@ set_input_test_output(test_parameter_parser)
 
 add_executable(test_parameter_alias_registry
 
-    tests/input_tests/test_parameter_alias_registry.cpp
+    tests/input_tests/config_tests/test_parameter_alias_registry.cpp
 
     src/input/config/parameter_alias_registry.cpp
 )
@@ -368,7 +368,7 @@ PRIVATE
 
     src/input/config
 
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_parameter_alias_registry)
@@ -379,7 +379,7 @@ set_input_test_output(test_parameter_alias_registry)
 
 add_executable(test_lbm_parameter_registry
 
-    tests/input_tests/test_lbm_parameter_registry.cpp
+    tests/input_tests/config_tests/test_lbm_parameter_registry.cpp
 
     src/common/rational.cpp
 
@@ -396,7 +396,7 @@ PRIVATE
 
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_lbm_parameter_registry)
@@ -407,7 +407,7 @@ set_input_test_output(test_lbm_parameter_registry)
 
 add_executable(test_config
 
-    tests/input_tests/test_config.cpp
+    tests/input_tests/config_tests/test_config.cpp
 
     src/common/rational.cpp
 
@@ -444,7 +444,7 @@ PRIVATE
 
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_config)
@@ -455,7 +455,7 @@ set_input_test_output(test_config)
 
 add_executable(test_parameter_table
 
-    tests/input_tests/test_parameter_table.cpp
+    tests/input_tests/config_tests/test_parameter_table.cpp
 
     src/common/rational.cpp
 
@@ -493,7 +493,7 @@ PRIVATE
 
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_parameter_table)
@@ -503,14 +503,14 @@ set_input_test_output(test_parameter_table)
 #====================================================
 
 add_executable(test_model_alias_registry
-    tests/input_tests/test_model_alias_registry.cpp
+    tests/input_tests/config_tests/test_model_alias_registry.cpp
     src/input/config/parameter_alias_registry.cpp
     src/input/config/model_alias_registry.cpp
 )
 
 target_include_directories(test_model_alias_registry PRIVATE
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_model_alias_registry)
@@ -521,7 +521,7 @@ set_input_test_output(test_model_alias_registry)
 
 add_executable(test_si_unit_formatter
 
-    tests/input_tests/test_si_unit_formatter.cpp
+    tests/input_tests/config_tests/test_si_unit_formatter.cpp
 
     src/common/rational.cpp
 
@@ -543,7 +543,7 @@ set_input_test_output(test_si_unit_formatter)
 
 add_executable(test_full_config
 
-    tests/input_tests/test_full_config.cpp
+    tests/input_tests/config_tests/test_full_config.cpp
 
     src/common/rational.cpp
 
@@ -587,7 +587,7 @@ PRIVATE
 
     src/common
     src/input/config
-    tests/input_tests
+    tests/input_tests/config_tests
 )
 
 set_input_test_output(test_full_config)
