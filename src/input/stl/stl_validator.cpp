@@ -846,8 +846,24 @@ void validateNestingAndOrientation(STLData& data)
 // Public validation interface
 //=============================================================================
 
-void validate(STLData& data)
+void validate(
+    STLData& data,
+    const std::string& mode)
 {
+    //-------------------------------------------------------------------------
+    // Validate mode.
+    //-------------------------------------------------------------------------
+
+    if (mode != "test" &&
+        mode != "full") {
+
+        throw std::invalid_argument(
+            "Invalid STL validation mode: \"" +
+            mode +
+            "\". Expected \"test\" or \"full\".");
+    }
+
+
     //-------------------------------------------------------------------------
     // Compute geometry bounds once.
     //-------------------------------------------------------------------------
@@ -875,9 +891,6 @@ void validate(STLData& data)
 
     //-------------------------------------------------------------------------
     // Build the tolerance-welded geometric vertex representation.
-    //
-    // This representation is shared by all subsequent topology-related
-    // validation stages.
     //-------------------------------------------------------------------------
 
     const GeometricVertices geometry =
@@ -892,6 +905,15 @@ void validate(STLData& data)
 
     validateDuplicateFacets(
         geometry);
+
+
+    //-------------------------------------------------------------------------
+    // Test mode stops after the facet-level validation stages.
+    //-------------------------------------------------------------------------
+
+    if (mode == "test") {
+        return;
+    }
 
 
     //-------------------------------------------------------------------------
