@@ -18,6 +18,8 @@ namespace ntic::lbm::stl {
 // facet normals or component orientations need to be normalized.
 //
 // A std::runtime_error is thrown if invalid STL geometry is detected.
-void validate(STLData& data);
+void validate(
+    STLData& data,
+    const std::string& mode = "full");
 
 } // namespace ntic::lbm::stl
