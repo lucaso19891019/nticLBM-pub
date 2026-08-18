@@ -11,17 +11,18 @@ int main(int argc, char* argv[])
     // Command-line arguments
     //-------------------------------------------------------------------------
 
-    if (argc != 3) {
+    if (argc != 4) {
         std::cerr
             << "Usage: "
             << argv[0]
-            << " <stl_file> <valid|invalid>\n";
+            << " <stl_file> <valid|invalid> <test|full>\n";
 
         return 1;
     }
 
-    const std::string stlFile = argv[1];
+    const std::string stlFile  = argv[1];
     const std::string expected = argv[2];
+    const std::string mode     = argv[3];
 
     if (expected != "valid" && expected != "invalid") {
         std::cerr
@@ -31,6 +32,15 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    if (mode != "test" &&
+        mode != "full") {
+
+        std::cerr
+            << "Error: validation mode must be "
+            << "\"test\" or \"full\".\n";
+
+        return 1;
+    }
 
     //-------------------------------------------------------------------------
     // Read and validate STL
@@ -40,10 +50,9 @@ int main(int argc, char* argv[])
     std::string errorMessage;
 
     try {
-        auto data =
-            ntic::lbm::stl::read(stlFile);
+        auto data = ntic::lbm::stl::read(stlFile);
 
-        ntic::lbm::stl::validate(data);
+        ntic::lbm::stl::validate(data,mode);
 
         validationSucceeded = true;
     }
