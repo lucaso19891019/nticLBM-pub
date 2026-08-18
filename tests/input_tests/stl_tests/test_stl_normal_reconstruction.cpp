@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
     //-------------------------------------------------------------------------
 
     try {
-        ntic::lbm::stl::validate(data);
+        ntic::lbm::stl::validate(data,"test");
     }
     catch (const std::exception& e) {
         std::cerr
