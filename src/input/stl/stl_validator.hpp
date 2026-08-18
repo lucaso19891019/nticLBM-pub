@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stl_reader.hpp"
+#include <string>
 
 namespace ntic::lbm::stl {
 
