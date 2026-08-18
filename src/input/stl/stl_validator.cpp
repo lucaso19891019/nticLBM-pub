@@ -1,8 +1,16 @@
 #include "stl_validator.hpp"
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <stdexcept>
+#include <string>
 
 namespace ntic::lbm::stl {
 
 namespace {
+
+constexpr double RELATIVE_LENGTH_TOLERANCE = 1.0e-7;
+constexpr double COLLINEAR_TOLERANCE       = 1.0e-7;
 
 //=============================================================================
 // 1. Degenerate facets
@@ -20,9 +28,161 @@ namespace {
 //
 // No topological information is required here.
 //
-void validateDegenerateFacets(STLData& data)
+void validateDegenerateFacets(const STLData& data)
 {
-    // TODO
+    if (data.facets.empty()) {
+        throw std::runtime_error(
+            "Invalid STL geometry: no facets.");
+    }
+
+    //-------------------------------------------------------------------------
+    // Determine the characteristic length of the geometry.
+    //
+    // The diagonal length of the STL bounding box is used as the global
+    // reference scale for detecting nearly coincident vertices.
+    //-------------------------------------------------------------------------
+
+    STLVector minCoord = data.facets[0].vertices[0];
+    STLVector maxCoord = data.facets[0].vertices[0];
+
+    for (const auto& facet : data.facets) {
+        for (const auto& vertex : facet.vertices) {
+            for (std::size_t d = 0; d < 3; ++d) {
+                minCoord[d] = std::min(minCoord[d], vertex[d]);
+                maxCoord[d] = std::max(maxCoord[d], vertex[d]);
+            }
+        }
+    }
+
+    const double dx = maxCoord[0] - minCoord[0];
+    const double dy = maxCoord[1] - minCoord[1];
+    const double dz = maxCoord[2] - minCoord[2];
+
+    const double scale =
+        std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (!std::isfinite(scale) || scale <= 0.0) {
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "the geometry has zero or invalid extent.");
+    }
+
+    const double lengthTolerance =
+        scale * RELATIVE_LENGTH_TOLERANCE;
+
+    const double lengthToleranceSquared =
+        lengthTolerance * lengthTolerance;
+
+
+    //-------------------------------------------------------------------------
+    // Validate every facet.
+    //
+    // A facet is considered degenerate if:
+    //
+    //   1. any of its three edges has nearly zero length, or
+    //
+    //   2. its three vertices are nearly collinear.
+    //
+    // Collinearity is measured using:
+    //
+    //        |e01 x e02|
+    //        -----------
+    //        |e01| |e02|
+    //
+    // which equals |sin(theta)| and is independent of triangle size.
+    //-------------------------------------------------------------------------
+
+    for (std::size_t i = 0; i < data.facets.size(); ++i) {
+
+        const auto& v0 = data.facets[i].vertices[0];
+        const auto& v1 = data.facets[i].vertices[1];
+        const auto& v2 = data.facets[i].vertices[2];
+
+        const double e01x = v1[0] - v0[0];
+        const double e01y = v1[1] - v0[1];
+        const double e01z = v1[2] - v0[2];
+
+        const double e02x = v2[0] - v0[0];
+        const double e02y = v2[1] - v0[1];
+        const double e02z = v2[2] - v0[2];
+
+        const double e12x = v2[0] - v1[0];
+        const double e12y = v2[1] - v1[1];
+        const double e12z = v2[2] - v1[2];
+
+        const double e01Squared =
+            e01x * e01x +
+            e01y * e01y +
+            e01z * e01z;
+
+        const double e02Squared =
+            e02x * e02x +
+            e02y * e02y +
+            e02z * e02z;
+
+        const double e12Squared =
+            e12x * e12x +
+            e12y * e12y +
+            e12z * e12z;
+
+
+        //---------------------------------------------------------------------
+        // Check for repeated or nearly coincident vertices.
+        //---------------------------------------------------------------------
+
+        if (e01Squared <= lengthToleranceSquared ||
+            e02Squared <= lengthToleranceSquared ||
+            e12Squared <= lengthToleranceSquared) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " contains coincident or nearly coincident vertices.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // Check for collinear or nearly collinear vertices.
+        //---------------------------------------------------------------------
+
+        const double nx =
+            e01y * e02z - e01z * e02y;
+
+        const double ny =
+            e01z * e02x - e01x * e02z;
+
+        const double nz =
+            e01x * e02y - e01y * e02x;
+
+        const double crossSquared =
+            nx * nx +
+            ny * ny +
+            nz * nz;
+
+        //
+        // Instead of computing
+        //
+        //     sqrt(crossSquared) /
+        //     (sqrt(e01Squared) * sqrt(e02Squared))
+        //
+        // compare the squared quantities directly.
+        //
+
+        const double collinearThreshold =
+            COLLINEAR_TOLERANCE *
+            COLLINEAR_TOLERANCE *
+            e01Squared *
+            e02Squared;
+
+        if (crossSquared <= collinearThreshold) {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " has collinear or nearly collinear vertices.");
+        }
+    }
 }
 
 
