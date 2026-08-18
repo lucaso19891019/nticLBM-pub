@@ -5,6 +5,12 @@
 #include <stdexcept>
 #include <string>
 
+#include <array>
+#include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 namespace ntic::lbm::stl {
 
 namespace {
@@ -13,6 +19,220 @@ constexpr double RELATIVE_LENGTH_TOLERANCE = 1.0e-7;
 constexpr double COLLINEAR_TOLERANCE       = 1.0e-7;
 
 constexpr double NORMAL_DIRECTION_TOLERANCE = 1.0e-7;
+
+constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
+
+
+//=============================================================================
+// Spatial bin key
+//=============================================================================
+
+struct BinKey
+{
+    std::int64_t x;
+    std::int64_t y;
+    std::int64_t z;
+
+    bool operator==(const BinKey& other) const noexcept
+    {
+        return
+            x == other.x &&
+            y == other.y &&
+            z == other.z;
+    }
+};
+
+
+struct BinKeyHash
+{
+    std::size_t operator()(const BinKey& key) const noexcept
+    {
+        const std::size_t hx =
+            std::hash<std::int64_t>{}(key.x);
+
+        const std::size_t hy =
+            std::hash<std::int64_t>{}(key.y);
+
+        const std::size_t hz =
+            std::hash<std::int64_t>{}(key.z);
+
+        return
+            hx ^
+            (hy << 1) ^
+            (hz << 2);
+    }
+};
+
+
+//=============================================================================
+// Triangle key
+//=============================================================================
+
+struct TriangleKey
+{
+    std::array<std::size_t, 3> vertices;
+
+    bool operator==(const TriangleKey& other) const noexcept
+    {
+        return vertices == other.vertices;
+    }
+};
+
+
+struct TriangleKeyHash
+{
+    std::size_t operator()(const TriangleKey& key) const noexcept
+    {
+        const std::size_t h0 =
+            std::hash<std::size_t>{}(key.vertices[0]);
+
+        const std::size_t h1 =
+            std::hash<std::size_t>{}(key.vertices[1]);
+
+        const std::size_t h2 =
+            std::hash<std::size_t>{}(key.vertices[2]);
+
+        return
+            h0 ^
+            (h1 << 1) ^
+            (h2 << 2);
+    }
+};
+
+// STL helpers
+
+double computeGeometryScale(const STLData& data)
+{
+    STLVector minCoord = data.facets[0].vertices[0];
+    STLVector maxCoord = data.facets[0].vertices[0];
+
+    for (const auto& facet : data.facets) {
+        for (const auto& vertex : facet.vertices) {
+            for (std::size_t d = 0; d < 3; ++d) {
+                minCoord[d] =
+                    std::min(minCoord[d], vertex[d]);
+
+                maxCoord[d] =
+                    std::max(maxCoord[d], vertex[d]);
+            }
+        }
+    }
+
+    const double dx =
+        maxCoord[0] - minCoord[0];
+
+    const double dy =
+        maxCoord[1] - minCoord[1];
+
+    const double dz =
+        maxCoord[2] - minCoord[2];
+
+    return std::sqrt(
+        dx * dx +
+        dy * dy +
+        dz * dz);
+}
+
+BinKey makeBinKey(
+    const STLVector& vertex,
+    const double binSize)
+{
+    return {
+        static_cast<std::int64_t>(
+            std::floor(vertex[0] / binSize)),
+
+        static_cast<std::int64_t>(
+            std::floor(vertex[1] / binSize)),
+
+        static_cast<std::int64_t>(
+            std::floor(vertex[2] / binSize))
+    };
+}
+
+bool sameGeometricVertex(
+    const STLVector& a,
+    const STLVector& b,
+    const double toleranceSquared)
+{
+    const double dx = a[0] - b[0];
+    const double dy = a[1] - b[1];
+    const double dz = a[2] - b[2];
+
+    const double distanceSquared =
+        dx * dx +
+        dy * dy +
+        dz * dz;
+
+    return distanceSquared <= toleranceSquared;
+}
+
+using SpatialBins =
+    std::unordered_map<
+        BinKey,
+        std::vector<std::size_t>,
+        BinKeyHash>;
+
+std::size_t getOrCreateVertexID(
+    const STLVector& vertex,
+    const double tolerance,
+    const double toleranceSquared,
+    std::vector<STLVector>& uniqueVertices,
+    SpatialBins& bins)
+{
+    const BinKey baseKey =
+        makeBinKey(vertex, tolerance);
+
+    // Search the current bin and all 26 neighboring bins.
+    //
+    // This avoids missing two vertices that are within the geometric
+    // tolerance but happen to lie on opposite sides of a bin boundary.
+
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+
+                const BinKey neighborKey{
+                    baseKey.x + dx,
+                    baseKey.y + dy,
+                    baseKey.z + dz
+                };
+
+                const auto binIt =
+                    bins.find(neighborKey);
+
+                if (binIt == bins.end()) {
+                    continue;
+                }
+
+                for (const std::size_t vertexID :
+                     binIt->second) {
+
+                    if (sameGeometricVertex(
+                            vertex,
+                            uniqueVertices[vertexID],
+                            toleranceSquared)) {
+
+                        return vertexID;
+                    }
+                }
+            }
+        }
+    }
+
+    // No matching geometric vertex was found.
+    // Register a new canonical vertex.
+
+    const std::size_t newID =
+        uniqueVertices.size();
+
+    uniqueVertices.push_back(vertex);
+
+    bins[baseKey].push_back(newID);
+
+    return newID;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
 
 //=============================================================================
 // 1. Degenerate facets
@@ -357,9 +577,106 @@ void validateFacetNormals(STLData& data)
 //   - surface intersection tests
 //   - inside/outside classification
 //
-void validateDuplicateFacets(STLData& data)
+void validateDuplicateFacets(const STLData& data)
 {
-    // TODO
+    if (data.facets.empty()) {
+        return;
+    }
+
+    //-------------------------------------------------------------------------
+    // Determine the geometric vertex tolerance.
+    //-------------------------------------------------------------------------
+
+    const double scale =
+        computeGeometryScale(data);
+
+    if (!std::isfinite(scale) || scale <= 0.0) {
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "unable to determine a valid geometry scale.");
+    }
+
+    const double vertexTolerance =
+        scale * RELATIVE_VERTEX_TOLERANCE;
+
+    const double vertexToleranceSquared =
+        vertexTolerance * vertexTolerance;
+
+
+    //-------------------------------------------------------------------------
+    // Build geometric vertex IDs and detect duplicate facets.
+    //-------------------------------------------------------------------------
+
+    std::vector<STLVector> uniqueVertices;
+
+    uniqueVertices.reserve(
+        data.facets.size() * 3);
+
+    SpatialBins bins;
+
+    bins.reserve(
+        data.facets.size() * 3);
+
+    std::unordered_set<
+        TriangleKey,
+        TriangleKeyHash>
+        triangleKeys;
+
+    triangleKeys.reserve(
+        data.facets.size());
+
+
+    for (std::size_t i = 0;
+         i < data.facets.size();
+         ++i) {
+
+        const auto& facet =
+            data.facets[i];
+
+        std::array<std::size_t, 3> vertexIDs;
+
+        for (std::size_t v = 0; v < 3; ++v) {
+
+            vertexIDs[v] =
+                getOrCreateVertexID(
+                    facet.vertices[v],
+                    vertexTolerance,
+                    vertexToleranceSquared,
+                    uniqueVertices,
+                    bins);
+        }
+
+
+        //---------------------------------------------------------------------
+        // Canonicalize vertex ordering.
+        //
+        // Facet orientation and cyclic vertex ordering do not affect
+        // duplicate detection.
+        //---------------------------------------------------------------------
+
+        std::sort(
+            vertexIDs.begin(),
+            vertexIDs.end());
+
+        const TriangleKey key{
+            vertexIDs
+        };
+
+
+        //---------------------------------------------------------------------
+        // Detect duplicate facet.
+        //---------------------------------------------------------------------
+
+        const bool inserted =
+            triangleKeys.insert(key).second;
+
+        if (!inserted) {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "duplicate facet detected at facet " +
+                std::to_string(i) + ".");
+        }
+    }
 }
 
 
