@@ -1,0 +1,9 @@
+solid nearly_coincident_vertices
+  facet normal 0 0 1
+    outer loop
+      vertex 0 0 0
+      vertex 0.000000001 0 0
+      vertex 0 1 0
+    endloop
+  endfacet
+endsolid nearly_coincident_vertices
