@@ -1241,9 +1241,7 @@ void validate(
     // 5. Nesting and global orientation
     //-------------------------------------------------------------------------
 
-    validateNestingAndOrientation(
-        geometry,
-        components);
+    validateNestingAndOrientation(data);
 }
 
 } // namespace ntic::lbm::stl
