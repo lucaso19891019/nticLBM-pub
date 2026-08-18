@@ -29,3 +29,14 @@ $APP $STL_DIR/slightly_tilted_normal.stl valid
 
 ./build/input/stl/test_stl_normal_reconstruction \
     $STL_DIR/non_unit_normal.stl
+
+#==============================================================================
+# 3. Duplicate facet tests
+#==============================================================================
+
+$APP $STL_DIR/different_facets.stl valid
+$APP $STL_DIR/duplicate_exact.stl invalid
+$APP $STL_DIR/duplicate_cyclic_order.stl invalid
+$APP $STL_DIR/duplicate_reversed_winding.stl invalid
+$APP $STL_DIR/duplicate_with_small_noise.stl invalid
+$APP $STL_DIR/close_but_distinct_facets.stl valid

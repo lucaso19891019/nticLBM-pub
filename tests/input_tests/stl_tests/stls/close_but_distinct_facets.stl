@@ -1,0 +1,17 @@
+solid close_but_distinct_facets
+  facet normal 0 0 1
+    outer loop
+      vertex 0 0 0
+      vertex 1 0 0
+      vertex 0 1 0
+    endloop
+  endfacet
+
+  facet normal 0 0 1
+    outer loop
+      vertex 0.00001 0 0
+      vertex 1.00001 0 0
+      vertex 0.00001 1 0
+    endloop
+  endfacet
+endsolid close_but_distinct_facets
