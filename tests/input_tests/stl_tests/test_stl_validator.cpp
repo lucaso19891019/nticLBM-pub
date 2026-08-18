@@ -52,7 +52,7 @@ int main(int argc, char* argv[])
     try {
         auto data = ntic::lbm::stl::read(stlFile);
 
-        STLComponents components;
+        ntic::lbm::stl::STLComponents components;
 
         ntic::lbm::stl::validate(data,mode,components);
 
