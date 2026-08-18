@@ -622,3 +622,24 @@ PRIVATE
 )
 
 set_input_stl_test_output(test_stl_validator)
+
+#====================================================
+# test_stl_normal_reconstruction
+#====================================================
+
+add_executable(test_stl_normal_reconstruction
+
+    tests/input_tests/stl_tests/test_stl_normal_reconstruction.cpp
+
+    src/input/stl/stl_reader.cpp
+    src/input/stl/stl_validator.cpp
+)
+
+target_include_directories(
+    test_stl_normal_reconstruction
+PRIVATE
+
+    src/input/stl
+)
+
+set_input_stl_test_output(test_stl_normal_reconstruction)

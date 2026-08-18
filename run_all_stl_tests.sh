@@ -26,3 +26,6 @@ $APP $STL_DIR/zero_normal.stl invalid
 $APP $STL_DIR/reversed_normal.stl invalid
 $APP $STL_DIR/perpendicular_normal.stl invalid
 $APP $STL_DIR/slightly_tilted_normal.stl valid
+
+./build/input/stl/test_stl_normal_reconstruction \
+    $STL_DIR/non_unit_normal.stl
