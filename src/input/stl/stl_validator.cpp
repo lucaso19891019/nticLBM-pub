@@ -115,6 +115,18 @@ struct GeometryBounds
     double scale;
 };
 
+struct GeometricVertices
+{
+    // One representative coordinate for each welded geometric vertex.
+    std::vector<STLVector> vertices;
+
+    // Geometric vertex IDs for each STL facet.
+    //
+    // facetVertexIDs[i][0..2] correspond to the three vertices of facet i
+    // in their original winding order.
+    std::vector<std::array<std::size_t, 3>> facetVertexIDs;
+};
+
 //===============================================================================
 // STL helpers
 //===============================================================================
@@ -285,6 +297,75 @@ std::size_t getOrCreateVertexID(
     bins[baseKey].push_back(newID);
 
     return newID;
+}
+
+GeometricVertices buildGeometricVertices(
+    const STLData& data,
+    const GeometryBounds& bounds)
+{
+    const double vertexTolerance =
+        bounds.scale * RELATIVE_VERTEX_TOLERANCE;
+
+    const double vertexToleranceSquared =
+        vertexTolerance * vertexTolerance;
+
+
+    //-------------------------------------------------------------------------
+    // Allocate the geometric vertex representation.
+    //-------------------------------------------------------------------------
+
+    GeometricVertices geometry;
+
+    geometry.vertices.reserve(
+        data.facets.size() * 3);
+
+    geometry.facetVertexIDs.resize(
+        data.facets.size());
+
+
+    //-------------------------------------------------------------------------
+    // Spatial bins used during vertex welding.
+    //-------------------------------------------------------------------------
+
+    SpatialBins bins;
+
+    bins.reserve(
+        data.facets.size() * 3);
+
+
+    //-------------------------------------------------------------------------
+    // Convert every STL vertex into a geometric vertex ID.
+    //
+    // Vertices within the geometry-relative tolerance are welded to the same
+    // geometric vertex.
+    //
+    // The original vertex ordering of each facet is preserved.
+    //-------------------------------------------------------------------------
+
+    for (std::size_t i = 0;
+         i < data.facets.size();
+         ++i) {
+
+        const auto& facet =
+            data.facets[i];
+
+        auto& vertexIDs =
+            geometry.facetVertexIDs[i];
+
+        for (std::size_t v = 0; v < 3; ++v) {
+
+            vertexIDs[v] =
+                getOrCreateVertexID(
+                    facet.vertices[v],
+                    bounds,
+                    vertexTolerance,
+                    vertexToleranceSquared,
+                    geometry.vertices,
+                    bins);
+        }
+    }
+
+    return geometry;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -601,41 +682,19 @@ void validateFacetNormals(STLData& data)
 // Two facets are considered duplicates when they represent the same
 // geometric triangle, independent of the ordering of their three vertices.
 //
-// Vertices are compared using the geometry-relative vertex tolerance.
-// Spatial bins are used to avoid an O(N^2) search over all vertices.
+// Geometric vertex IDs have already been constructed using tolerance-based
+// vertex welding. This stage therefore operates only on integer vertex IDs.
+//
+// Duplicate facets are rejected because they can corrupt:
+//
+//   - edge topology
+//   - surface intersection tests
+//   - inside/outside classification
 //
 
 void validateDuplicateFacets(
-    const STLData& data,
-    const GeometryBounds& bounds)
+    const GeometricVertices& geometry)
 {
-    const double vertexTolerance =
-        bounds.scale * RELATIVE_VERTEX_TOLERANCE;
-
-    const double vertexToleranceSquared =
-        vertexTolerance * vertexTolerance;
-
-
-    //-------------------------------------------------------------------------
-    // Geometric vertex registry.
-    //
-    // uniqueVertices stores one representative coordinate for every
-    // geometric vertex identified so far.
-    //
-    // bins maps spatial bins to IDs in uniqueVertices.
-    //-------------------------------------------------------------------------
-
-    std::vector<STLVector> uniqueVertices;
-
-    uniqueVertices.reserve(
-        data.facets.size() * 3);
-
-    SpatialBins bins;
-
-    bins.reserve(
-        data.facets.size() * 3);
-
-
     //-------------------------------------------------------------------------
     // Canonical triangle registry.
     //-------------------------------------------------------------------------
@@ -646,7 +705,7 @@ void validateDuplicateFacets(
         triangleKeys;
 
     triangleKeys.reserve(
-        data.facets.size());
+        geometry.facetVertexIDs.size());
 
 
     //-------------------------------------------------------------------------
@@ -654,30 +713,15 @@ void validateDuplicateFacets(
     //-------------------------------------------------------------------------
 
     for (std::size_t i = 0;
-         i < data.facets.size();
+         i < geometry.facetVertexIDs.size();
          ++i) {
 
-        const auto& facet =
-            data.facets[i];
+        // Copy the vertex IDs because the original ordering stored in
+        // GeometricVertices must be preserved for later topology and
+        // winding validation.
 
-        std::array<std::size_t, 3> vertexIDs;
-
-
-        //---------------------------------------------------------------------
-        // Convert the three STL vertices into geometric vertex IDs.
-        //---------------------------------------------------------------------
-
-        for (std::size_t v = 0; v < 3; ++v) {
-
-            vertexIDs[v] =
-                getOrCreateVertexID(
-                    facet.vertices[v],
-                    bounds,
-                    vertexTolerance,
-                    vertexToleranceSquared,
-                    uniqueVertices,
-                    bins);
-        }
+        auto vertexIDs =
+            geometry.facetVertexIDs[i];
 
 
         //---------------------------------------------------------------------
@@ -703,7 +747,7 @@ void validateDuplicateFacets(
 
         //---------------------------------------------------------------------
         // Detect duplicate facet.
-        //-------------------------------------------------------------------------
+        //---------------------------------------------------------------------
 
         const bool inserted =
             triangleKeys.insert(key).second;
@@ -806,9 +850,6 @@ void validate(STLData& data)
 {
     //-------------------------------------------------------------------------
     // Compute geometry bounds once.
-    //
-    // The same geometry scale is shared by all validation stages that require
-    // geometry-relative tolerances.
     //-------------------------------------------------------------------------
 
     const GeometryBounds bounds =
@@ -816,22 +857,54 @@ void validate(STLData& data)
 
 
     //-------------------------------------------------------------------------
-    // Run validation stages in dependency order.
+    // 1. Degenerate facets
     //-------------------------------------------------------------------------
 
     validateDegenerateFacets(
         data,
         bounds);
 
+
+    //-------------------------------------------------------------------------
+    // 2. Facet normals
+    //-------------------------------------------------------------------------
+
     validateFacetNormals(
         data);
 
+
+    //-------------------------------------------------------------------------
+    // Build the tolerance-welded geometric vertex representation.
+    //
+    // This representation is shared by all subsequent topology-related
+    // validation stages.
+    //-------------------------------------------------------------------------
+
+    const GeometricVertices geometry =
+        buildGeometricVertices(
+            data,
+            bounds);
+
+
+    //-------------------------------------------------------------------------
+    // 3. Duplicate facets
+    //-------------------------------------------------------------------------
+
     validateDuplicateFacets(
-        data,
-        bounds);
+        geometry);
+
+
+    //-------------------------------------------------------------------------
+    // 4. Topology, winding, and connected components
+    //-------------------------------------------------------------------------
 
     validateTopologyWindingAndComponents(
         data);
+
+
+    //-------------------------------------------------------------------------
+    // 5. Nesting and global orientation
+    //-------------------------------------------------------------------------
 
     validateNestingAndOrientation(
         data);
