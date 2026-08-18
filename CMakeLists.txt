@@ -621,11 +621,4 @@ PRIVATE
     src/input/stl
 )
 
-target_compile_definitions(
-    test_stl_validator
-PRIVATE
-
-    TEST_STL_DIR="${CMAKE_SOURCE_DIR}/tests/input_tests/stl_tests/stls"
-)
-
 set_input_stl_test_output(test_stl_validator)
