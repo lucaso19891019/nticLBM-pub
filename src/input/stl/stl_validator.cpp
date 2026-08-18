@@ -15,7 +15,6 @@ namespace ntic::lbm::stl {
 
 namespace {
 
-constexpr double RELATIVE_LENGTH_TOLERANCE = 1.0e-7;
 constexpr double COLLINEAR_TOLERANCE       = 1.0e-7;
 
 constexpr double NORMAL_DIRECTION_TOLERANCE = 1.0e-7;
@@ -99,53 +98,98 @@ struct TriangleKeyHash
     }
 };
 
-// STL helpers
+using SpatialBins =
+    std::unordered_map<
+        BinKey,
+        std::vector<std::size_t>,
+        BinKeyHash>;
 
-double computeGeometryScale(const STLData& data)
+//===============================================================================
+// Bounding Box
+//===============================================================================
+
+struct GeometryBounds
 {
-    STLVector minCoord = data.facets[0].vertices[0];
-    STLVector maxCoord = data.facets[0].vertices[0];
+    STLVector min;
+    STLVector max;
+    double scale;
+};
+
+//===============================================================================
+// STL helpers
+//===============================================================================
+
+GeometryBounds computeGeometryBounds(const STLData& data)
+{
+    if (data.facets.empty()) {
+        throw std::runtime_error(
+            "Invalid STL geometry: no facets.");
+    }
+
+    GeometryBounds bounds;
+
+    bounds.min = data.facets[0].vertices[0];
+    bounds.max = data.facets[0].vertices[0];
 
     for (const auto& facet : data.facets) {
         for (const auto& vertex : facet.vertices) {
             for (std::size_t d = 0; d < 3; ++d) {
-                minCoord[d] =
-                    std::min(minCoord[d], vertex[d]);
 
-                maxCoord[d] =
-                    std::max(maxCoord[d], vertex[d]);
+                bounds.min[d] =
+                    std::min(bounds.min[d], vertex[d]);
+
+                bounds.max[d] =
+                    std::max(bounds.max[d], vertex[d]);
             }
         }
     }
 
     const double dx =
-        maxCoord[0] - minCoord[0];
+        bounds.max[0] - bounds.min[0];
 
     const double dy =
-        maxCoord[1] - minCoord[1];
+        bounds.max[1] - bounds.min[1];
 
     const double dz =
-        maxCoord[2] - minCoord[2];
+        bounds.max[2] - bounds.min[2];
 
-    return std::sqrt(
-        dx * dx +
-        dy * dy +
-        dz * dz);
+    bounds.scale =
+        std::sqrt(
+            dx * dx +
+            dy * dy +
+            dz * dz);
+
+    if (!std::isfinite(bounds.scale) ||
+        bounds.scale <= 0.0) {
+
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "the geometry has zero or invalid extent.");
+    }
+
+    return bounds;
 }
 
 BinKey makeBinKey(
     const STLVector& vertex,
+    const GeometryBounds& bounds,
     const double binSize)
 {
     return {
         static_cast<std::int64_t>(
-            std::floor(vertex[0] / binSize)),
+            std::floor(
+                (vertex[0] - bounds.min[0]) /
+                binSize)),
 
         static_cast<std::int64_t>(
-            std::floor(vertex[1] / binSize)),
+            std::floor(
+                (vertex[1] - bounds.min[1]) /
+                binSize)),
 
         static_cast<std::int64_t>(
-            std::floor(vertex[2] / binSize))
+            std::floor(
+                (vertex[2] - bounds.min[2]) /
+                binSize))
     };
 }
 
@@ -154,38 +198,46 @@ bool sameGeometricVertex(
     const STLVector& b,
     const double toleranceSquared)
 {
-    const double dx = a[0] - b[0];
-    const double dy = a[1] - b[1];
-    const double dz = a[2] - b[2];
+    const double dx =
+        a[0] - b[0];
+
+    const double dy =
+        a[1] - b[1];
+
+    const double dz =
+        a[2] - b[2];
 
     const double distanceSquared =
         dx * dx +
         dy * dy +
         dz * dz;
 
-    return distanceSquared <= toleranceSquared;
+    return
+        distanceSquared <= toleranceSquared;
 }
-
-using SpatialBins =
-    std::unordered_map<
-        BinKey,
-        std::vector<std::size_t>,
-        BinKeyHash>;
 
 std::size_t getOrCreateVertexID(
     const STLVector& vertex,
+    const GeometryBounds& bounds,
     const double tolerance,
     const double toleranceSquared,
     std::vector<STLVector>& uniqueVertices,
     SpatialBins& bins)
 {
     const BinKey baseKey =
-        makeBinKey(vertex, tolerance);
+        makeBinKey(
+            vertex,
+            bounds,
+            tolerance);
 
-    // Search the current bin and all 26 neighboring bins.
+
+    //-------------------------------------------------------------------------
+    // Search the current spatial bin and all 26 neighboring bins.
     //
-    // This avoids missing two vertices that are within the geometric
-    // tolerance but happen to lie on opposite sides of a bin boundary.
+    // Vertices within the geometric tolerance may lie on opposite sides of
+    // a bin boundary. Searching neighboring bins prevents such vertices from
+    // being incorrectly treated as different geometric vertices.
+    //-------------------------------------------------------------------------
 
     for (int dz = -1; dz <= 1; ++dz) {
         for (int dy = -1; dy <= 1; ++dy) {
@@ -219,8 +271,11 @@ std::size_t getOrCreateVertexID(
         }
     }
 
+
+    //-------------------------------------------------------------------------
     // No matching geometric vertex was found.
     // Register a new canonical vertex.
+    //-------------------------------------------------------------------------
 
     const std::size_t newID =
         uniqueVertices.size();
@@ -238,87 +293,48 @@ std::size_t getOrCreateVertexID(
 // 1. Degenerate facets
 //=============================================================================
 //
-// Validate that every STL facet defines a valid triangle.
+// Reject triangles that do not define a valid geometric surface element.
 //
-// This stage will check conditions such as:
+// This stage checks:
 //
-//   - repeated vertices within one facet
-//   - three collinear vertices
-//   - zero or near-zero triangle area
+//   - coincident or nearly coincident vertices
+//   - collinear or nearly collinear vertices
 //
-// Geometry-scale-dependent tolerances will be handled inside this stage.
+// The vertex tolerance is defined relative to the overall STL geometry scale.
 //
-// No topological information is required here.
-//
-void validateDegenerateFacets(const STLData& data)
+
+void validateDegenerateFacets(
+    const STLData& data,
+    const GeometryBounds& bounds)
 {
-    if (data.facets.empty()) {
-        throw std::runtime_error(
-            "Invalid STL geometry: no facets.");
-    }
+    const double vertexTolerance =
+        bounds.scale * RELATIVE_VERTEX_TOLERANCE;
 
-    //-------------------------------------------------------------------------
-    // Determine the characteristic length of the geometry.
-    //
-    // The diagonal length of the STL bounding box is used as the global
-    // reference scale for detecting nearly coincident vertices.
-    //-------------------------------------------------------------------------
-
-    STLVector minCoord = data.facets[0].vertices[0];
-    STLVector maxCoord = data.facets[0].vertices[0];
-
-    for (const auto& facet : data.facets) {
-        for (const auto& vertex : facet.vertices) {
-            for (std::size_t d = 0; d < 3; ++d) {
-                minCoord[d] = std::min(minCoord[d], vertex[d]);
-                maxCoord[d] = std::max(maxCoord[d], vertex[d]);
-            }
-        }
-    }
-
-    const double dx = maxCoord[0] - minCoord[0];
-    const double dy = maxCoord[1] - minCoord[1];
-    const double dz = maxCoord[2] - minCoord[2];
-
-    const double scale =
-        std::sqrt(dx * dx + dy * dy + dz * dz);
-
-    if (!std::isfinite(scale) || scale <= 0.0) {
-        throw std::runtime_error(
-            "Invalid STL geometry: "
-            "the geometry has zero or invalid extent.");
-    }
-
-    const double lengthTolerance =
-        scale * RELATIVE_LENGTH_TOLERANCE;
-
-    const double lengthToleranceSquared =
-        lengthTolerance * lengthTolerance;
+    const double vertexToleranceSquared =
+        vertexTolerance * vertexTolerance;
 
 
     //-------------------------------------------------------------------------
     // Validate every facet.
-    //
-    // A facet is considered degenerate if:
-    //
-    //   1. any of its three edges has nearly zero length, or
-    //
-    //   2. its three vertices are nearly collinear.
-    //
-    // Collinearity is measured using:
-    //
-    //        |e01 x e02|
-    //        -----------
-    //        |e01| |e02|
-    //
-    // which equals |sin(theta)| and is independent of triangle size.
     //-------------------------------------------------------------------------
 
-    for (std::size_t i = 0; i < data.facets.size(); ++i) {
+    for (std::size_t i = 0;
+         i < data.facets.size();
+         ++i) {
 
-        const auto& v0 = data.facets[i].vertices[0];
-        const auto& v1 = data.facets[i].vertices[1];
-        const auto& v2 = data.facets[i].vertices[2];
+        const auto& v0 =
+            data.facets[i].vertices[0];
+
+        const auto& v1 =
+            data.facets[i].vertices[1];
+
+        const auto& v2 =
+            data.facets[i].vertices[2];
+
+
+        //---------------------------------------------------------------------
+        // Construct the three triangle edges.
+        //---------------------------------------------------------------------
 
         const double e01x = v1[0] - v0[0];
         const double e01y = v1[1] - v0[1];
@@ -331,6 +347,11 @@ void validateDegenerateFacets(const STLData& data)
         const double e12x = v2[0] - v1[0];
         const double e12y = v2[1] - v1[1];
         const double e12z = v2[2] - v1[2];
+
+
+        //---------------------------------------------------------------------
+        // Compute squared edge lengths.
+        //---------------------------------------------------------------------
 
         const double e01Squared =
             e01x * e01x +
@@ -349,12 +370,12 @@ void validateDegenerateFacets(const STLData& data)
 
 
         //---------------------------------------------------------------------
-        // Check for repeated or nearly coincident vertices.
+        // Check for coincident or nearly coincident vertices.
         //---------------------------------------------------------------------
 
-        if (e01Squared <= lengthToleranceSquared ||
-            e02Squared <= lengthToleranceSquared ||
-            e12Squared <= lengthToleranceSquared) {
+        if (e01Squared <= vertexToleranceSquared ||
+            e02Squared <= vertexToleranceSquared ||
+            e12Squared <= vertexToleranceSquared) {
 
             throw std::runtime_error(
                 "Invalid STL geometry: "
@@ -365,31 +386,43 @@ void validateDegenerateFacets(const STLData& data)
 
 
         //---------------------------------------------------------------------
-        // Check for collinear or nearly collinear vertices.
+        // Compute the cross product:
+        //
+        //     (v1 - v0) x (v2 - v0)
+        //
+        // Its magnitude measures the area of the parallelogram formed by
+        // the two edges.
         //---------------------------------------------------------------------
 
         const double nx =
-            e01y * e02z - e01z * e02y;
+            e01y * e02z -
+            e01z * e02y;
 
         const double ny =
-            e01z * e02x - e01x * e02z;
+            e01z * e02x -
+            e01x * e02z;
 
         const double nz =
-            e01x * e02y - e01y * e02x;
+            e01x * e02y -
+            e01y * e02x;
 
         const double crossSquared =
             nx * nx +
             ny * ny +
             nz * nz;
 
+
+        //---------------------------------------------------------------------
+        // Check for collinear or nearly collinear vertices.
         //
-        // Instead of computing
+        // Instead of explicitly evaluating:
         //
-        //     sqrt(crossSquared) /
-        //     (sqrt(e01Squared) * sqrt(e02Squared))
+        //        |e01 x e02|
+        //        -----------
+        //        |e01| |e02|
         //
-        // compare the squared quantities directly.
-        //
+        // we compare the squared quantities directly.
+        //---------------------------------------------------------------------
 
         const double collinearThreshold =
             COLLINEAR_TOLERANCE *
@@ -398,6 +431,7 @@ void validateDegenerateFacets(const STLData& data)
             e02Squared;
 
         if (crossSquared <= collinearThreshold) {
+
             throw std::runtime_error(
                 "Invalid STL geometry: "
                 "facet " +
@@ -558,7 +592,6 @@ void validateFacetNormals(STLData& data)
     }
 }
 
-
 //=============================================================================
 // 3. Duplicate facets
 //=============================================================================
@@ -568,43 +601,28 @@ void validateFacetNormals(STLData& data)
 // Two facets are considered duplicates when they represent the same
 // geometric triangle, independent of the ordering of their three vertices.
 //
-// This stage will eventually use geometry-aware vertex comparison rather
-// than relying on exact floating-point equality.
+// Vertices are compared using the geometry-relative vertex tolerance.
+// Spatial bins are used to avoid an O(N^2) search over all vertices.
 //
-// Duplicate facets are rejected because they can corrupt:
-//
-//   - edge topology
-//   - surface intersection tests
-//   - inside/outside classification
-//
-void validateDuplicateFacets(const STLData& data)
+
+void validateDuplicateFacets(
+    const STLData& data,
+    const GeometryBounds& bounds)
 {
-    if (data.facets.empty()) {
-        return;
-    }
-
-    //-------------------------------------------------------------------------
-    // Determine the geometric vertex tolerance.
-    //-------------------------------------------------------------------------
-
-    const double scale =
-        computeGeometryScale(data);
-
-    if (!std::isfinite(scale) || scale <= 0.0) {
-        throw std::runtime_error(
-            "Invalid STL geometry: "
-            "unable to determine a valid geometry scale.");
-    }
-
     const double vertexTolerance =
-        scale * RELATIVE_VERTEX_TOLERANCE;
+        bounds.scale * RELATIVE_VERTEX_TOLERANCE;
 
     const double vertexToleranceSquared =
         vertexTolerance * vertexTolerance;
 
 
     //-------------------------------------------------------------------------
-    // Build geometric vertex IDs and detect duplicate facets.
+    // Geometric vertex registry.
+    //
+    // uniqueVertices stores one representative coordinate for every
+    // geometric vertex identified so far.
+    //
+    // bins maps spatial bins to IDs in uniqueVertices.
     //-------------------------------------------------------------------------
 
     std::vector<STLVector> uniqueVertices;
@@ -617,6 +635,11 @@ void validateDuplicateFacets(const STLData& data)
     bins.reserve(
         data.facets.size() * 3);
 
+
+    //-------------------------------------------------------------------------
+    // Canonical triangle registry.
+    //-------------------------------------------------------------------------
+
     std::unordered_set<
         TriangleKey,
         TriangleKeyHash>
@@ -625,6 +648,10 @@ void validateDuplicateFacets(const STLData& data)
     triangleKeys.reserve(
         data.facets.size());
 
+
+    //-------------------------------------------------------------------------
+    // Process every facet.
+    //-------------------------------------------------------------------------
 
     for (std::size_t i = 0;
          i < data.facets.size();
@@ -635,11 +662,17 @@ void validateDuplicateFacets(const STLData& data)
 
         std::array<std::size_t, 3> vertexIDs;
 
+
+        //---------------------------------------------------------------------
+        // Convert the three STL vertices into geometric vertex IDs.
+        //---------------------------------------------------------------------
+
         for (std::size_t v = 0; v < 3; ++v) {
 
             vertexIDs[v] =
                 getOrCreateVertexID(
                     facet.vertices[v],
+                    bounds,
                     vertexTolerance,
                     vertexToleranceSquared,
                     uniqueVertices,
@@ -648,10 +681,15 @@ void validateDuplicateFacets(const STLData& data)
 
 
         //---------------------------------------------------------------------
-        // Canonicalize vertex ordering.
+        // Canonicalize the triangle.
         //
-        // Facet orientation and cyclic vertex ordering do not affect
-        // duplicate detection.
+        // Sorting makes the key independent of:
+        //
+        //   - cyclic vertex ordering
+        //   - reversed winding
+        //
+        // Therefore all six permutations of the same three geometric
+        // vertices generate exactly the same TriangleKey.
         //---------------------------------------------------------------------
 
         std::sort(
@@ -665,12 +703,13 @@ void validateDuplicateFacets(const STLData& data)
 
         //---------------------------------------------------------------------
         // Detect duplicate facet.
-        //---------------------------------------------------------------------
+        //-------------------------------------------------------------------------
 
         const bool inserted =
             triangleKeys.insert(key).second;
 
         if (!inserted) {
+
             throw std::runtime_error(
                 "Invalid STL geometry: "
                 "duplicate facet detected at facet " +
@@ -678,7 +717,6 @@ void validateDuplicateFacets(const STLData& data)
         }
     }
 }
-
 
 //=============================================================================
 // 4. Surface topology, winding, and connected components
@@ -761,27 +799,42 @@ void validateNestingAndOrientation(STLData& data)
 
 
 //=============================================================================
-// STL validation pipeline
+// Public validation interface
 //=============================================================================
-//
-// Keep this function intentionally simple.
-//
-// Each call represents one logically complete validation stage. Internal
-// implementation details such as tolerance computation, edge maps,
-// adjacency construction, graph traversal, or orientation correction must
-// remain inside the corresponding stage above.
-//
+
 void validate(STLData& data)
 {
-    validateDegenerateFacets(data);
+    //-------------------------------------------------------------------------
+    // Compute geometry bounds once.
+    //
+    // The same geometry scale is shared by all validation stages that require
+    // geometry-relative tolerances.
+    //-------------------------------------------------------------------------
 
-    validateFacetNormals(data);
+    const GeometryBounds bounds =
+        computeGeometryBounds(data);
 
-    validateDuplicateFacets(data);
 
-    validateTopologyWindingAndComponents(data);
+    //-------------------------------------------------------------------------
+    // Run validation stages in dependency order.
+    //-------------------------------------------------------------------------
 
-    validateNestingAndOrientation(data);
+    validateDegenerateFacets(
+        data,
+        bounds);
+
+    validateFacetNormals(
+        data);
+
+    validateDuplicateFacets(
+        data,
+        bounds);
+
+    validateTopologyWindingAndComponents(
+        data);
+
+    validateNestingAndOrientation(
+        data);
 }
 
 } // namespace ntic::lbm::stl
