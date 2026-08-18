@@ -1165,35 +1165,30 @@ void validateTopologyWindingAndComponents(
 
 
 //=============================================================================
-// 5. Component nesting and orientation
+// 5. Component geometry
 //=============================================================================
 //
-// Validate the geometric relationship between closed connected components.
+// Validate basic geometric properties of each closed surface component.
 //
-// This stage operates after each surface component is known to be locally
-// closed, manifold, and consistently wound.
+// The connected surface components are constructed in the previous topology
+// validation stage.  This stage evaluates each component independently.
 //
-// It will determine:
+// For every component, this stage will:
 //
-//   - which components are geometrically inside other components
-//   - the nesting depth of each component
-//   - whether a component represents an outer shell, cavity, or nested solid
-//   - whether the component orientation is consistent with that role
+//   - compute its geometric bounding box
+//   - compute its signed enclosed volume
+//   - reject components with zero or nearly zero enclosed volume
 //
-// Example:
+// The signed volume is retained as geometric information only.  Its sign is
+// not used here to determine or correct the global surface orientation.
 //
-//     outer shell        nesting depth 0
-//         |
-//         +-- cavity     nesting depth 1
-//               |
-//               +-- solid island
-//                              nesting depth 2
+// More advanced geometric operations, including:
 //
-// Orientation must alternate consistently with nesting depth so that the
-// final STL geometry has an unambiguous inside/outside definition.
+//   - global orientation analysis and correction
+//   - component nesting
+//   - inside/outside classification
 //
-// If required, this stage may reverse the winding of an entire connected
-// component and recompute its facet normals.
+// belong to the geometry module and are intentionally not performed here.
 //
 void validateComponentConsistency(
     const GeometricVertices& geometry,
@@ -1300,7 +1295,7 @@ void validate(
 
 
     //-------------------------------------------------------------------------
-    // 5. Nesting and global orientation
+    // 5. Component geometry
     //-------------------------------------------------------------------------
 
     validateComponentConsistency(
