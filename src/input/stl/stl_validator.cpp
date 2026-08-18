@@ -11,6 +11,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <queue>
+
 namespace ntic::lbm::stl {
 
 namespace {
@@ -126,6 +128,56 @@ struct GeometricVertices
     // in their original winding order.
     std::vector<std::array<std::size_t, 3>> facetVertexIDs;
 };
+
+using STLComponents =
+    std::vector<std::vector<std::size_t>>;
+
+struct EdgeKey
+{
+    std::size_t v0;
+    std::size_t v1;
+
+    bool operator==(const EdgeKey& other) const noexcept
+    {
+        return
+            v0 == other.v0 &&
+            v1 == other.v1;
+    }
+};
+
+struct EdgeKeyHash
+{
+    std::size_t operator()(const EdgeKey& key) const noexcept
+    {
+        const std::size_t h0 =
+            std::hash<std::size_t>{}(key.v0);
+
+        const std::size_t h1 =
+            std::hash<std::size_t>{}(key.v1);
+
+        return
+            h0 ^
+            (h1 << 1);
+    }
+};
+
+struct EdgeUse
+{
+    std::size_t facetID;
+
+    // true:
+    //      canonical edge direction
+    //
+    // false:
+    //      opposite direction
+    bool forward;
+};
+
+using EdgeMap =
+    std::unordered_map<
+        EdgeKey,
+        std::vector<EdgeUse>,
+        EdgeKeyHash>;
 
 //===============================================================================
 // STL helpers
@@ -366,6 +418,222 @@ GeometricVertices buildGeometricVertices(
     }
 
     return geometry;
+}
+
+EdgeKey makeEdgeKey(
+    const std::size_t a,
+    const std::size_t b)
+{
+    if (a < b) {
+        return {
+            a,
+            b
+        };
+    }
+
+    return {
+        b,
+        a
+    };
+}
+
+bool edgeForward(
+    const std::size_t a,
+    const std::size_t b)
+{
+    return a < b;
+}
+
+void buildEdgeTopology(
+    const GeometricVertices& geometry,
+    EdgeMap& edgeMap)
+{
+    edgeMap.reserve(
+        geometry.facetVertexIDs.size() * 3);
+
+
+    for (std::size_t i = 0;
+         i < geometry.facetVertexIDs.size();
+         ++i) {
+
+
+        const auto& vertices =
+            geometry.facetVertexIDs[i];
+
+
+        const std::array<
+            std::pair<std::size_t,std::size_t>,
+            3>
+            edges =
+            {{
+                {vertices[0], vertices[1]},
+                {vertices[1], vertices[2]},
+                {vertices[2], vertices[0]}
+            }};
+
+
+        for (const auto& edge : edges) {
+
+            const auto v0 =
+                edge.first;
+
+            const auto v1 =
+                edge.second;
+
+
+            const EdgeKey key =
+                makeEdgeKey(
+                    v0,
+                    v1);
+
+
+            edgeMap[key].push_back(
+                {
+                    i,
+                    edgeForward(v0,v1)
+                });
+        }
+    }
+}
+
+void validateEdges(
+    const EdgeMap& edgeMap)
+{
+    for (const auto& item : edgeMap) {
+
+
+        const auto& uses =
+            item.second;
+
+
+        //---------------------------------------------------------------------
+        // Open boundary
+        //---------------------------------------------------------------------
+
+        if (uses.size() == 1) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "open boundary edge detected.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // Non-manifold edge
+        //---------------------------------------------------------------------
+
+        if (uses.size() > 2) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "non-manifold edge detected.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // Winding consistency
+        //---------------------------------------------------------------------
+
+        if (uses[0].forward ==
+            uses[1].forward) {
+
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "inconsistent facet winding detected.");
+        }
+    }
+}
+
+void buildFacetAdjacency(
+    const EdgeMap& edgeMap,
+    std::vector<std::vector<std::size_t>>& adjacency)
+{
+    for (const auto& item : edgeMap) {
+
+        const auto& uses =
+            item.second;
+
+
+        // validateEdges 已经保证 size == 2
+
+        const auto a =
+            uses[0].facetID;
+
+        const auto b =
+            uses[1].facetID;
+
+
+        adjacency[a].push_back(b);
+        adjacency[b].push_back(a);
+    }
+}
+
+void buildComponents(
+    const std::vector<std::vector<std::size_t>>& adjacency,
+    STLComponents& components)
+{
+    const std::size_t n =
+        adjacency.size();
+
+
+    std::vector<bool> visited(
+        n,
+        false);
+
+
+    for (std::size_t i = 0;
+         i < n;
+         ++i) {
+
+
+        if (visited[i]) {
+            continue;
+        }
+
+
+        std::vector<std::size_t>
+            component;
+
+
+        std::queue<std::size_t>
+            queue;
+
+
+        queue.push(i);
+
+        visited[i] = true;
+
+
+        while (!queue.empty()) {
+
+            const auto current =
+                queue.front();
+
+            queue.pop();
+
+
+            component.push_back(
+                current);
+
+
+            for (const auto next :
+                 adjacency[current]) {
+
+
+                if (!visited[next]) {
+
+                    visited[next] = true;
+
+                    queue.push(next);
+                }
+            }
+        }
+
+
+        components.push_back(
+            std::move(component));
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -797,9 +1065,51 @@ void validateDuplicateFacets(
 // All topology data created here is temporary validation data and is not
 // part of the public STLData interface.
 //
-void validateTopologyWindingAndComponents(STLData& data)
+void validateTopologyWindingAndComponents(
+    const GeometricVertices& geometry,
+    STLComponents& components)
 {
-    // TODO
+    //-------------------------------------------------------------------------
+    // Build edge topology
+    //-------------------------------------------------------------------------
+
+    EdgeMap edgeMap;
+
+    buildEdgeTopology(
+        geometry,
+        edgeMap);
+
+
+    //-------------------------------------------------------------------------
+    // Validate manifold and winding
+    //-------------------------------------------------------------------------
+
+    validateEdges(
+        edgeMap);
+
+
+    //-------------------------------------------------------------------------
+    // Build facet adjacency graph
+    //-------------------------------------------------------------------------
+
+    std::vector<
+        std::vector<std::size_t>>
+        adjacency(
+            geometry.facetVertexIDs.size());
+
+
+    buildFacetAdjacency(
+        edgeMap,
+        adjacency);
+
+
+    //-------------------------------------------------------------------------
+    // Find connected components
+    //-------------------------------------------------------------------------
+
+    buildComponents(
+        adjacency,
+        components);
 }
 
 
@@ -914,14 +1224,17 @@ void validate(
     if (mode == "test") {
         return;
     }
+    //-------------------------------------------------------------------------
 
+    STLComponents components;
 
     //-------------------------------------------------------------------------
     // 4. Topology, winding, and connected components
     //-------------------------------------------------------------------------
 
     validateTopologyWindingAndComponents(
-        data);
+        geometry,
+        components);
 
 
     //-------------------------------------------------------------------------
@@ -929,7 +1242,8 @@ void validate(
     //-------------------------------------------------------------------------
 
     validateNestingAndOrientation(
-        data);
+        geometry,
+        components);
 }
 
 } // namespace ntic::lbm::stl
