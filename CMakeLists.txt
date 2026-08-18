@@ -20,13 +20,23 @@ endif()
 # Test output directories
 #====================================================
 
-set(INPUT_TEST_OUTPUT_DIR
-    "${CMAKE_BINARY_DIR}/input"
+set(INPUT_CONFIG_TEST_OUTPUT_DIR
+    "${CMAKE_BINARY_DIR}/input/config"
 )
 
-function(set_input_test_output TARGET_NAME)
+set(INPUT_STL_TEST_OUTPUT_DIR
+    "${CMAKE_BINARY_DIR}/input/stl"
+)
+
+function(set_input_config_test_output TARGET_NAME)
     set_target_properties(${TARGET_NAME} PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${INPUT_TEST_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${INPUT_CONFIG_TEST_OUTPUT_DIR}"
+    )
+endfunction()
+
+function(set_input_stl_test_output TARGET_NAME)
+    set_target_properties(${TARGET_NAME} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${INPUT_STL_TEST_OUTPUT_DIR}"
     )
 endfunction()
 
@@ -44,7 +54,7 @@ target_include_directories(test_rational PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_rational)
+set_input_config_test_output(test_rational)
 
 #====================================================
 # test_physical_dimension
@@ -62,7 +72,7 @@ target_include_directories(test_physical_dimension PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_physical_dimension)
+set_input_config_test_output(test_physical_dimension)
 
 #====================================================
 # test_parameter_registry
@@ -84,7 +94,7 @@ target_include_directories(test_parameter_registry PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_parameter_registry)
+set_input_config_test_output(test_parameter_registry)
 
 #====================================================
 # test_unit
@@ -106,7 +116,7 @@ target_include_directories(test_unit PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_unit)
+set_input_config_test_output(test_unit)
 
 #====================================================
 # test_prefix_registry
@@ -124,7 +134,7 @@ target_include_directories(test_prefix_registry PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_prefix_registry)
+set_input_config_test_output(test_prefix_registry)
 
 #====================================================
 # test_unit_expression
@@ -147,7 +157,7 @@ target_include_directories(test_unit_expression PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_unit_expression)
+set_input_config_test_output(test_unit_expression)
 
 #====================================================
 # test_quantity
@@ -170,7 +180,7 @@ target_include_directories(test_quantity PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_quantity)
+set_input_config_test_output(test_quantity)
 
 #====================================================
 # test_parameter
@@ -196,7 +206,7 @@ target_include_directories(test_parameter PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_parameter)
+set_input_config_test_output(test_parameter)
 
 #====================================================
 # test_lexer
@@ -214,7 +224,7 @@ target_include_directories(test_lexer PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_lexer)
+set_input_config_test_output(test_lexer)
 
 #====================================================
 # test_token_stream
@@ -233,7 +243,7 @@ target_include_directories(test_token_stream PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_token_stream)
+set_input_config_test_output(test_token_stream)
 
 #====================================================
 # test_unit_parser
@@ -267,7 +277,7 @@ target_include_directories(test_unit_parser PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_unit_parser)
+set_input_config_test_output(test_unit_parser)
 
 #====================================================
 # test_quantity_parser
@@ -307,7 +317,7 @@ target_include_directories(test_quantity_parser PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_quantity_parser)
+set_input_config_test_output(test_quantity_parser)
 
 #====================================================
 # test_parameter_parser
@@ -349,7 +359,7 @@ target_include_directories(test_parameter_parser PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_parameter_parser)
+set_input_config_test_output(test_parameter_parser)
 
 #====================================================
 # test_parameter_alias_registry
@@ -371,7 +381,7 @@ PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_parameter_alias_registry)
+set_input_config_test_output(test_parameter_alias_registry)
 
 #====================================================
 # test_lbm_parameter_registry
@@ -399,7 +409,7 @@ PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_lbm_parameter_registry)
+set_input_config_test_output(test_lbm_parameter_registry)
 
 #====================================================
 # test_config
@@ -447,7 +457,7 @@ PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_config)
+set_input_config_test_output(test_config)
 
 #====================================================
 # test_parameter_table
@@ -496,7 +506,7 @@ PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_parameter_table)
+set_input_config_test_output(test_parameter_table)
 
 #====================================================
 # test_model_alias_registry
@@ -513,7 +523,7 @@ target_include_directories(test_model_alias_registry PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_model_alias_registry)
+set_input_config_test_output(test_model_alias_registry)
 
 #====================================================
 # test_si_unit_formatter
@@ -535,7 +545,7 @@ target_include_directories(test_si_unit_formatter PRIVATE
     src/input/config
 )
 
-set_input_test_output(test_si_unit_formatter)
+set_input_config_test_output(test_si_unit_formatter)
 
 #====================================================
 # test_full_config
@@ -590,4 +600,32 @@ PRIVATE
     tests/input_tests/config_tests
 )
 
-set_input_test_output(test_full_config)
+set_input_config_test_output(test_full_config)
+
+#====================================================
+# test_stl_validator
+#====================================================
+
+add_executable(test_stl_validator
+
+    tests/input_tests/stl_tests/test_stl_validator.cpp
+
+    src/input/stl/stl_reader.cpp
+    src/input/stl/stl_validator.cpp
+)
+
+target_include_directories(
+    test_stl_validator
+PRIVATE
+
+    src/input/stl
+)
+
+target_compile_definitions(
+    test_stl_validator
+PRIVATE
+
+    TEST_STL_DIR="${CMAKE_SOURCE_DIR}/tests/input_tests/stl_tests/stls"
+)
+
+set_input_stl_test_output(test_stl_validator)
