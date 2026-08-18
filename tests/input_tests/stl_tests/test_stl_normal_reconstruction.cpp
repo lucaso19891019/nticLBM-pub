@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
     //-------------------------------------------------------------------------
 
     try {
-        STLComponents components;
+        ntic::lbm::stl::STLComponents components;
         ntic::lbm::stl::validate(data,"test",components);
     }
     catch (const std::exception& e) {
