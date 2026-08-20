@@ -1,19 +1,11 @@
 #pragma once
 
 #include "point.hpp"
+#include "axis.hpp"
 #include "bounding_box.hpp"
 
 namespace ntic::lbm::geometry
 {
-
-enum class Axis
-{
-    X,
-    Y,
-    Z
-};
-
-
 //=============================================================================
 // Cylinder
 //=============================================================================
