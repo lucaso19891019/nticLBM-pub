@@ -3,6 +3,7 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include "point.hpp"
 
 namespace ntic::lbm::geometry
 {
