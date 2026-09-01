@@ -55,8 +55,12 @@ int main(int argc, char* argv[])
     //-------------------------------------------------------------------------
 
     try {
-        ntic::lbm::stl::STLComponents components;
-        ntic::lbm::stl::validate(data,"test",components);
+        ntic::lbm::stl::FacetTopology topology;
+
+        ntic::lbm::stl::validate(
+            data,
+            "test",
+            topology);
     }
     catch (const std::exception& e) {
         std::cerr
