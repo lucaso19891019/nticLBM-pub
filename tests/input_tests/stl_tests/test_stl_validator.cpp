@@ -52,30 +52,32 @@ int main(int argc, char* argv[])
     try {
         auto data = ntic::lbm::stl::read(stlFile);
 
-        ntic::lbm::stl::STLComponents components;
+        ntic::lbm::stl::FacetTopology topology;
 
-        ntic::lbm::stl::validate(data,mode,components);
+        ntic::lbm::stl::validate(
+            data,
+            mode,
+            topology);
 
-        if(mode == "full")
+        if(mode=="full")
         {
             std::cout
-                << "       Components: "
-                << components.size()
+                << "Components: "
+                << topology.components.size()
                 << "\n";
 
-
             for(std::size_t i = 0;
-                i < components.size();
+                i < topology.components.size();
                 ++i)
             {
                 std::cout
-            	    << "       Component "
-            	    << i
-            	    << " volume = "
-            	    << components[i].signedVolume
-            	    << "\n";
+                    << "Component "
+                    << i
+                    << " volume = "
+                    << topology.components[i].signedVolume
+                    << "\n";
             }
-    	}
+        }
 
         validationSucceeded = true;
     }
