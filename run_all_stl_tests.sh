@@ -58,3 +58,4 @@ $APP $STL_DIR/two_closed_tetrahedra.stl valid full
 #=============================================================================
 
 $APP $STL_DIR/large_tetrahedron.stl valid full
+$APP $STL_DIR/zero_volume_closed_component.stl invalid full
