@@ -105,22 +105,6 @@ using SpatialBins =
         std::vector<std::size_t>,
         BinKeyHash>;
 
-//===============================================================================
-// Bounding Box
-//===============================================================================
-
-struct GeometricVertices
-{
-    // One representative coordinate for each welded geometric vertex.
-    std::vector<STLVector> vertices;
-
-    // Geometric vertex IDs for each STL facet.
-    //
-    // facetVertexIDs[i][0..2] correspond to the three vertices of facet i
-    // in their original winding order.
-    std::vector<std::array<std::size_t, 3>> facetVertexIDs;
-};
-
 struct EdgeKeyHash
 {
     std::size_t operator()(const EdgeKey& key) const noexcept
@@ -1113,12 +1097,11 @@ void validateDuplicateFacets(
 // Multiple disconnected closed components are allowed. They may represent
 // separate solids, cavities, or nested geometric regions.
 //
-// All topology data created here is temporary validation data and is not
-// part of the public STLData interface.
+// The welded geometric vertices, facet adjacency, and connected components
+// are retained in FacetTopology for later geometry processing.
 //
 void validateTopologyWindingAndComponents(
-    const GeometricVertices& geometry,
-    STLComponents& components)
+    FacetTopology& topology)
 {
     //-------------------------------------------------------------------------
     // Build edge topology
@@ -1127,7 +1110,7 @@ void validateTopologyWindingAndComponents(
     EdgeMap edgeMap;
 
     buildEdgeTopology(
-        geometry,
+        topology.geometry,
         edgeMap);
 
 
@@ -1143,24 +1126,26 @@ void validateTopologyWindingAndComponents(
     // Build facet adjacency graph
     //-------------------------------------------------------------------------
 
-    std::vector<
-        std::vector<std::size_t>>
-        adjacency(
-            geometry.facetVertexIDs.size());
+    topology.adjacency.clear();
+
+    topology.adjacency.resize(
+        topology.geometry.facetVertexIDs.size());
 
 
     buildFacetAdjacency(
         edgeMap,
-        adjacency);
+        topology.adjacency);
 
 
     //-------------------------------------------------------------------------
     // Find connected components
     //-------------------------------------------------------------------------
 
+    topology.components.clear();
+
     buildComponents(
-        adjacency,
-        components);
+        topology.adjacency,
+        topology.components);
 }
 
 
@@ -1177,7 +1162,6 @@ void validateTopologyWindingAndComponents(
 //
 //   - compute its geometric bounding box
 //   - compute its signed enclosed volume
-//   - reject components with zero or nearly zero enclosed volume
 //
 // The signed volume is retained as geometric information only.  Its sign is
 // not used here to determine or correct the global surface orientation.
@@ -1191,19 +1175,18 @@ void validateTopologyWindingAndComponents(
 // belong to the geometry module and are intentionally not performed here.
 //
 void validateComponentConsistency(
-    const GeometricVertices& geometry,
-    STLComponents& components)
+    FacetTopology& topology)
 {
     computeComponentBounds(
-        geometry,
-        components);
+        topology.geometry,
+        topology.components);
 
 
-    for(auto& component : components)
+    for(auto& component : topology.components)
     {
         component.signedVolume =
             computeSignedVolume(
-                geometry,
+                topology.geometry,
                 component);
     }
 }
@@ -1218,7 +1201,7 @@ void validateComponentConsistency(
 void validate(
     STLData& data,
     const std::string& mode,
-    STLComponents& components)
+    FacetTopology& topology)
 {
     //-------------------------------------------------------------------------
     // Validate mode.
@@ -1233,6 +1216,7 @@ void validate(
             "\". Expected \"test\" or \"full\".");
     }
 
+    topology = FacetTopology{};
 
     //-------------------------------------------------------------------------
     // Compute geometry bounds once.
@@ -1263,10 +1247,10 @@ void validate(
     // Build the tolerance-welded geometric vertex representation.
     //-------------------------------------------------------------------------
 
-    const GeometricVertices geometry =
-        buildGeometricVertices(
-            data,
-            bounds);
+    topology.geometry =
+    buildGeometricVertices(
+        data,
+        bounds);
 
 
     //-------------------------------------------------------------------------
@@ -1274,7 +1258,7 @@ void validate(
     //-------------------------------------------------------------------------
 
     validateDuplicateFacets(
-        geometry);
+        topology.geometry);
 
 
     //-------------------------------------------------------------------------
@@ -1290,8 +1274,7 @@ void validate(
     //-------------------------------------------------------------------------
 
     validateTopologyWindingAndComponents(
-        geometry,
-        components);
+        topology);
 
 
     //-------------------------------------------------------------------------
@@ -1299,8 +1282,7 @@ void validate(
     //-------------------------------------------------------------------------
 
     validateComponentConsistency(
-        geometry,
-        components);
+        topology);
 }
 
 } // namespace ntic::lbm::stl
