@@ -14,7 +14,7 @@ namespace ntic::lbm::stl {
 // 2. Facet normal check
 // 3. Duplicate facet check
 // 4. Surface topology, winding, and connected-component validation
-// 5. Component geometry calculation
+// 5. Component geometry validation
 //
 // The input STLData may be modified during validation, for example when
 // facet normals need to be normalized.
