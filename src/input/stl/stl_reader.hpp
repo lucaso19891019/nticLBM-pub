@@ -51,4 +51,4 @@ struct STLData
 [[nodiscard]]
 STLData read(const std::filesystem::path& path);
 
-} // namespace ntic::lbm::input::stl
+} // namespace ntic::lbm::stl
