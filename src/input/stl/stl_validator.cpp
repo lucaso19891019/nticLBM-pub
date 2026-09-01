@@ -24,6 +24,7 @@ constexpr double NORMAL_DIRECTION_TOLERANCE = 1.0e-7;
 
 constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
 
+constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
 
 //=============================================================================
 // Spatial bin key
@@ -629,7 +630,25 @@ void computeComponentBounds(
         }
 
 
-        component.bounds = bounds;
+        const double dx =
+            bounds.max[0] - bounds.min[0];
+
+        const double dy =
+            bounds.max[1] - bounds.min[1];
+
+        const double dz =
+            bounds.max[2] - bounds.min[2];
+
+
+        bounds.scale =
+            std::sqrt(
+                dx * dx +
+                dy * dy +
+                dz * dz);
+
+
+        component.bounds =
+            bounds;
     }
 }
 
@@ -637,12 +656,28 @@ double computeSignedVolume(
     const GeometricVertices& geometry,
     const STLComponent& component)
 {
-    double volume = 0.0;
+    const double referenceX =
+        0.5 *
+        (component.bounds.min[0] +
+         component.bounds.max[0]);
+
+    const double referenceY =
+        0.5 *
+        (component.bounds.min[1] +
+         component.bounds.max[1]);
+
+    const double referenceZ =
+        0.5 *
+        (component.bounds.min[2] +
+         component.bounds.max[2]);
 
 
-    for(auto facetID : component.facets)
+    long double volume = 0.0L;
+
+
+    for(const auto facetID : component.facets)
     {
-        auto ids =
+        const auto& ids =
             geometry.facetVertexIDs[facetID];
 
 
@@ -656,22 +691,96 @@ double computeSignedVolume(
             geometry.vertices[ids[2]];
 
 
+        const long double x0 =
+            static_cast<long double>(v0[0] - referenceX);
+
+        const long double y0 =
+            static_cast<long double>(v0[1] - referenceY);
+
+        const long double z0 =
+            static_cast<long double>(v0[2] - referenceZ);
+
+
+        const long double x1 =
+            static_cast<long double>(v1[0] - referenceX);
+
+        const long double y1 =
+            static_cast<long double>(v1[1] - referenceY);
+
+        const long double z1 =
+            static_cast<long double>(v1[2] - referenceZ);
+
+
+        const long double x2 =
+            static_cast<long double>(v2[0] - referenceX);
+
+        const long double y2 =
+            static_cast<long double>(v2[1] - referenceY);
+
+        const long double z2 =
+            static_cast<long double>(v2[2] - referenceZ);
+
+
         volume +=
-            v0[0] *
-            (v1[1]*v2[2]-v1[2]*v2[1])
+            x0 *
+            (y1 * z2 - z1 * y2)
             -
-            v0[1] *
-            (v1[0]*v2[2]-v1[2]*v2[0])
+            y0 *
+            (x1 * z2 - z1 * x2)
             +
-            v0[2] *
-            (v1[0]*v2[1]-v1[1]*v2[0]);
+            z0 *
+            (x1 * y2 - y1 * x2);
     }
 
 
-    return volume / 6.0;
+    return
+        static_cast<double>(
+            volume / 6.0L);
 }
 
+void validateComponentVolume(
+    const STLComponent& component,
+    const std::size_t componentID)
+{
+    const double scale =
+        component.bounds.scale;
+
+
+    if(!std::isfinite(scale) ||
+       scale <= 0.0)
+    {
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "component " +
+            std::to_string(componentID) +
+            " has zero or invalid geometric extent.");
+    }
+
+
+    const double volumeTolerance =
+        RELATIVE_VOLUME_TOLERANCE *
+        scale *
+        scale *
+        scale;
+
+
+    if(!std::isfinite(component.signedVolume) ||
+       std::abs(component.signedVolume) <= volumeTolerance)
+    {
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "component " +
+            std::to_string(componentID) +
+            " has zero or nearly zero enclosed volume.");
+    }
+}
+
+
 //////////////////////////////////////////////////////////////////////////////////////////
+
+//=============================================================================
+// 1. Degenerate facets
+//=============================================================================
 
 //=============================================================================
 // 1. Degenerate facets
@@ -1162,8 +1271,12 @@ void validateTopologyWindingAndComponents(
 //
 //   - compute its geometric bounding box
 //   - compute its signed enclosed volume
+//   - reject components with zero or nearly zero enclosed volume
 //
-// The signed volume is retained as geometric information only.  Its sign is
+// The volume tolerance is defined relative to the geometric scale of each
+// individual component.
+//
+// The signed-volume sign is retained as geometric information only. It is
 // not used here to determine or correct the global surface orientation.
 //
 // More advanced geometric operations, including:
@@ -1182,12 +1295,23 @@ void validateComponentConsistency(
         topology.components);
 
 
-    for(auto& component : topology.components)
+    for(std::size_t i = 0;
+        i < topology.components.size();
+        ++i)
     {
+        auto& component =
+            topology.components[i];
+
+
         component.signedVolume =
             computeSignedVolume(
                 topology.geometry,
                 component);
+
+
+        validateComponentVolume(
+            component,
+            i);
     }
 }
 
