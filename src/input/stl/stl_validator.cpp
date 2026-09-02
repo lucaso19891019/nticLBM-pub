@@ -137,38 +137,130 @@ GeometryBounds computeGeometryBounds(const STLData& data)
             "Invalid STL geometry: no facets.");
     }
 
-    GeometryBounds bounds;
 
-    bounds.min = data.facets[0].vertices[0];
-    bounds.max = data.facets[0].vertices[0];
+    //-------------------------------------------------------------------------
+    // Initialize the global bounds from the first STL vertex.
+    //-------------------------------------------------------------------------
 
-    for (const auto& facet : data.facets) {
-        for (const auto& vertex : facet.vertices) {
-            for (std::size_t d = 0; d < 3; ++d) {
+    double minX =
+        data.facets[0].vertices[0][0];
 
-                bounds.min[d] =
-                    std::min(bounds.min[d], vertex[d]);
+    double minY =
+        data.facets[0].vertices[0][1];
 
-                bounds.max[d] =
-                    std::max(bounds.max[d], vertex[d]);
-            }
+    double minZ =
+        data.facets[0].vertices[0][2];
+
+    double maxX = minX;
+    double maxY = minY;
+    double maxZ = minZ;
+
+
+    //-------------------------------------------------------------------------
+    // Compute the global STL bounding box.
+    //
+    // Every facet and vertex can be processed independently. OpenMP min/max
+    // reductions combine the thread-local bounds into the final global bounds.
+    //-------------------------------------------------------------------------
+
+    #pragma omp parallel for \
+        reduction(min:minX,minY,minZ) \
+        reduction(max:maxX,maxY,maxZ) \
+        schedule(static)
+
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 data.facets.size());
+         ++index) {
+
+        const auto& facet =
+            data.facets[
+                static_cast<std::size_t>(index)];
+
+
+        for (std::size_t v = 0;
+             v < 3;
+             ++v) {
+
+            const auto& vertex =
+                facet.vertices[v];
+
+
+            minX =
+                std::min(
+                    minX,
+                    vertex[0]);
+
+            minY =
+                std::min(
+                    minY,
+                    vertex[1]);
+
+            minZ =
+                std::min(
+                    minZ,
+                    vertex[2]);
+
+
+            maxX =
+                std::max(
+                    maxX,
+                    vertex[0]);
+
+            maxY =
+                std::max(
+                    maxY,
+                    vertex[1]);
+
+            maxZ =
+                std::max(
+                    maxZ,
+                    vertex[2]);
         }
     }
 
+
+    //-------------------------------------------------------------------------
+    // Store the final bounds.
+    //-------------------------------------------------------------------------
+
+    GeometryBounds bounds;
+
+    bounds.min = {
+        minX,
+        minY,
+        minZ
+    };
+
+    bounds.max = {
+        maxX,
+        maxY,
+        maxZ
+    };
+
+
+    //-------------------------------------------------------------------------
+    // Compute the characteristic geometry scale from the bounding-box
+    // diagonal.
+    //-------------------------------------------------------------------------
+
     const double dx =
-        bounds.max[0] - bounds.min[0];
+        maxX - minX;
 
     const double dy =
-        bounds.max[1] - bounds.min[1];
+        maxY - minY;
 
     const double dz =
-        bounds.max[2] - bounds.min[2];
+        maxZ - minZ;
+
 
     bounds.scale =
         std::sqrt(
             dx * dx +
             dy * dy +
             dz * dz);
+
 
     if (!std::isfinite(bounds.scale) ||
         bounds.scale <= 0.0) {
@@ -177,6 +269,7 @@ GeometryBounds computeGeometryBounds(const STLData& data)
             "Invalid STL geometry: "
             "the geometry has zero or invalid extent.");
     }
+
 
     return bounds;
 }
