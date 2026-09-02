@@ -67,7 +67,7 @@ struct FacetTopology
 {
     GeometricVertices geometry;
 
-    std::vector<std::vector<std::size_t>>
+    std::vector<std::array<std::size_t,3>>
         adjacency;
 
     STLComponents components;
