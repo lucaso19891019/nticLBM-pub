@@ -26,24 +26,6 @@ constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
 
 constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
 
-enum class FacetValidationError
-{
-    None,
-
-    CoincidentVertices,
-    CollinearVertices,
-
-    InvalidStoredNormal,
-    InconsistentStoredNormal
-};
-
-
-struct FacetValidationResult
-{
-    FacetValidationError error =
-        FacetValidationError::None;
-};
-
 //=============================================================================
 // Spatial bin key
 //=============================================================================
@@ -795,11 +777,6 @@ void validateComponentVolume(
 
 
 //////////////////////////////////////////////////////////////////////////////////////////
-
-//=============================================================================
-// 1. Degenerate facets
-//=============================================================================
-
 //=============================================================================
 // 1. Degenerate facets
 //=============================================================================
@@ -826,12 +803,33 @@ void validateDegenerateFacets(
 
 
     //-------------------------------------------------------------------------
-    // Validate every facet.
+    // Validate every facet independently.
+    //
+    // Error codes are stored per facet during the parallel region. Exceptions
+    // are raised afterwards so that validation remains deterministic and the
+    // lowest invalid facet ID is always reported.
+    //
+    //   0 : valid
+    //   1 : coincident or nearly coincident vertices
+    //   2 : collinear or nearly collinear vertices
     //-------------------------------------------------------------------------
 
-    for (std::size_t i = 0;
-         i < data.facets.size();
-         ++i) {
+    std::vector<unsigned char>
+        errors(
+            data.facets.size(),
+            0);
+
+
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 data.facets.size());
+         ++index) {
+
+        const std::size_t i =
+            static_cast<std::size_t>(index);
+
 
         const auto& v0 =
             data.facets[i].vertices[0];
@@ -888,11 +886,8 @@ void validateDegenerateFacets(
             e02Squared <= vertexToleranceSquared ||
             e12Squared <= vertexToleranceSquared) {
 
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(i) +
-                " contains coincident or nearly coincident vertices.");
+            errors[i] = 1;
+            continue;
         }
 
 
@@ -900,9 +895,6 @@ void validateDegenerateFacets(
         // Compute the cross product:
         //
         //     (v1 - v0) x (v2 - v0)
-        //
-        // Its magnitude measures the area of the parallelogram formed by
-        // the two edges.
         //---------------------------------------------------------------------
 
         const double nx =
@@ -925,14 +917,6 @@ void validateDegenerateFacets(
 
         //---------------------------------------------------------------------
         // Check for collinear or nearly collinear vertices.
-        //
-        // Instead of explicitly evaluating:
-        //
-        //        |e01 x e02|
-        //        -----------
-        //        |e01| |e02|
-        //
-        // we compare the squared quantities directly.
         //---------------------------------------------------------------------
 
         const double collinearThreshold =
@@ -942,6 +926,29 @@ void validateDegenerateFacets(
             e02Squared;
 
         if (crossSquared <= collinearThreshold) {
+            errors[i] = 2;
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Report the first invalid facet in STL order.
+    //-------------------------------------------------------------------------
+
+    for (std::size_t i = 0;
+         i < errors.size();
+         ++i) {
+
+        if (errors[i] == 1) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " contains coincident or nearly coincident vertices.");
+        }
+
+        if (errors[i] == 2) {
 
             throw std::runtime_error(
                 "Invalid STL geometry: "
@@ -975,9 +982,34 @@ void validateDegenerateFacets(
 //
 void validateFacetNormals(STLData& data)
 {
-    for (std::size_t i = 0; i < data.facets.size(); ++i) {
+    //-------------------------------------------------------------------------
+    // Validate every facet independently.
+    //
+    //   0 : valid
+    //   1 : non-finite stored normal
+    //   2 : zero or invalid stored normal
+    //   3 : stored normal inconsistent with vertex winding
+    //-------------------------------------------------------------------------
 
-        auto& facet = data.facets[i];
+    std::vector<unsigned char>
+        errors(
+            data.facets.size(),
+            0);
+
+
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 data.facets.size());
+         ++index) {
+
+        const std::size_t i =
+            static_cast<std::size_t>(index);
+
+        auto& facet =
+            data.facets[i];
+
 
         //---------------------------------------------------------------------
         // Check that the stored STL normal is finite and non-zero.
@@ -991,12 +1023,10 @@ void validateFacetNormals(STLData& data)
             !std::isfinite(storedNy) ||
             !std::isfinite(storedNz)) {
 
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(i) +
-                " has an invalid stored normal.");
+            errors[i] = 1;
+            continue;
         }
+
 
         const double storedNormSquared =
             storedNx * storedNx +
@@ -1006,11 +1036,8 @@ void validateFacetNormals(STLData& data)
         if (!std::isfinite(storedNormSquared) ||
             storedNormSquared <= 0.0) {
 
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(i) +
-                " has a zero or invalid stored normal.");
+            errors[i] = 2;
+            continue;
         }
 
 
@@ -1020,8 +1047,7 @@ void validateFacetNormals(STLData& data)
         //     n = (v1 - v0) x (v2 - v0)
         //
         // Degenerate facets have already been rejected by the previous
-        // validation stage, so the geometric normal is guaranteed to have
-        // non-zero magnitude here.
+        // validation stage.
         //---------------------------------------------------------------------
 
         const auto& v0 = facet.vertices[0];
@@ -1057,16 +1083,6 @@ void validateFacetNormals(STLData& data)
         //---------------------------------------------------------------------
         // Check directional consistency between the stored STL normal and
         // the normal implied by the vertex winding.
-        //
-        // We compare normalized directions:
-        //
-        //              n_stored . n_geometric
-        //     cos(t) = -------------------------
-        //              |n_stored| |n_geometric|
-        //
-        // A positive value means that both normals point to the same side of
-        // the facet. A zero or negative value means that the stored normal is
-        // inconsistent with the vertex winding.
         //---------------------------------------------------------------------
 
         const double storedNorm =
@@ -1081,6 +1097,56 @@ void validateFacetNormals(STLData& data)
         if (!std::isfinite(alignment) ||
             alignment <= NORMAL_DIRECTION_TOLERANCE) {
 
+            errors[i] = 3;
+            continue;
+        }
+
+
+        //---------------------------------------------------------------------
+        // Replace the stored STL normal with the unit geometric normal.
+        //
+        // Each OpenMP iteration modifies only its own facet.
+        //---------------------------------------------------------------------
+
+        facet.normal[0] =
+            geometricNx / geometricNorm;
+
+        facet.normal[1] =
+            geometricNy / geometricNorm;
+
+        facet.normal[2] =
+            geometricNz / geometricNorm;
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Report the first invalid facet in STL order.
+    //-------------------------------------------------------------------------
+
+    for (std::size_t i = 0;
+         i < errors.size();
+         ++i) {
+
+        if (errors[i] == 1) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " has an invalid stored normal.");
+        }
+
+        if (errors[i] == 2) {
+
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(i) +
+                " has a zero or invalid stored normal.");
+        }
+
+        if (errors[i] == 3) {
+
             throw std::runtime_error(
                 "Invalid STL geometry: "
                 "facet " +
@@ -1088,18 +1154,6 @@ void validateFacetNormals(STLData& data)
                 " has a stored normal inconsistent with "
                 "its vertex winding.");
         }
-
-
-        //---------------------------------------------------------------------
-        // Replace the stored STL normal with the unit geometric normal.
-        //
-        // From this point onward, facet.normal is derived exclusively from
-        // the vertex winding and is guaranteed to have unit length.
-        //---------------------------------------------------------------------
-
-        facet.normal[0] = geometricNx / geometricNorm;
-        facet.normal[1] = geometricNy / geometricNorm;
-        facet.normal[2] = geometricNz / geometricNorm;
     }
 }
 
