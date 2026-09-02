@@ -104,28 +104,6 @@ using SpatialBins =
         std::vector<std::size_t>,
         BinKeyHash>;
 
-struct EdgeKeyHash
-{
-    std::size_t operator()(const EdgeKey& key) const noexcept
-    {
-        const std::size_t h0 =
-            std::hash<std::size_t>{}(key.v0);
-
-        const std::size_t h1 =
-            std::hash<std::size_t>{}(key.v1);
-
-        return
-            h0 ^
-            (h1 << 1);
-    }
-};
-
-using EdgeMap =
-    std::unordered_map<
-        EdgeKey,
-        std::vector<EdgeUse>,
-        EdgeKeyHash>;
-
 //=============================================================================
 // Flat edge
 //=============================================================================
@@ -713,169 +691,87 @@ void validateFlatEdges(
     }
 }
 
-void validateFlatEdgesAgainstEdgeMap(
+void buildFacetAdjacency(
     const std::vector<FlatEdge>& flatEdges,
-    const EdgeMap& edgeMap)
+    std::vector<std::array<std::size_t,3>>& adjacency)
 {
-    //---------------------------------------------------------------------
-    // Expand the legacy EdgeMap into the same flat representation.
-    //----------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    // Count how many neighbors have been assigned to each facet.
+    //
+    // validateFlatEdges() has already guaranteed that every geometric edge
+    // has exactly two incident facets.
+    //-------------------------------------------------------------------------
 
-    std::vector<FlatEdge>
-        legacyEdges;
+    std::vector<unsigned char>
+        neighborCount(
+            adjacency.size(),
+            0);
 
-    legacyEdges.reserve(
-        flatEdges.size());
+
+    std::size_t begin = 0;
 
 
-    for(const auto& item : edgeMap)
+    while(begin < flatEdges.size())
     {
-        const EdgeKey& key =
-            item.first;
-
-        const auto& uses =
-            item.second;
+        const std::size_t end =
+            begin + 2;
 
 
-        for(const auto& use : uses)
-        {
-            legacyEdges.push_back(
-                {
-                    key,
-                    use
-                });
-        }
-    }
+        const std::size_t facetA =
+            flatEdges[begin].use.facetID;
+
+        const std::size_t facetB =
+            flatEdges[begin + 1].use.facetID;
 
 
-    //---------------------------------------------------------------------
-    // Both representations must contain exactly the same number of
-    // facet-edge uses.
-    //----------------------------------------------------------------------
+        const unsigned char slotA =
+            neighborCount[facetA]++;
 
-    if(legacyEdges.size() !=
-       flatEdges.size())
-    {
-        throw std::runtime_error(
-            "Internal STL topology error: "
-            "flat edge count does not match legacy edge topology.");
-    }
+        const unsigned char slotB =
+            neighborCount[facetB]++;
 
 
-    //---------------------------------------------------------------------
-    // The flat representation is already sorted by the authoritative path.
-    // Sort only the legacy representation for comparison.
-    //----------------------------------------------------------------------
-
-    std::sort(
-        legacyEdges.begin(),
-        legacyEdges.end(),
-        flatEdgeLess);
-
-
-    //---------------------------------------------------------------------
-    // Compare every canonical edge use.
-    //----------------------------------------------------------------------
-
-    for(std::size_t i = 0;
-        i < flatEdges.size();
-        ++i)
-    {
-        const auto& a =
-            flatEdges[i];
-
-        const auto& b =
-            legacyEdges[i];
-
-
-        if(a.key.v0 != b.key.v0 ||
-           a.key.v1 != b.key.v1 ||
-           a.use.facetID != b.use.facetID ||
-           a.use.forward != b.use.forward)
+        if(slotA >= 3 ||
+           slotB >= 3)
         {
             throw std::runtime_error(
                 "Internal STL topology error: "
-                "flat edge representation does not match "
-                "legacy edge topology.");
+                "facet has more than three adjacent facets.");
         }
+
+
+        adjacency[facetA][slotA] =
+            facetB;
+
+        adjacency[facetB][slotB] =
+            facetA;
+
+
+        begin =
+            end;
     }
-}
-
-void buildEdgeTopology(
-    const GeometricVertices& geometry,
-    EdgeMap& edgeMap)
-{
-    edgeMap.reserve(
-        geometry.facetVertexIDs.size() * 3);
 
 
-    for (std::size_t i = 0;
-         i < geometry.facetVertexIDs.size();
-         ++i) {
+    //-------------------------------------------------------------------------
+    // Every triangular facet in a valid closed manifold surface must have
+    // exactly three neighboring facets.
+    //-------------------------------------------------------------------------
 
-
-        const auto& vertices =
-            geometry.facetVertexIDs[i];
-
-
-        const std::array<
-            std::pair<std::size_t,std::size_t>,
-            3>
-            edges =
-            {{
-                {vertices[0], vertices[1]},
-                {vertices[1], vertices[2]},
-                {vertices[2], vertices[0]}
-            }};
-
-
-        for (const auto& edge : edges) {
-
-            const auto v0 =
-                edge.first;
-
-            const auto v1 =
-                edge.second;
-
-
-            const EdgeKey key =
-                makeEdgeKey(
-                    v0,
-                    v1);
-
-
-            edgeMap[key].push_back(
-                {
-                    i,
-                    edgeForward(v0,v1)
-                });
+    for(std::size_t i = 0;
+        i < neighborCount.size();
+        ++i)
+    {
+        if(neighborCount[i] != 3)
+        {
+            throw std::runtime_error(
+                "Internal STL topology error: "
+                "facet does not have exactly three adjacent facets.");
         }
-    }
-}
-
-void buildFacetAdjacency(
-    const EdgeMap& edgeMap,
-    std::vector<std::vector<std::size_t>>& adjacency)
-{
-    for (const auto& item : edgeMap) {
-
-        const auto& uses =
-            item.second;
-
-        const auto a =
-            uses[0].facetID;
-
-        const auto b =
-            uses[1].facetID;
-
-
-        adjacency[a].push_back(b);
-        adjacency[b].push_back(a);
     }
 }
 
 void buildComponents(
-    const std::vector<std::vector<std::size_t>>& adjacency,
+    const std::vector<std::array<std::size_t,3>>& adjacency,
     STLComponents& components)
 {
     const std::size_t n =
@@ -1623,33 +1519,34 @@ void validateDuplicateFacets(
 // 4. Surface topology, winding, and connected components
 //=============================================================================
 //
-// Build the temporary surface-topology information required by several
-// closely related validation steps.
+// Build and validate the surface topology using a flat canonical edge
+// representation.
 //
-// These operations are intentionally grouped together because they depend
-// on the same vertex/edge/facet adjacency information.
+// Each triangular facet contributes exactly three edge records. After sorting
+// by canonical EdgeKey, all uses of the same geometric edge are contiguous.
 //
 // This stage will:
 //
-//   1. Build canonical vertex and edge representations.
+//   1. Build the flat canonical edge representation.
 //
-//   2. Build facet adjacency through shared edges.
+//   2. Sort geometric edge uses by EdgeKey.
 //
 //   3. Validate surface closedness.
-//      For a valid closed manifold surface, every edge must be shared by
-//      exactly two facets.
+//      Every geometric edge must be shared by exactly two facets.
 //
 //   4. Detect non-manifold topology.
 //      An edge shared by more than two facets is invalid.
 //
 //   5. Validate local winding consistency.
-//      Two facets sharing an edge must traverse that common edge in
-//      opposite directions.
+//      Two facets sharing an edge must traverse that edge in opposite
+//      directions.
 //
-//   6. Identify connected surface components.
+//   6. Build fixed-size three-neighbor facet adjacency.
 //
-// Multiple disconnected closed components are allowed. They may represent
-// separate solids, cavities, or nested geometric regions.
+//   7. Identify connected surface components.
+//
+// Multiple connected components may be identified here. Their geometric
+// admissibility is determined later by the geometry module.
 //
 // The welded geometric vertices, facet adjacency, and connected components
 // are retained in FacetTopology for later geometry processing.
@@ -1658,21 +1555,7 @@ void validateTopologyWindingAndComponents(
     FacetTopology& topology)
 {
     //-------------------------------------------------------------------------
-    // Build legacy edge topology.
-    //
-    // The legacy EdgeMap is retained temporarily only for facet adjacency
-    // construction and refactoring verification.
-    //-------------------------------------------------------------------------
-
-    EdgeMap edgeMap;
-
-    buildEdgeTopology(
-        topology.geometry,
-        edgeMap);
-
-
-    //-------------------------------------------------------------------------
-    // Build and sort the new flat edge representation.
+    // Build the flat edge representation.
     //-------------------------------------------------------------------------
 
     std::vector<FlatEdge>
@@ -1682,26 +1565,17 @@ void validateTopologyWindingAndComponents(
         topology.geometry,
         flatEdges);
 
+
+    //-------------------------------------------------------------------------
+    // Sort by canonical geometric edge.
+    //-------------------------------------------------------------------------
+
     sortFlatEdges(
         flatEdges);
 
 
     //-------------------------------------------------------------------------
-    // Verify that the new flat representation is exactly equivalent to the
-    // legacy edge topology.
-    //
-    // This consistency check is temporary and will be removed once the
-    // legacy EdgeMap path is completely removed.
-    //-------------------------------------------------------------------------
-
-    validateFlatEdgesAgainstEdgeMap(
-        flatEdges,
-        edgeMap);
-
-
-    //-------------------------------------------------------------------------
-    // Validate closedness, manifoldness, and facet winding using the new
-    // flat edge representation.
+    // Validate surface closedness, manifoldness, and local facet winding.
     //-------------------------------------------------------------------------
 
     validateFlatEdges(
@@ -1709,9 +1583,9 @@ void validateTopologyWindingAndComponents(
 
 
     //-------------------------------------------------------------------------
-    // Build facet adjacency graph.
+    // Build fixed-size facet adjacency.
     //
-    // The legacy EdgeMap is still used temporarily for adjacency construction.
+    // Every valid triangular facet has exactly three neighboring facets.
     //-------------------------------------------------------------------------
 
     topology.adjacency.clear();
@@ -1721,12 +1595,12 @@ void validateTopologyWindingAndComponents(
 
 
     buildFacetAdjacency(
-        edgeMap,
+        flatEdges,
         topology.adjacency);
 
 
     //-------------------------------------------------------------------------
-    // Find connected components.
+    // Find connected surface components.
     //-------------------------------------------------------------------------
 
     topology.components.clear();
@@ -1735,7 +1609,6 @@ void validateTopologyWindingAndComponents(
         topology.adjacency,
         topology.components);
 }
-
 
 //=============================================================================
 // 5. Component geometry
