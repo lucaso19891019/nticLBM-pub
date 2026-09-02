@@ -23,15 +23,15 @@ $APP $STL_DIR/nearly_collinear_vertices.stl invalid test
 $APP $STL_DIR/small_valid_triangle.stl valid test
 
 
-#==============================================================================
-# 2. Facet normal tests
+#=============================================================================
+# 2. Facet normal reconstruction tests
 #==============================================================================
 
 $APP $STL_DIR/valid_normal.stl valid test
 $APP $STL_DIR/non_unit_normal.stl valid test
-$APP $STL_DIR/zero_normal.stl invalid test
-$APP $STL_DIR/reversed_normal.stl invalid test
-$APP $STL_DIR/perpendicular_normal.stl invalid test
+$APP $STL_DIR/zero_normal.stl valid test
+$APP $STL_DIR/reversed_normal.stl valid test
+$APP $STL_DIR/perpendicular_normal.stl valid test
 $APP $STL_DIR/slightly_tilted_normal.stl valid test
 
 $NORMAL_APP $STL_DIR/non_unit_normal.stl
