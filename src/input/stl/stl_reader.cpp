@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace ntic::lbm::stl {
 
@@ -52,26 +53,6 @@ void throwError(
 //=============================================================================
 
 [[nodiscard]]
-std::uint16_t readUInt16LE(std::istream& input)
-{
-    unsigned char bytes[2];
-
-    input.read(
-        reinterpret_cast<char*>(bytes),
-        sizeof(bytes));
-
-    if (!input) {
-        throw std::runtime_error(
-            "Unexpected end of binary STL file.");
-    }
-
-    return
-        static_cast<std::uint16_t>(bytes[0]) |
-        (static_cast<std::uint16_t>(bytes[1]) << 8);
-}
-
-
-[[nodiscard]]
 std::uint32_t readUInt32LE(std::istream& input)
 {
     unsigned char bytes[4];
@@ -92,11 +73,24 @@ std::uint32_t readUInt32LE(std::istream& input)
         (static_cast<std::uint32_t>(bytes[3]) << 24);
 }
 
+[[nodiscard]]
+std::uint32_t readUInt32LE(
+    const unsigned char* bytes) noexcept
+{
+    return
+        static_cast<std::uint32_t>(bytes[0]) |
+        (static_cast<std::uint32_t>(bytes[1]) << 8) |
+        (static_cast<std::uint32_t>(bytes[2]) << 16) |
+        (static_cast<std::uint32_t>(bytes[3]) << 24);
+}
+
 
 [[nodiscard]]
-float readFloat32LE(std::istream& input)
+float readFloat32LE(
+    const unsigned char* bytes) noexcept
 {
-    const std::uint32_t bits = readUInt32LE(input);
+    const std::uint32_t bits =
+        readUInt32LE(bytes);
 
     float value;
 
@@ -104,22 +98,30 @@ float readFloat32LE(std::istream& input)
         sizeof(float) == sizeof(std::uint32_t),
         "STL reader requires 32-bit float.");
 
-    std::memcpy(&value, &bits, sizeof(value));
+    std::memcpy(
+        &value,
+        &bits,
+        sizeof(value));
 
     return value;
 }
 
 
 [[nodiscard]]
-STLVector readBinaryVector(std::istream& input)
+STLVector readBinaryVector(
+    const unsigned char* bytes) noexcept
 {
     return {
-        static_cast<double>(readFloat32LE(input)),
-        static_cast<double>(readFloat32LE(input)),
-        static_cast<double>(readFloat32LE(input))
+        static_cast<double>(
+            readFloat32LE(bytes)),
+
+        static_cast<double>(
+            readFloat32LE(bytes + 4)),
+
+        static_cast<double>(
+            readFloat32LE(bytes + 8))
     };
 }
-
 
 //=============================================================================
 // Binary STL detection
@@ -181,72 +183,212 @@ STLData readBinary(const std::filesystem::path& path)
             "Unable to open STL file '" + path.string() + "'.");
     }
 
-    // Skip 80-byte binary STL header.
+
+    //-------------------------------------------------------------------------
+    // Skip the 80-byte binary STL header.
+    //-------------------------------------------------------------------------
+
     input.seekg(
         static_cast<std::streamoff>(BINARY_HEADER_SIZE),
         std::ios::beg);
 
     if (!input) {
-        throwError(path, "unable to read binary header.");
+        throwError(
+            path,
+            "unable to read binary header.");
     }
+
+
+    //-------------------------------------------------------------------------
+    // Read facet count.
+    //-------------------------------------------------------------------------
 
     std::uint32_t facetCount;
 
     try {
-        facetCount = readUInt32LE(input);
+        facetCount =
+            readUInt32LE(input);
     }
     catch (const std::exception&) {
-        throwError(path, "unable to read binary facet count.");
+        throwError(
+            path,
+            "unable to read binary facet count.");
     }
 
     if (facetCount == 0) {
-        throwError(path, "binary STL contains no facets.");
+        throwError(
+            path,
+            "binary STL contains no facets.");
     }
 
+
+    //-------------------------------------------------------------------------
+    // Read all fixed-size facet records into one contiguous buffer.
+    //
+    // Each binary STL facet occupies exactly 50 bytes:
+    //
+    //   12 bytes : normal
+    //   36 bytes : three vertices
+    //    2 bytes : attribute byte count
+    //
+    // File I/O remains sequential. Parsing of the independent facet records
+    // is performed in parallel below.
+    //-------------------------------------------------------------------------
+
+    const std::size_t facetDataSize =
+        static_cast<std::size_t>(facetCount) *
+        static_cast<std::size_t>(BINARY_FACET_SIZE);
+
+    std::vector<unsigned char>
+        buffer(facetDataSize);
+
+
+    input.read(
+        reinterpret_cast<char*>(buffer.data()),
+        static_cast<std::streamsize>(
+            facetDataSize));
+
+    if (!input) {
+        throwError(
+            path,
+            "unexpected end of file while reading binary facet data.");
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Allocate final facet storage before entering the parallel region.
+    //
+    // Each OpenMP iteration writes to one unique STLFacet.
+    //-------------------------------------------------------------------------
+
     STLData data;
-    data.format = STLFormat::Binary;
-    data.facets.reserve(facetCount);
 
-    for (std::uint32_t i = 0; i < facetCount; ++i) {
+    data.format =
+        STLFormat::Binary;
 
-        STLFacet facet;
+    data.facets.resize(
+        static_cast<std::size_t>(
+            facetCount));
 
-        try {
-            facet.normal = readBinaryVector(input);
 
-            for (std::size_t v = 0; v < 3; ++v) {
-                facet.vertices[v] =
-                    readBinaryVector(input);
-            }
+    //-------------------------------------------------------------------------
+    // Parse all binary facet records independently.
+    //
+    // Error codes:
+    //
+    //   0 : valid
+    //   1 : non-finite normal
+    //   2 : non-finite vertex
+    //
+    // Exceptions are raised after the parallel region so that the lowest
+    // invalid facet ID is reported deterministically.
+    //-------------------------------------------------------------------------
 
-            // Attribute byte count.
-            static_cast<void>(readUInt16LE(input));
-        }
-        catch (const std::exception&) {
-            throwError(
-                path,
-                "unexpected end of file while reading facet " +
-                std::to_string(i) + ".");
-        }
+    std::vector<unsigned char>
+        errors(
+            static_cast<std::size_t>(
+                facetCount),
+            0);
+
+
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 facetCount);
+         ++index) {
+
+        const std::size_t i =
+            static_cast<std::size_t>(
+                index);
+
+        const unsigned char* record =
+            buffer.data() +
+            i * static_cast<std::size_t>(
+                    BINARY_FACET_SIZE);
+
+
+        STLFacet& facet =
+            data.facets[i];
+
+
+        //---------------------------------------------------------------------
+        // Parse normal and vertices.
+        //---------------------------------------------------------------------
+
+        facet.normal =
+            readBinaryVector(
+                record);
+
+        facet.vertices[0] =
+            readBinaryVector(
+                record + 12);
+
+        facet.vertices[1] =
+            readBinaryVector(
+                record + 24);
+
+        facet.vertices[2] =
+            readBinaryVector(
+                record + 36);
+
+
+        //---------------------------------------------------------------------
+        // Bytes 48-49 contain the attribute byte count.
+        //
+        // The current STL representation does not use facet attributes, so
+        // the value is intentionally ignored.
+        //---------------------------------------------------------------------
+
+
+        //---------------------------------------------------------------------
+        // Validate parsed floating-point values.
+        //---------------------------------------------------------------------
 
         if (!isFinite(facet.normal)) {
+            errors[i] = 1;
+            continue;
+        }
+
+        for (std::size_t v = 0;
+             v < 3;
+             ++v) {
+
+            if (!isFinite(
+                    facet.vertices[v])) {
+
+                errors[i] = 2;
+                break;
+            }
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Report the first invalid facet in STL order.
+    //-------------------------------------------------------------------------
+
+    for (std::size_t i = 0;
+         i < errors.size();
+         ++i) {
+
+        if (errors[i] == 1) {
+
             throwError(
                 path,
                 "non-finite normal in facet " +
                 std::to_string(i) + ".");
         }
 
-        for (std::size_t v = 0; v < 3; ++v) {
-            if (!isFinite(facet.vertices[v])) {
-                throwError(
-                    path,
-                    "non-finite vertex in facet " +
-                    std::to_string(i) + ".");
-            }
-        }
+        if (errors[i] == 2) {
 
-        data.facets.push_back(facet);
+            throwError(
+                path,
+                "non-finite vertex in facet " +
+                std::to_string(i) + ".");
+        }
     }
+
 
     return data;
 }
