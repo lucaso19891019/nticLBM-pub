@@ -615,6 +615,104 @@ bool flatEdgeLess(
         static_cast<int>(b.use.forward);
 }
 
+bool sameEdgeKey(
+    const EdgeKey& a,
+    const EdgeKey& b) noexcept
+{
+    return
+        a.v0 == b.v0 &&
+        a.v1 == b.v1;
+}
+
+void sortFlatEdges(
+    std::vector<FlatEdge>& flatEdges)
+{
+    std::sort(
+        flatEdges.begin(),
+        flatEdges.end(),
+        flatEdgeLess);
+}
+
+void validateFlatEdges(
+    const std::vector<FlatEdge>& flatEdges)
+{
+    std::size_t begin = 0;
+
+
+    while(begin < flatEdges.size())
+    {
+        //---------------------------------------------------------------------
+        // Find the complete group corresponding to one geometric edge.
+        //----------------------------------------------------------------------
+
+        std::size_t end =
+            begin + 1;
+
+
+        while(end < flatEdges.size() &&
+              sameEdgeKey(
+                  flatEdges[begin].key,
+                  flatEdges[end].key))
+        {
+            ++end;
+        }
+
+
+        const std::size_t useCount =
+            end - begin;
+
+
+        //---------------------------------------------------------------------
+        // A closed surface requires every geometric edge to be shared by
+        // exactly two facets.
+        //----------------------------------------------------------------------
+
+        if(useCount == 1)
+        {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "open boundary edge detected.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // More than two incident facets form a non-manifold edge.
+        //----------------------------------------------------------------------
+
+        if(useCount > 2)
+        {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "non-manifold edge detected.");
+        }
+
+
+        //---------------------------------------------------------------------
+        // For a consistently wound orientable surface, the two incident
+        // facets must traverse their shared edge in opposite directions.
+        //----------------------------------------------------------------------
+
+        const auto& use0 =
+            flatEdges[begin].use;
+
+        const auto& use1 =
+            flatEdges[begin + 1].use;
+
+
+        if(use0.forward ==
+           use1.forward)
+        {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "inconsistent facet winding detected.");
+        }
+
+
+        begin =
+            end;
+    }
+}
+
 void validateFlatEdgesAgainstEdgeMap(
     const std::vector<FlatEdge>& flatEdges,
     const EdgeMap& edgeMap)
@@ -665,19 +763,9 @@ void validateFlatEdgesAgainstEdgeMap(
 
 
     //---------------------------------------------------------------------
-    // Sort both representations into deterministic order.
+    // The flat representation is already sorted by the authoritative path.
+    // Sort only the legacy representation for comparison.
     //----------------------------------------------------------------------
-
-    std::vector<FlatEdge>
-        sortedFlatEdges =
-            flatEdges;
-
-
-    std::sort(
-        sortedFlatEdges.begin(),
-        sortedFlatEdges.end(),
-        flatEdgeLess);
-
 
     std::sort(
         legacyEdges.begin(),
@@ -690,11 +778,11 @@ void validateFlatEdgesAgainstEdgeMap(
     //----------------------------------------------------------------------
 
     for(std::size_t i = 0;
-        i < sortedFlatEdges.size();
+        i < flatEdges.size();
         ++i)
     {
         const auto& a =
-            sortedFlatEdges[i];
+            flatEdges[i];
 
         const auto& b =
             legacyEdges[i];
@@ -765,55 +853,6 @@ void buildEdgeTopology(
     }
 }
 
-void validateEdges(
-    const EdgeMap& edgeMap)
-{
-    for (const auto& item : edgeMap) {
-
-
-        const auto& uses =
-            item.second;
-
-
-        //---------------------------------------------------------------------
-        // Open boundary
-        //---------------------------------------------------------------------
-
-        if (uses.size() == 1) {
-
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "open boundary edge detected.");
-        }
-
-
-        //---------------------------------------------------------------------
-        // Non-manifold edge
-        //---------------------------------------------------------------------
-
-        if (uses.size() > 2) {
-
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "non-manifold edge detected.");
-        }
-
-
-        //---------------------------------------------------------------------
-        // Winding consistency
-        //---------------------------------------------------------------------
-
-        if (uses[0].forward ==
-            uses[1].forward) {
-
-
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "inconsistent facet winding detected.");
-        }
-    }
-}
-
 void buildFacetAdjacency(
     const EdgeMap& edgeMap,
     std::vector<std::vector<std::size_t>>& adjacency)
@@ -822,9 +861,6 @@ void buildFacetAdjacency(
 
         const auto& uses =
             item.second;
-
-
-        // validateEdges 已经保证 size == 2
 
         const auto a =
             uses[0].facetID;
@@ -1624,7 +1660,8 @@ void validateTopologyWindingAndComponents(
     //-------------------------------------------------------------------------
     // Build legacy edge topology.
     //
-    // This path remains authoritative during the current refactoring stage.
+    // The legacy EdgeMap is retained temporarily only for facet adjacency
+    // construction and refactoring verification.
     //-------------------------------------------------------------------------
 
     EdgeMap edgeMap;
@@ -1635,7 +1672,7 @@ void validateTopologyWindingAndComponents(
 
 
     //-------------------------------------------------------------------------
-    // Build the new flat edge representation.
+    // Build and sort the new flat edge representation.
     //-------------------------------------------------------------------------
 
     std::vector<FlatEdge>
@@ -1645,13 +1682,16 @@ void validateTopologyWindingAndComponents(
         topology.geometry,
         flatEdges);
 
+    sortFlatEdges(
+        flatEdges);
+
 
     //-------------------------------------------------------------------------
-    // Verify that the new parallel flat representation is exactly equivalent
-    // to the existing edge topology.
+    // Verify that the new flat representation is exactly equivalent to the
+    // legacy edge topology.
     //
-    // This consistency check is temporary and will be removed once the flat
-    // edge representation becomes the authoritative topology path.
+    // This consistency check is temporary and will be removed once the
+    // legacy EdgeMap path is completely removed.
     //-------------------------------------------------------------------------
 
     validateFlatEdgesAgainstEdgeMap(
@@ -1660,15 +1700,18 @@ void validateTopologyWindingAndComponents(
 
 
     //-------------------------------------------------------------------------
-    // Validate manifold and winding
+    // Validate closedness, manifoldness, and facet winding using the new
+    // flat edge representation.
     //-------------------------------------------------------------------------
 
-    validateEdges(
-        edgeMap);
+    validateFlatEdges(
+        flatEdges);
 
 
     //-------------------------------------------------------------------------
-    // Build facet adjacency graph
+    // Build facet adjacency graph.
+    //
+    // The legacy EdgeMap is still used temporarily for adjacency construction.
     //-------------------------------------------------------------------------
 
     topology.adjacency.clear();
@@ -1683,7 +1726,7 @@ void validateTopologyWindingAndComponents(
 
 
     //-------------------------------------------------------------------------
-    // Find connected components
+    // Find connected components.
     //-------------------------------------------------------------------------
 
     topology.components.clear();
