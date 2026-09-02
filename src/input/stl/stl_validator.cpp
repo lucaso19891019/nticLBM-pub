@@ -126,6 +126,23 @@ using EdgeMap =
         std::vector<EdgeUse>,
         EdgeKeyHash>;
 
+//=============================================================================
+// Flat edge
+//=============================================================================
+//
+// Flat edge representation used for parallel topology construction.
+//
+// Each STL facet contributes exactly three FlatEdge records. The canonical
+// EdgeKey identifies the undirected geometric edge, while EdgeUse retains
+// the facet ID and the original traversal direction.
+//
+
+struct FlatEdge
+{
+    EdgeKey key;
+    EdgeUse use;
+};
+
 //===============================================================================
 // STL helpers
 //===============================================================================
@@ -482,6 +499,218 @@ bool edgeForward(
     const std::size_t b)
 {
     return a < b;
+}
+
+void buildFlatEdges(
+    const GeometricVertices& geometry,
+    std::vector<FlatEdge>& flatEdges)
+{
+    const std::size_t facetCount =
+        geometry.facetVertexIDs.size();
+
+
+    //-------------------------------------------------------------------------
+    // Allocate exactly three edge records for every triangular facet.
+    //-------------------------------------------------------------------------
+
+    flatEdges.resize(
+        facetCount * 3);
+
+
+    //-------------------------------------------------------------------------
+    // Generate edges in parallel.
+    //
+    // Facet i writes only:
+    //
+    //     flatEdges[3*i + 0]
+    //     flatEdges[3*i + 1]
+    //     flatEdges[3*i + 2]
+    //
+    // Therefore no synchronization is required.
+    //-------------------------------------------------------------------------
+
+    #pragma omp parallel for schedule(static)
+
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                facetCount);
+        ++index)
+    {
+        const std::size_t facetID =
+            static_cast<std::size_t>(
+                index);
+
+
+        const auto& vertices =
+            geometry.facetVertexIDs[
+                facetID];
+
+
+        const std::array<
+            std::pair<std::size_t,std::size_t>,
+            3>
+            edges =
+            {{
+                {vertices[0], vertices[1]},
+                {vertices[1], vertices[2]},
+                {vertices[2], vertices[0]}
+            }};
+
+
+        for(std::size_t e = 0;
+            e < 3;
+            ++e)
+        {
+            const std::size_t v0 =
+                edges[e].first;
+
+            const std::size_t v1 =
+                edges[e].second;
+
+
+            FlatEdge& flatEdge =
+                flatEdges[
+                    facetID * 3 + e];
+
+
+            flatEdge.key =
+                makeEdgeKey(
+                    v0,
+                    v1);
+
+
+            flatEdge.use = {
+                facetID,
+                edgeForward(v0,v1)
+            };
+        }
+    }
+}
+
+bool flatEdgeLess(
+    const FlatEdge& a,
+    const FlatEdge& b) noexcept
+{
+    if(a.key.v0 != b.key.v0)
+    {
+        return
+            a.key.v0 < b.key.v0;
+    }
+
+    if(a.key.v1 != b.key.v1)
+    {
+        return
+            a.key.v1 < b.key.v1;
+    }
+
+    if(a.use.facetID != b.use.facetID)
+    {
+        return
+            a.use.facetID < b.use.facetID;
+    }
+
+    return
+        static_cast<int>(a.use.forward) <
+        static_cast<int>(b.use.forward);
+}
+
+void validateFlatEdgesAgainstEdgeMap(
+    const std::vector<FlatEdge>& flatEdges,
+    const EdgeMap& edgeMap)
+{
+    //---------------------------------------------------------------------
+    // Expand the legacy EdgeMap into the same flat representation.
+    //----------------------------------------------------------------------
+
+    std::vector<FlatEdge>
+        legacyEdges;
+
+    legacyEdges.reserve(
+        flatEdges.size());
+
+
+    for(const auto& item : edgeMap)
+    {
+        const EdgeKey& key =
+            item.first;
+
+        const auto& uses =
+            item.second;
+
+
+        for(const auto& use : uses)
+        {
+            legacyEdges.push_back(
+                {
+                    key,
+                    use
+                });
+        }
+    }
+
+
+    //---------------------------------------------------------------------
+    // Both representations must contain exactly the same number of
+    // facet-edge uses.
+    //----------------------------------------------------------------------
+
+    if(legacyEdges.size() !=
+       flatEdges.size())
+    {
+        throw std::runtime_error(
+            "Internal STL topology error: "
+            "flat edge count does not match legacy edge topology.");
+    }
+
+
+    //---------------------------------------------------------------------
+    // Sort both representations into deterministic order.
+    //----------------------------------------------------------------------
+
+    std::vector<FlatEdge>
+        sortedFlatEdges =
+            flatEdges;
+
+
+    std::sort(
+        sortedFlatEdges.begin(),
+        sortedFlatEdges.end(),
+        flatEdgeLess);
+
+
+    std::sort(
+        legacyEdges.begin(),
+        legacyEdges.end(),
+        flatEdgeLess);
+
+
+    //---------------------------------------------------------------------
+    // Compare every canonical edge use.
+    //----------------------------------------------------------------------
+
+    for(std::size_t i = 0;
+        i < sortedFlatEdges.size();
+        ++i)
+    {
+        const auto& a =
+            sortedFlatEdges[i];
+
+        const auto& b =
+            legacyEdges[i];
+
+
+        if(a.key.v0 != b.key.v0 ||
+           a.key.v1 != b.key.v1 ||
+           a.use.facetID != b.use.facetID ||
+           a.use.forward != b.use.forward)
+        {
+            throw std::runtime_error(
+                "Internal STL topology error: "
+                "flat edge representation does not match "
+                "legacy edge topology.");
+        }
+    }
 }
 
 void buildEdgeTopology(
@@ -1393,13 +1622,40 @@ void validateTopologyWindingAndComponents(
     FacetTopology& topology)
 {
     //-------------------------------------------------------------------------
-    // Build edge topology
+    // Build legacy edge topology.
+    //
+    // This path remains authoritative during the current refactoring stage.
     //-------------------------------------------------------------------------
 
     EdgeMap edgeMap;
 
     buildEdgeTopology(
         topology.geometry,
+        edgeMap);
+
+
+    //-------------------------------------------------------------------------
+    // Build the new flat edge representation.
+    //-------------------------------------------------------------------------
+
+    std::vector<FlatEdge>
+        flatEdges;
+
+    buildFlatEdges(
+        topology.geometry,
+        flatEdges);
+
+
+    //-------------------------------------------------------------------------
+    // Verify that the new parallel flat representation is exactly equivalent
+    // to the existing edge topology.
+    //
+    // This consistency check is temporary and will be removed once the flat
+    // edge representation becomes the authoritative topology path.
+    //-------------------------------------------------------------------------
+
+    validateFlatEdgesAgainstEdgeMap(
+        flatEdges,
         edgeMap);
 
 
