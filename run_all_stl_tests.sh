@@ -5,6 +5,11 @@ NORMAL_APP=./build/input/stl/test_stl_normal_reconstruction
 
 STL_DIR=tests/input_tests/stl_tests/stls
 
+#=============================================================================
+# STL reader tests
+#=============================================================================
+
+$APP $STL_DIR/valid_binary.stl valid test
 
 #==============================================================================
 # 1. Degenerate facet tests
