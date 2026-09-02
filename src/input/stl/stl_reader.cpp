@@ -429,15 +429,6 @@ STLVector readASCIIVector(
             std::to_string(facetIndex) + ".");
     }
 
-    if (!isFinite(value)) {
-        throwError(
-            path,
-            "non-finite " +
-            std::string(description) +
-            " in facet " +
-            std::to_string(facetIndex) + ".");
-    }
-
     return value;
 }
 
@@ -545,6 +536,14 @@ STLData readASCII(const std::filesystem::path& path)
                     path,
                     facetIndex,
                     "vertex");
+            
+            if (!isFinite(
+                    facet.vertices[v])) {
+
+                throwError(
+                    path,
+                    "non-finite vertex.");
+            }
         }
 
         expect(
