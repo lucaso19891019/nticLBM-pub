@@ -20,8 +20,6 @@ namespace {
 
 constexpr double COLLINEAR_TOLERANCE       = 1.0e-7;
 
-constexpr double NORMAL_DIRECTION_TOLERANCE = 1.0e-7;
-
 constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
 
 constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
@@ -959,44 +957,29 @@ void validateDegenerateFacets(
     }
 }
 
-
 //=============================================================================
-// 2. Facet normals
+// 2. Facet normal reconstruction
 //=============================================================================
 //
-// Validate the normal stored in each STL facet.
+// Reconstruct the normal of each STL facet directly from its vertex winding.
 //
-// For every facet, the geometric normal will be computed from the vertex
-// winding:
+// For every facet, the geometric normal is computed as:
 //
 //     (v1 - v0) x (v2 - v0)
 //
-// This stage will check:
+// The vertex winding is the authoritative geometric orientation.
 //
-//   - zero or invalid stored normals
-//   - consistency between the stored STL normal and vertex winding
-//   - normalization of the final facet normal
+// The normal stored in the STL file is not used to determine facet
+// orientation. It may be non-unit, zero, reversed, or otherwise unreliable.
 //
-// The vertex winding remains the authoritative geometric orientation.
-// The stored STL normal is treated as input information to be validated.
+// Degenerate facets have already been rejected in the previous stage, so the
+// reconstructed geometric normal is guaranteed to have non-zero magnitude.
 //
-void validateFacetNormals(STLData& data)
+// The final facet normal is normalized and stored back into STLData.
+//
+
+void reconstructFacetNormals(STLData& data)
 {
-    //-------------------------------------------------------------------------
-    // Validate every facet independently.
-    //
-    //   0 : valid
-    //   1 : non-finite stored normal
-    //   2 : zero or invalid stored normal
-    //   3 : stored normal inconsistent with vertex winding
-    //-------------------------------------------------------------------------
-
-    std::vector<unsigned char>
-        errors(
-            data.facets.size(),
-            0);
-
-
     #pragma omp parallel for schedule(static)
     for (std::ptrdiff_t index = 0;
          index <
@@ -1005,40 +988,11 @@ void validateFacetNormals(STLData& data)
          ++index) {
 
         const std::size_t i =
-            static_cast<std::size_t>(index);
+            static_cast<std::size_t>(
+                index);
 
         auto& facet =
             data.facets[i];
-
-
-        //---------------------------------------------------------------------
-        // Check that the stored STL normal is finite and non-zero.
-        //---------------------------------------------------------------------
-
-        const double storedNx = facet.normal[0];
-        const double storedNy = facet.normal[1];
-        const double storedNz = facet.normal[2];
-
-        if (!std::isfinite(storedNx) ||
-            !std::isfinite(storedNy) ||
-            !std::isfinite(storedNz)) {
-
-            errors[i] = 1;
-            continue;
-        }
-
-
-        const double storedNormSquared =
-            storedNx * storedNx +
-            storedNy * storedNy +
-            storedNz * storedNz;
-
-        if (!std::isfinite(storedNormSquared) ||
-            storedNormSquared <= 0.0) {
-
-            errors[i] = 2;
-            continue;
-        }
 
 
         //---------------------------------------------------------------------
@@ -1046,66 +1000,61 @@ void validateFacetNormals(STLData& data)
         //
         //     n = (v1 - v0) x (v2 - v0)
         //
-        // Degenerate facets have already been rejected by the previous
-        // validation stage.
+        // Degenerate facets have already been rejected by Step 1.
         //---------------------------------------------------------------------
 
-        const auto& v0 = facet.vertices[0];
-        const auto& v1 = facet.vertices[1];
-        const auto& v2 = facet.vertices[2];
+        const auto& v0 =
+            facet.vertices[0];
 
-        const double e01x = v1[0] - v0[0];
-        const double e01y = v1[1] - v0[1];
-        const double e01z = v1[2] - v0[2];
+        const auto& v1 =
+            facet.vertices[1];
 
-        const double e02x = v2[0] - v0[0];
-        const double e02y = v2[1] - v0[1];
-        const double e02z = v2[2] - v0[2];
+        const auto& v2 =
+            facet.vertices[2];
+
+
+        const double e01x =
+            v1[0] - v0[0];
+
+        const double e01y =
+            v1[1] - v0[1];
+
+        const double e01z =
+            v1[2] - v0[2];
+
+
+        const double e02x =
+            v2[0] - v0[0];
+
+        const double e02y =
+            v2[1] - v0[1];
+
+        const double e02z =
+            v2[2] - v0[2];
+
 
         const double geometricNx =
-            e01y * e02z - e01z * e02y;
+            e01y * e02z -
+            e01z * e02y;
 
         const double geometricNy =
-            e01z * e02x - e01x * e02z;
+            e01z * e02x -
+            e01x * e02z;
 
         const double geometricNz =
-            e01x * e02y - e01y * e02x;
+            e01x * e02y -
+            e01y * e02x;
 
-        const double geometricNormSquared =
-            geometricNx * geometricNx +
-            geometricNy * geometricNy +
-            geometricNz * geometricNz;
 
         const double geometricNorm =
-            std::sqrt(geometricNormSquared);
+            std::sqrt(
+                geometricNx * geometricNx +
+                geometricNy * geometricNy +
+                geometricNz * geometricNz);
 
 
         //---------------------------------------------------------------------
-        // Check directional consistency between the stored STL normal and
-        // the normal implied by the vertex winding.
-        //---------------------------------------------------------------------
-
-        const double storedNorm =
-            std::sqrt(storedNormSquared);
-
-        const double alignment =
-            (storedNx * geometricNx +
-             storedNy * geometricNy +
-             storedNz * geometricNz) /
-            (storedNorm * geometricNorm);
-
-        if (!std::isfinite(alignment) ||
-            alignment <= NORMAL_DIRECTION_TOLERANCE) {
-
-            errors[i] = 3;
-            continue;
-        }
-
-
-        //---------------------------------------------------------------------
-        // Replace the stored STL normal with the unit geometric normal.
-        //
-        // Each OpenMP iteration modifies only its own facet.
+        // Replace the stored STL normal with the normalized geometric normal.
         //---------------------------------------------------------------------
 
         facet.normal[0] =
@@ -1116,44 +1065,6 @@ void validateFacetNormals(STLData& data)
 
         facet.normal[2] =
             geometricNz / geometricNorm;
-    }
-
-
-    //-------------------------------------------------------------------------
-    // Report the first invalid facet in STL order.
-    //-------------------------------------------------------------------------
-
-    for (std::size_t i = 0;
-         i < errors.size();
-         ++i) {
-
-        if (errors[i] == 1) {
-
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(i) +
-                " has an invalid stored normal.");
-        }
-
-        if (errors[i] == 2) {
-
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(i) +
-                " has a zero or invalid stored normal.");
-        }
-
-        if (errors[i] == 3) {
-
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(i) +
-                " has a stored normal inconsistent with "
-                "its vertex winding.");
-        }
     }
 }
 
@@ -1432,10 +1343,10 @@ void validate(
 
 
     //-------------------------------------------------------------------------
-    // 2. Facet normals
+    // 2. Facet normal reconstruction
     //-------------------------------------------------------------------------
 
-    validateFacetNormals(
+    reconstructFacetNormals(
         data);
 
 
