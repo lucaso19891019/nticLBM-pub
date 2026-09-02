@@ -11,7 +11,7 @@ namespace ntic::lbm::stl {
 // Validation is performed in several ordered stages:
 //
 // 1. Facet degeneracy check
-// 2. Facet normal check
+// 2. Facet normal reconstruction
 // 3. Duplicate facet check
 // 4. Surface topology, winding, and connected-component validation
 // 5. Component geometry validation
