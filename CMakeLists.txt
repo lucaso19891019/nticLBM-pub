@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.18)
 
 project(nticLBM LANGUAGES CXX)
 
+find_package(OpenMP REQUIRED)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -616,9 +618,14 @@ add_executable(test_stl_validator
 
 target_include_directories(
     test_stl_validator
-PRIVATE
-
+    PRIVATE
     src/input/stl
+)
+
+target_link_libraries(
+    test_stl_validator
+    PRIVATE
+    OpenMP::OpenMP_CXX
 )
 
 set_input_stl_test_output(test_stl_validator)
@@ -637,9 +644,14 @@ add_executable(test_stl_normal_reconstruction
 
 target_include_directories(
     test_stl_normal_reconstruction
-PRIVATE
-
+    PRIVATE
     src/input/stl
+)
+
+target_link_libraries(
+    test_stl_normal_reconstruction
+    PRIVATE
+    OpenMP::OpenMP_CXX
 )
 
 set_input_stl_test_output(test_stl_normal_reconstruction)
