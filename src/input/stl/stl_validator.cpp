@@ -688,47 +688,119 @@ void computeComponentBounds(
 {
     for(auto& component : components)
     {
-        GeometryBounds bounds;
+        const auto firstFacetID =
+            component.facets[0];
 
+        const auto firstVertexID =
+            geometry.facetVertexIDs[
+                firstFacetID][0];
 
-        bounds.min =
+        const auto& firstPoint =
             geometry.vertices[
-                geometry.facetVertexIDs[
-                    component.facets[0]][0]
-            ];
-
-        bounds.max = bounds.min;
+                firstVertexID];
 
 
-        for(auto facetID : component.facets)
+        double minX = firstPoint[0];
+        double minY = firstPoint[1];
+        double minZ = firstPoint[2];
+
+        double maxX = firstPoint[0];
+        double maxY = firstPoint[1];
+        double maxZ = firstPoint[2];
+
+
+        //---------------------------------------------------------------------
+        // Compute component bounds in parallel over its facets.
+        //---------------------------------------------------------------------
+
+        #pragma omp parallel for \
+            reduction(min:minX,minY,minZ) \
+            reduction(max:maxX,maxY,maxZ) \
+            schedule(static)
+
+        for(std::ptrdiff_t index = 0;
+            index <
+                static_cast<std::ptrdiff_t>(
+                    component.facets.size());
+            ++index)
         {
-            for(auto vertexID :
-                geometry.facetVertexIDs[facetID])
+            const std::size_t facetID =
+                component.facets[
+                    static_cast<std::size_t>(
+                        index)];
+
+
+            const auto& vertexIDs =
+                geometry.facetVertexIDs[
+                    facetID];
+
+
+            for(std::size_t v = 0;
+                v < 3;
+                ++v)
             {
                 const auto& p =
-                    geometry.vertices[vertexID];
+                    geometry.vertices[
+                        vertexIDs[v]];
 
 
-                for(int d=0; d<3; d++)
-                {
-                    bounds.min[d] =
-                        std::min(bounds.min[d],p[d]);
+                minX =
+                    std::min(
+                        minX,
+                        p[0]);
 
-                    bounds.max[d] =
-                        std::max(bounds.max[d],p[d]);
-                }
+                minY =
+                    std::min(
+                        minY,
+                        p[1]);
+
+                minZ =
+                    std::min(
+                        minZ,
+                        p[2]);
+
+
+                maxX =
+                    std::max(
+                        maxX,
+                        p[0]);
+
+                maxY =
+                    std::max(
+                        maxY,
+                        p[1]);
+
+                maxZ =
+                    std::max(
+                        maxZ,
+                        p[2]);
             }
         }
 
 
+        GeometryBounds bounds;
+
+        bounds.min = {
+            minX,
+            minY,
+            minZ
+        };
+
+        bounds.max = {
+            maxX,
+            maxY,
+            maxZ
+        };
+
+
         const double dx =
-            bounds.max[0] - bounds.min[0];
+            maxX - minX;
 
         const double dy =
-            bounds.max[1] - bounds.min[1];
+            maxY - minY;
 
         const double dz =
-            bounds.max[2] - bounds.min[2];
+            maxZ - minZ;
 
 
         bounds.scale =
@@ -763,53 +835,85 @@ double computeSignedVolume(
          component.bounds.max[2]);
 
 
-    long double volume = 0.0L;
+    long double volume =
+        0.0L;
 
 
-    for(const auto facetID : component.facets)
+    //---------------------------------------------------------------------
+    // Accumulate signed tetrahedral volumes in parallel.
+    //---------------------------------------------------------------------
+
+    #pragma omp parallel for \
+        reduction(+:volume) \
+        schedule(static)
+
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                component.facets.size());
+        ++index)
     {
+        const std::size_t facetID =
+            component.facets[
+                static_cast<std::size_t>(
+                    index)];
+
+
         const auto& ids =
-            geometry.facetVertexIDs[facetID];
+            geometry.facetVertexIDs[
+                facetID];
 
 
         const auto& v0 =
-            geometry.vertices[ids[0]];
+            geometry.vertices[
+                ids[0]];
 
         const auto& v1 =
-            geometry.vertices[ids[1]];
+            geometry.vertices[
+                ids[1]];
 
         const auto& v2 =
-            geometry.vertices[ids[2]];
+            geometry.vertices[
+                ids[2]];
 
 
         const long double x0 =
-            static_cast<long double>(v0[0] - referenceX);
+            static_cast<long double>(
+                v0[0] - referenceX);
 
         const long double y0 =
-            static_cast<long double>(v0[1] - referenceY);
+            static_cast<long double>(
+                v0[1] - referenceY);
 
         const long double z0 =
-            static_cast<long double>(v0[2] - referenceZ);
+            static_cast<long double>(
+                v0[2] - referenceZ);
 
 
         const long double x1 =
-            static_cast<long double>(v1[0] - referenceX);
+            static_cast<long double>(
+                v1[0] - referenceX);
 
         const long double y1 =
-            static_cast<long double>(v1[1] - referenceY);
+            static_cast<long double>(
+                v1[1] - referenceY);
 
         const long double z1 =
-            static_cast<long double>(v1[2] - referenceZ);
+            static_cast<long double>(
+                v1[2] - referenceZ);
 
 
         const long double x2 =
-            static_cast<long double>(v2[0] - referenceX);
+            static_cast<long double>(
+                v2[0] - referenceX);
 
         const long double y2 =
-            static_cast<long double>(v2[1] - referenceY);
+            static_cast<long double>(
+                v2[1] - referenceY);
 
         const long double z2 =
-            static_cast<long double>(v2[2] - referenceZ);
+            static_cast<long double>(
+                v2[2] - referenceZ);
 
 
         volume +=
