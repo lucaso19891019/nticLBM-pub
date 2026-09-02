@@ -26,6 +26,24 @@ constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
 
 constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
 
+enum class FacetValidationError
+{
+    None,
+
+    CoincidentVertices,
+    CollinearVertices,
+
+    InvalidStoredNormal,
+    InconsistentStoredNormal
+};
+
+
+struct FacetValidationResult
+{
+    FacetValidationError error =
+        FacetValidationError::None;
+};
+
 //=============================================================================
 // Spatial bin key
 //=============================================================================
