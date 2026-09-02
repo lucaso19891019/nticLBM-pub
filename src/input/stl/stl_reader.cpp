@@ -277,8 +277,7 @@ STLData readBinary(const std::filesystem::path& path)
     // Error codes:
     //
     //   0 : valid
-    //   1 : non-finite normal
-    //   2 : non-finite vertex
+    //   1 : non-finite vertex
     //
     // Exceptions are raised after the parallel region so that the lowest
     // invalid facet ID is reported deterministically.
@@ -345,19 +344,14 @@ STLData readBinary(const std::filesystem::path& path)
         // Validate parsed floating-point values.
         //---------------------------------------------------------------------
 
-        if (!isFinite(facet.normal)) {
-            errors[i] = 1;
-            continue;
-        }
-
         for (std::size_t v = 0;
-             v < 3;
-             ++v) {
+            v < 3;
+            ++v) {
 
             if (!isFinite(
                     facet.vertices[v])) {
 
-                errors[i] = 2;
+                errors[i] = 1;
                 break;
             }
         }
@@ -373,14 +367,6 @@ STLData readBinary(const std::filesystem::path& path)
          ++i) {
 
         if (errors[i] == 1) {
-
-            throwError(
-                path,
-                "non-finite normal in facet " +
-                std::to_string(i) + ".");
-        }
-
-        if (errors[i] == 2) {
 
             throwError(
                 path,
