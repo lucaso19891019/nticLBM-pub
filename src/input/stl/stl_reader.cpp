@@ -641,4 +641,4 @@ STLData read(const std::filesystem::path& path)
     return readASCII(path);
 }
 
-} // namespace ntic::lbm::input::stl
+} // namespace ntic::lbm::stl
