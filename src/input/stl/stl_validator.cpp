@@ -31,8 +31,9 @@ constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
 // Low triangle quality is reported as a warning because highly elongated
 // facets may occur in otherwise valid STL geometry.
 //
-// Facet area is separately limited relative to the average area of all STL
-// facets.
+// Unusually large facet area is also reported as a warning because strongly
+// non-uniform facet sizes may reduce the efficiency of the later
+// centroid-based spatial search.
 
 constexpr double MIN_FACET_QUALITY =
     0.2;
@@ -540,7 +541,7 @@ double computeFacetGeometry(
 }
 
 
-void validateFacetMeshQuality(
+void checkFacetMeshQuality(
     const std::vector<FacetGeometry>& facetGeometry,
     const double averageFacetArea)
 {
@@ -552,26 +553,22 @@ void validateFacetMeshQuality(
     //-------------------------------------------------------------------------
     // Inspect every facet independently.
     //
-    // Low triangle quality is diagnostic only and is reported as one
-    // summarized warning after the parallel region.
+    // Low triangle quality and unusually large facet area are mesh-quality
+    // diagnostics only. They do not make the STL geometry invalid.
     //
-    // Excessively large facet area remains a validation error. Error flags
-    // are stored per facet so that the lowest invalid facet ID is reported
-    // deterministically.
+    // Both conditions are accumulated in parallel and reported as summarized
+    // warnings after the parallel region.
     //-------------------------------------------------------------------------
-
-    std::vector<unsigned char>
-        areaErrors(
-            facetGeometry.size(),
-            0);
-
 
     std::size_t lowQualityCount =
         0;
 
+    std::size_t oversizedFacetCount =
+        0;
+
 
     #pragma omp parallel for \
-        reduction(+:lowQualityCount) \
+        reduction(+:lowQualityCount,oversizedFacetCount) \
         schedule(static)
 
     for(std::ptrdiff_t index = 0;
@@ -599,13 +596,13 @@ void validateFacetMeshQuality(
         if(geometry.area >
            maximumFacetArea)
         {
-            areaErrors[facetID] = 1;
+            ++oversizedFacetCount;
         }
     }
 
 
     //-------------------------------------------------------------------------
-    // Report low-quality facets as one summarized warning.
+    // Report summarized mesh-quality warnings.
     //-------------------------------------------------------------------------
 
     if(lowQualityCount > 0)
@@ -621,23 +618,16 @@ void validateFacetMeshQuality(
     }
 
 
-    //-------------------------------------------------------------------------
-    // Report the first excessive-area facet in deterministic STL order.
-    //-------------------------------------------------------------------------
-
-    for(std::size_t facetID = 0;
-        facetID < areaErrors.size();
-        ++facetID)
+    if(oversizedFacetCount > 0)
     {
-        if(areaErrors[facetID] != 0)
-        {
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(facetID) +
-                " has an area excessively larger than "
-                "the average facet area.");
-        }
+        std::cerr
+            << "Warning: STL geometry contains "
+            << oversizedFacetCount
+            << " oversized facets "
+            << "(area > "
+            << MAX_FACET_AREA_RATIO
+            << " times the average facet area)."
+            << std::endl;
     }
 }
 
@@ -2105,7 +2095,7 @@ void validate(
             topology.facetGeometry);
 
 
-    validateFacetMeshQuality(
+    checkFacetMeshQuality(
         topology.facetGeometry,
         averageFacetArea);
 
