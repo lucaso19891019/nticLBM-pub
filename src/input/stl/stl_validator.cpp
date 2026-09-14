@@ -624,20 +624,7 @@ void validateFacetMeshQuality(
                 "Invalid STL geometry: "
                 "facet " +
                 std::to_string(facetID) +
-                " has excessively poor triangle quality. "
-                "quality = " +
-                std::to_string(
-                    facetGeometry[facetID].quality) +
-                ", area = " +
-                std::to_string(
-                    facetGeometry[facetID].area) +
-                ", centroidRadius = " +
-                std::to_string(
-                    facetGeometry[facetID].centroidRadius) +
-                ", averageArea = " +
-                std::to_string(
-                    averageFacetArea) +
-                ".");
+                " has excessively poor triangle quality.");
         }
 
         if(errors[facetID] == 2)
