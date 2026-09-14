@@ -25,6 +25,32 @@ constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
 constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
 
 //=============================================================================
+// Facet mesh-quality limits
+//=============================================================================
+//
+// Triangle quality is defined as:
+//
+//                 4 * sqrt(3) * A
+//     quality = ---------------------
+//                e0^2 + e1^2 + e2^2
+//
+// where A is the facet area and e0, e1, and e2 are the three edge lengths.
+//
+// An equilateral triangle has quality = 1. Increasingly elongated triangles
+// approach quality = 0.
+//
+// Facet area is also limited relative to the average area of all STL facets.
+// These constraints establish the mesh regularity required by the later
+// centroid-based spatial search.
+//
+
+constexpr double MIN_FACET_QUALITY =
+    0.2;
+
+constexpr double MAX_FACET_AREA_RATIO =
+    4.0;
+
+//=============================================================================
 // Spatial bin key
 //=============================================================================
 
@@ -267,6 +293,351 @@ GeometryBounds computeGeometryBounds(const STLData& data)
 
 
     return bounds;
+}
+
+//=============================================================================
+// Facet geometry
+//=============================================================================
+
+double computeFacetGeometry(
+    const STLData& data,
+    std::vector<FacetGeometry>& facetGeometry)
+{
+    const std::size_t facetCount =
+        data.facets.size();
+
+
+    facetGeometry.resize(
+        facetCount);
+
+
+    double totalArea =
+        0.0;
+
+
+    //-------------------------------------------------------------------------
+    // Compute all per-facet geometric quantities in parallel.
+    //
+    // Each iteration writes exclusively to facetGeometry[i]. The total facet
+    // area is accumulated through an OpenMP reduction.
+    //-------------------------------------------------------------------------
+
+    #pragma omp parallel for \
+        reduction(+:totalArea) \
+        schedule(static)
+
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                facetCount);
+        ++index)
+    {
+        const std::size_t facetID =
+            static_cast<std::size_t>(
+                index);
+
+
+        const auto& facet =
+            data.facets[facetID];
+
+        const auto& v0 =
+            facet.vertices[0];
+
+        const auto& v1 =
+            facet.vertices[1];
+
+        const auto& v2 =
+            facet.vertices[2];
+
+
+        //---------------------------------------------------------------------
+        // Compute facet centroid.
+        //---------------------------------------------------------------------
+
+        const STLVector centroid =
+        {
+            (v0[0] + v1[0] + v2[0]) / 3.0,
+            (v0[1] + v1[1] + v2[1]) / 3.0,
+            (v0[2] + v1[2] + v2[2]) / 3.0
+        };
+
+
+        //---------------------------------------------------------------------
+        // Compute the three squared edge lengths.
+        //---------------------------------------------------------------------
+
+        const double e01x =
+            v1[0] - v0[0];
+
+        const double e01y =
+            v1[1] - v0[1];
+
+        const double e01z =
+            v1[2] - v0[2];
+
+
+        const double e12x =
+            v2[0] - v1[0];
+
+        const double e12y =
+            v2[1] - v1[1];
+
+        const double e12z =
+            v2[2] - v1[2];
+
+
+        const double e20x =
+            v0[0] - v2[0];
+
+        const double e20y =
+            v0[1] - v2[1];
+
+        const double e20z =
+            v0[2] - v2[2];
+
+
+        const double e01Squared =
+            e01x * e01x +
+            e01y * e01y +
+            e01z * e01z;
+
+        const double e12Squared =
+            e12x * e12x +
+            e12y * e12y +
+            e12z * e12z;
+
+        const double e20Squared =
+            e20x * e20x +
+            e20y * e20y +
+            e20z * e20z;
+
+
+        //---------------------------------------------------------------------
+        // Compute facet area from:
+        //
+        //     0.5 * |(v1 - v0) x (v2 - v0)|
+        //---------------------------------------------------------------------
+
+        const double e02x =
+            v2[0] - v0[0];
+
+        const double e02y =
+            v2[1] - v0[1];
+
+        const double e02z =
+            v2[2] - v0[2];
+
+
+        const double nx =
+            e01y * e02z -
+            e01z * e02y;
+
+        const double ny =
+            e01z * e02x -
+            e01x * e02z;
+
+        const double nz =
+            e01x * e02y -
+            e01y * e02x;
+
+
+        const double area =
+            0.5 *
+            std::sqrt(
+                nx * nx +
+                ny * ny +
+                nz * nz);
+
+
+        //---------------------------------------------------------------------
+        // Compute dimensionless triangle quality.
+        //
+        // An equilateral triangle has quality = 1. The value approaches zero
+        // as the triangle becomes increasingly elongated.
+        //---------------------------------------------------------------------
+
+        const double quality =
+            4.0 *
+            std::sqrt(3.0) *
+            area /
+            (e01Squared +
+             e12Squared +
+             e20Squared);
+
+
+        //---------------------------------------------------------------------
+        // Compute the maximum distance from the centroid to the three
+        // vertices.
+        //---------------------------------------------------------------------
+
+        const double r0x =
+            v0[0] - centroid[0];
+
+        const double r0y =
+            v0[1] - centroid[1];
+
+        const double r0z =
+            v0[2] - centroid[2];
+
+
+        const double r1x =
+            v1[0] - centroid[0];
+
+        const double r1y =
+            v1[1] - centroid[1];
+
+        const double r1z =
+            v1[2] - centroid[2];
+
+
+        const double r2x =
+            v2[0] - centroid[0];
+
+        const double r2y =
+            v2[1] - centroid[1];
+
+        const double r2z =
+            v2[2] - centroid[2];
+
+
+        const double r0Squared =
+            r0x * r0x +
+            r0y * r0y +
+            r0z * r0z;
+
+        const double r1Squared =
+            r1x * r1x +
+            r1y * r1y +
+            r1z * r1z;
+
+        const double r2Squared =
+            r2x * r2x +
+            r2y * r2y +
+            r2z * r2z;
+
+
+        const double centroidRadius =
+            std::sqrt(
+                std::max(
+                    r0Squared,
+                    std::max(
+                        r1Squared,
+                        r2Squared)));
+
+
+        //---------------------------------------------------------------------
+        // Store the per-facet geometric information.
+        //---------------------------------------------------------------------
+
+        facetGeometry[facetID] =
+        {
+            centroid,
+            area,
+            quality,
+            centroidRadius
+        };
+
+
+        totalArea +=
+            area;
+    }
+
+
+    return
+        totalArea /
+        static_cast<double>(
+            facetCount);
+}
+
+
+void validateFacetMeshQuality(
+    const std::vector<FacetGeometry>& facetGeometry,
+    const double averageFacetArea)
+{
+    const double maximumFacetArea =
+        MAX_FACET_AREA_RATIO *
+        averageFacetArea;
+
+
+    //-------------------------------------------------------------------------
+    // Validate every facet independently.
+    //
+    // Error codes are stored per facet during the parallel region. Exceptions
+    // are raised afterwards so that validation remains deterministic and the
+    // lowest invalid facet ID is always reported.
+    //
+    //   0 : valid
+    //   1 : excessively poor triangle quality
+    //   2 : facet area excessively larger than the STL average
+    //-------------------------------------------------------------------------
+
+    std::vector<unsigned char>
+        errors(
+            facetGeometry.size(),
+            0);
+
+
+    #pragma omp parallel for schedule(static)
+
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                facetGeometry.size());
+        ++index)
+    {
+        const std::size_t facetID =
+            static_cast<std::size_t>(
+                index);
+
+
+        const auto& geometry =
+            facetGeometry[facetID];
+
+
+        if(geometry.quality <
+           MIN_FACET_QUALITY)
+        {
+            errors[facetID] = 1;
+            continue;
+        }
+
+
+        if(geometry.area >
+           maximumFacetArea)
+        {
+            errors[facetID] = 2;
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Report the first invalid facet in STL order.
+    //-------------------------------------------------------------------------
+
+    for(std::size_t facetID = 0;
+        facetID < errors.size();
+        ++facetID)
+    {
+        if(errors[facetID] == 1)
+        {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(facetID) +
+                " has excessively poor triangle quality.");
+        }
+
+
+        if(errors[facetID] == 2)
+        {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "facet " +
+                std::to_string(facetID) +
+                " has an area excessively larger than "
+                "the average facet area.");
+        }
+    }
 }
 
 BinKey makeBinKey(
@@ -1717,6 +2088,25 @@ void validate(
 
     reconstructFacetNormals(
         data);
+
+
+    //-------------------------------------------------------------------------
+    // Compute and validate per-facet geometric information.
+    //
+    // Degenerate facets have already been rejected by Step 1. The resulting
+    // centroid and characteristic facet dimensions are retained for the
+    // centroid-based spatial search used during geometric vertex welding.
+    //-------------------------------------------------------------------------
+
+    const double averageFacetArea =
+        computeFacetGeometry(
+            data,
+            topology.facetGeometry);
+
+
+    validateFacetMeshQuality(
+        topology.facetGeometry,
+        averageFacetArea);
 
 
     //-------------------------------------------------------------------------
