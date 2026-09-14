@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -24,25 +25,14 @@ constexpr double RELATIVE_VERTEX_TOLERANCE = 1.0e-7;
 
 constexpr double RELATIVE_VOLUME_TOLERANCE  = 1.0e-12;
 
-//=============================================================================
-// Facet mesh-quality limits
-//=============================================================================
-//
-// Triangle quality is defined as:
-//
-//                 4 * sqrt(3) * A
-//     quality = ---------------------
-//                e0^2 + e1^2 + e2^2
-//
-// where A is the facet area and e0, e1, and e2 are the three edge lengths.
-//
 // An equilateral triangle has quality = 1. Increasingly elongated triangles
 // approach quality = 0.
 //
-// Facet area is also limited relative to the average area of all STL facets.
-// These constraints establish the mesh regularity required by the later
-// centroid-based spatial search.
+// Low triangle quality is reported as a warning because highly elongated
+// facets may occur in otherwise valid STL geometry.
 //
+// Facet area is separately limited relative to the average area of all STL
+// facets.
 
 constexpr double MIN_FACET_QUALITY =
     0.2;
@@ -560,24 +550,29 @@ void validateFacetMeshQuality(
 
 
     //-------------------------------------------------------------------------
-    // Validate every facet independently.
+    // Inspect every facet independently.
     //
-    // Error codes are stored per facet during the parallel region. Exceptions
-    // are raised afterwards so that validation remains deterministic and the
-    // lowest invalid facet ID is always reported.
+    // Low triangle quality is diagnostic only and is reported as one
+    // summarized warning after the parallel region.
     //
-    //   0 : valid
-    //   1 : excessively poor triangle quality
-    //   2 : facet area excessively larger than the STL average
+    // Excessively large facet area remains a validation error. Error flags
+    // are stored per facet so that the lowest invalid facet ID is reported
+    // deterministically.
     //-------------------------------------------------------------------------
 
     std::vector<unsigned char>
-        errors(
+        areaErrors(
             facetGeometry.size(),
             0);
 
 
-    #pragma omp parallel for schedule(static)
+    std::size_t lowQualityCount =
+        0;
+
+
+    #pragma omp parallel for \
+        reduction(+:lowQualityCount) \
+        schedule(static)
 
     for(std::ptrdiff_t index = 0;
         index <
@@ -597,37 +592,44 @@ void validateFacetMeshQuality(
         if(geometry.quality <
            MIN_FACET_QUALITY)
         {
-            errors[facetID] = 1;
-            continue;
+            ++lowQualityCount;
         }
 
 
         if(geometry.area >
            maximumFacetArea)
         {
-            errors[facetID] = 2;
+            areaErrors[facetID] = 1;
         }
     }
 
 
     //-------------------------------------------------------------------------
-    // Report the first invalid facet in STL order.
+    // Report low-quality facets as one summarized warning.
+    //-------------------------------------------------------------------------
+
+    if(lowQualityCount > 0)
+    {
+        std::cerr
+            << "Warning: STL geometry contains "
+            << lowQualityCount
+            << " low-quality facets "
+            << "(quality < "
+            << MIN_FACET_QUALITY
+            << ")."
+            << std::endl;
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Report the first excessive-area facet in deterministic STL order.
     //-------------------------------------------------------------------------
 
     for(std::size_t facetID = 0;
-        facetID < errors.size();
+        facetID < areaErrors.size();
         ++facetID)
     {
-        if(errors[facetID] == 1)
-        {
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "facet " +
-                std::to_string(facetID) +
-                " has excessively poor triangle quality.");
-        }
-
-        if(errors[facetID] == 2)
+        if(areaErrors[facetID] != 0)
         {
             throw std::runtime_error(
                 "Invalid STL geometry: "
