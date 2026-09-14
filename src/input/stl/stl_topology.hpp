@@ -62,10 +62,24 @@ struct EdgeKey
     }
 };
 
+struct FacetGeometry
+{
+    std::array<double,3> centroid{};
+
+    double area = 0.0;
+
+    double quality = 0.0;
+
+    double centroidRadius = 0.0;
+};
+
 
 struct FacetTopology
 {
     GeometricVertices geometry;
+
+    std::vector<FacetGeometry>
+        facetGeometry;
 
     std::vector<std::array<std::size_t,3>>
         adjacency;
