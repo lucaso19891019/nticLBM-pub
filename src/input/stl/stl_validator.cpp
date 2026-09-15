@@ -1159,7 +1159,7 @@ void buildCandidateFacetPairs(
     //-------------------------------------------------------------------------
 
     common::parallelSort(
-        facetPairs,
+        pairs,
         facetPairLess);
 
     pairs.erase(
