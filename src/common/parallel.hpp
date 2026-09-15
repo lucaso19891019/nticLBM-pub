@@ -28,4 +28,22 @@ void parallelSort(
         compare);
 }
 
+template<typename InputIt,
+         typename OutputIt,
+         typename T>
+void parallelScan(
+    InputIt first,
+    InputIt last,
+    OutputIt result,
+    T init)
+{
+    T sum = init;
+
+    for (; first != last; ++first, ++result)
+    {
+        *result = sum;
+        sum += *first;
+    }
+}
+
 }
