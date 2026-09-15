@@ -214,6 +214,8 @@ struct VertexPair
 using VertexPairs =
     std::vector<VertexPair>;
 
+using RawVertexRepresentatives =
+    std::vector<std::size_t>;
 
 bool vertexPairLess(
     const VertexPair& a,
@@ -1339,6 +1341,257 @@ void buildCandidateVertexPairs(
             vertexPairs.begin(),
             vertexPairs.end()),
         vertexPairs.end());
+}
+
+void buildRawVertexRepresentatives(
+    const STLData& data,
+    const VertexPairs& vertexPairs,
+    RawVertexRepresentatives& representatives)
+{
+    const std::size_t rawVertexCount =
+        data.facets.size() * 3;
+
+
+    //-------------------------------------------------------------------------
+    // Initialize the disjoint-set forest.
+    //
+    // Every raw STL vertex initially belongs to its own set.
+    //-------------------------------------------------------------------------
+
+    std::vector<std::size_t> parent(
+        rawVertexCount);
+
+    std::vector<std::size_t> rank(
+        rawVertexCount,
+        0);
+
+
+    for (std::size_t i = 0;
+         i < rawVertexCount;
+         ++i)
+    {
+        parent[i] = i;
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Find with path compression.
+    //-------------------------------------------------------------------------
+
+    const auto findRoot =
+        [&parent](std::size_t vertex)
+        {
+            std::size_t root =
+                vertex;
+
+            while (parent[root] != root)
+            {
+                root =
+                    parent[root];
+            }
+
+
+            while (parent[vertex] != vertex)
+            {
+                const std::size_t next =
+                    parent[vertex];
+
+                parent[vertex] =
+                    root;
+
+                vertex =
+                    next;
+            }
+
+            return root;
+        };
+
+
+    //-------------------------------------------------------------------------
+    // Union every matching raw-vertex pair.
+    //
+    // This implementation is intentionally serial. It serves as the reference
+    // implementation while the new spatial welding path is being validated.
+    //-------------------------------------------------------------------------
+
+    for (const VertexPair& pair :
+         vertexPairs)
+    {
+        std::size_t rootA =
+            findRoot(pair.first);
+
+        std::size_t rootB =
+            findRoot(pair.second);
+
+
+        if (rootA == rootB)
+        {
+            continue;
+        }
+
+
+        if (rank[rootA] < rank[rootB])
+        {
+            std::swap(
+                rootA,
+                rootB);
+        }
+
+
+        parent[rootB] =
+            rootA;
+
+
+        if (rank[rootA] == rank[rootB])
+        {
+            ++rank[rootA];
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Store the final representative of every raw STL vertex.
+    //-------------------------------------------------------------------------
+
+    representatives.resize(
+        rawVertexCount);
+
+
+    for (std::size_t i = 0;
+         i < rawVertexCount;
+         ++i)
+    {
+        representatives[i] =
+            findRoot(i);
+    }
+}
+
+void buildLegacyRawVertexRepresentatives(
+    const GeometricVertices& geometry,
+    RawVertexRepresentatives& representatives)
+{
+    const std::size_t facetCount =
+        geometry.facetVertexIDs.size();
+
+    representatives.resize(
+        facetCount * 3);
+
+
+    #pragma omp parallel for schedule(static)
+    for (std::int64_t facetID = 0;
+         facetID <
+             static_cast<std::int64_t>(
+                 facetCount);
+         ++facetID)
+    {
+        const auto& vertexIDs =
+            geometry.facetVertexIDs[
+                static_cast<std::size_t>(
+                    facetID)];
+
+
+        for (std::size_t localVertex = 0;
+             localVertex < 3;
+             ++localVertex)
+        {
+            const std::size_t rawVertexID =
+                static_cast<std::size_t>(
+                    facetID) * 3 +
+                localVertex;
+
+            representatives[
+                rawVertexID] =
+                    vertexIDs[
+                        localVertex];
+        }
+    }
+}
+
+void validateWeldingEquivalence(
+    const RawVertexRepresentatives& legacyRepresentatives,
+    const RawVertexRepresentatives& newRepresentatives)
+{
+    if (legacyRepresentatives.size() !=
+        newRepresentatives.size())
+    {
+        throw std::runtime_error(
+            "Internal STL validation error: "
+            "legacy and new vertex welding paths have "
+            "different raw vertex counts.");
+    }
+
+
+    const std::size_t rawVertexCount =
+        legacyRepresentatives.size();
+
+    //-------------------------------------------------------------------------
+    // The IDs used by the two welding implementations are unrelated.
+    //
+    // Therefore compare the partitions rather than the numerical IDs:
+    //
+    //     new component -> exactly one legacy component
+    //     legacy component -> exactly one new component
+    //
+    // Together these two mappings prove that both implementations partition
+    // the raw STL vertices identically.
+    //-------------------------------------------------------------------------
+
+    std::unordered_map<std::size_t,std::size_t>
+        newToLegacy;
+
+    std::unordered_map<std::size_t,std::size_t>
+        legacyToNew;
+
+
+    newToLegacy.reserve(
+        rawVertexCount);
+
+    legacyToNew.reserve(
+        rawVertexCount);
+
+
+    for (std::size_t rawVertexID = 0;
+         rawVertexID < rawVertexCount;
+         ++rawVertexID)
+    {
+        const std::size_t legacyID =
+            legacyRepresentatives[
+                rawVertexID];
+
+        const std::size_t newID =
+            newRepresentatives[
+                rawVertexID];
+
+
+        const auto newResult =
+            newToLegacy.emplace(
+                newID,
+                legacyID);
+
+        if (!newResult.second &&
+            newResult.first->second != legacyID)
+        {
+            throw std::runtime_error(
+                "Internal STL validation error: "
+                "new vertex welding merged raw vertices "
+                "that are distinct in the legacy welding path.");
+        }
+
+
+        const auto legacyResult =
+            legacyToNew.emplace(
+                legacyID,
+                newID);
+
+        if (!legacyResult.second &&
+            legacyResult.first->second != newID)
+        {
+            throw std::runtime_error(
+                "Internal STL validation error: "
+                "new vertex welding failed to merge raw vertices "
+                "that are welded by the legacy welding path.");
+        }
+    }
 }
 
 //=============================================================================
@@ -3036,15 +3289,44 @@ validateFacetSpatialCellCoverage(
         candidateFacetPairs,
         candidateVertexPairs);
 
+
     //-------------------------------------------------------------------------
     // Build the tolerance-welded geometric vertex representation.
+    //
+    // The legacy welding path remains authoritative during this refactoring
+    // stage.
     //-------------------------------------------------------------------------
 
     topology.geometry =
-    buildGeometricVertices(
-        data,
-        bounds);
+        buildGeometricVertices(
+            data,
+            bounds);
 
+
+    //-------------------------------------------------------------------------
+    // Validate the new spatial welding path against the legacy welding path.
+    //-------------------------------------------------------------------------
+
+    RawVertexRepresentatives
+        newRepresentatives;
+
+    buildRawVertexRepresentatives(
+        data,
+        candidateVertexPairs,
+        newRepresentatives);
+
+
+    RawVertexRepresentatives
+        legacyRepresentatives;
+
+    buildLegacyRawVertexRepresentatives(
+        topology.geometry,
+        legacyRepresentatives);
+
+
+    validateWeldingEquivalence(
+        legacyRepresentatives,
+        newRepresentatives);
 
     //-------------------------------------------------------------------------
     // 3. Duplicate facets
