@@ -1961,32 +1961,117 @@ void validateFlatEdges(
     // Therefore all uses of one geometric edge are consecutive.
     //---------------------------------------------------------------------
 
-    std::size_t begin = 0;
+    const std::size_t edgeCount =
+        flatEdges.size();
 
 
-    while (begin < flatEdges.size())
+    if(edgeCount == 0)
     {
-        std::size_t end =
-            begin + 1;
-
-
-        while (end < flatEdges.size() &&
-               sameEdgeKey(
-                   flatEdges[begin].key,
-                   flatEdges[end].key))
-        {
-            ++end;
-        }
-
-
-        groups.emplace_back(
-            begin,
-            end);
-
-
-        begin =
-            end;
+        return;
     }
+
+
+    //-------------------------------------------------------------------------
+    // Detect the beginning of every geometric edge group.
+    //
+    // flatEdges is already sorted by edge key.
+    // A value of 1 means that a new group starts at this position.
+    //-------------------------------------------------------------------------
+
+    std::vector<std::size_t> boundaries(
+        edgeCount);
+
+
+    #pragma omp parallel for
+    for(std::size_t i = 0;
+        i < edgeCount;
+        ++i)
+    {
+        if(i == 0)
+        {
+            boundaries[i] = 1;
+        }
+        else
+        {
+            boundaries[i] =
+                sameEdgeKey(
+                    flatEdges[i - 1].key,
+                    flatEdges[i].key)
+                ?
+                0
+                :
+                1;
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Convert group boundaries into group indices.
+    //
+    // parallelScan is exclusive scan.
+    //-------------------------------------------------------------------------
+
+    std::vector<std::size_t> groupIds;
+
+
+    common::parallelScan(
+        boundaries,
+        groupIds);
+
+
+
+    const std::size_t groupCount =
+        groupIds.back()
+        +
+        boundaries.back();
+
+
+
+    std::vector<std::pair<std::size_t,
+                        std::size_t>> groups(
+        groupCount);
+
+
+
+    #pragma omp parallel for
+    for(std::size_t i = 0;
+        i < edgeCount;
+        ++i)
+    {
+        if(boundaries[i])
+        {
+            const std::size_t group =
+                groupIds[i];
+
+
+            groups[group].first =
+                i;
+        }
+    }
+
+
+
+    #pragma omp parallel for
+    for(std::size_t i = 0;
+        i < edgeCount - 1;
+        ++i)
+    {
+        if(boundaries[i + 1])
+        {
+            const std::size_t group =
+                groupIds[i];
+
+
+            groups[group].second =
+                i + 1;
+        }
+    }
+
+
+    // Last group ends at edgeCount.
+
+    groups[groupCount - 1].second =
+        edgeCount;
 
 
 
