@@ -185,20 +185,6 @@ void parallelSort(
                     const std::size_t b0 =
                         outBegin - a0;
 
-
-                    const std::size_t a1 =
-                        mergePath(
-                            outEnd,
-                            begin,
-                            middle,
-                            middle,
-                            end);
-
-
-                    const std::size_t b1 =
-                        outEnd - a1;
-
-
                     std::size_t i =
                         begin + a0;
 
