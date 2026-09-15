@@ -1,5 +1,6 @@
 #include "stl_validator.hpp"
 #include "stl_topology.hpp"
+#include "parallel_sort.hpp"
 
 #include <omp.h>
 
@@ -980,9 +981,8 @@ void buildFacetSpatialCells(
     // representation independent of OpenMP execution order.
     //-------------------------------------------------------------------------
 
-    std::sort(
-        entries.begin(),
-        entries.end(),
+    common::parallelSort(
+        entries,
         facetCellEntryLess);
 }
 
@@ -1158,11 +1158,9 @@ void buildCandidateFacetPairs(
     // welding refactor has passed regression testing.
     //-------------------------------------------------------------------------
 
-    std::sort(
-        pairs.begin(),
-        pairs.end(),
+    common::parallelSort(
+        facetPairs,
         facetPairLess);
-
 
     pairs.erase(
         std::unique(
@@ -1330,11 +1328,9 @@ void buildCandidateVertexPairs(
     // refactor has passed regression testing.
     //-------------------------------------------------------------------------
 
-    std::sort(
-        vertexPairs.begin(),
-        vertexPairs.end(),
+    common::parallelSort(
+        vertexPairs,
         vertexPairLess);
-
 
     vertexPairs.erase(
         std::unique(
@@ -1482,9 +1478,8 @@ void buildGeometricVerticesFromRepresentatives(
     std::vector<std::size_t> uniqueRepresentatives =
     representatives;
 
-    std::sort(
-        uniqueRepresentatives.begin(),
-        uniqueRepresentatives.end());
+    common::parallelSort(
+        uniqueRepresentatives);
 
     uniqueRepresentatives.erase(
         std::unique(
@@ -1818,9 +1813,8 @@ bool sameEdgeKey(
 void sortFlatEdges(
     std::vector<FlatEdge>& flatEdges)
 {
-    std::sort(
-        flatEdges.begin(),
-        flatEdges.end(),
+    common::parallelSort(
+        flatEdges,
         flatEdgeLess);
 }
 
