@@ -1151,11 +1151,6 @@ void buildCandidateFacetPairs(
 
     //-------------------------------------------------------------------------
     // Sort and remove duplicate facet pairs.
-    //
-    // TEMPORARY PERFORMANCE NOTE:
-    // std::sort is intentionally retained during correctness validation.
-    // Replace with the selected parallel sorting path after the complete
-    // welding refactor has passed regression testing.
     //-------------------------------------------------------------------------
 
     common::parallelSort(
@@ -1321,11 +1316,6 @@ void buildCandidateVertexPairs(
 
     //-------------------------------------------------------------------------
     // Sort and remove duplicate raw-vertex pairs.
-    //
-    // TEMPORARY PERFORMANCE NOTE:
-    // std::sort is retained during correctness validation. It will be replaced
-    // together with the other serial sorting stages after the complete welding
-    // refactor has passed regression testing.
     //-------------------------------------------------------------------------
 
     common::parallelSort(
@@ -1550,29 +1540,6 @@ void buildGeometricVerticesFromRepresentatives(
                     representatives[rawID]);
         }
     }
-}
-
-BinKey makeBinKey(
-    const STLVector& vertex,
-    const GeometryBounds& bounds,
-    const double binSize)
-{
-    return {
-        static_cast<std::int64_t>(
-            std::floor(
-                (vertex[0] - bounds.min[0]) /
-                binSize)),
-
-        static_cast<std::int64_t>(
-            std::floor(
-                (vertex[1] - bounds.min[1]) /
-                binSize)),
-
-        static_cast<std::int64_t>(
-            std::floor(
-                (vertex[2] - bounds.min[2]) /
-                binSize))
-    };
 }
 
 bool sameGeometricVertex(
