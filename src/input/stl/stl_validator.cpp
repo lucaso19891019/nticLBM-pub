@@ -2049,18 +2049,17 @@ void validateFlatEdges(
 
 
     #pragma omp parallel for
-    for(std::size_t i = 0;
-        i < edgeCount - 1;
+    for(std::size_t i = 1;
+        i < edgeCount;
         ++i)
     {
-        if(boundaries[i + 1])
+        if(boundaries[i])
         {
             const std::size_t group =
-                groupIds[i];
-
+                groupIds[i] - 1;
 
             groups[group].second =
-                i + 1;
+                i;
         }
     }
 
