@@ -1,5 +1,8 @@
 #include "stl_validator.hpp"
 #include "stl_topology.hpp"
+
+#include <omp.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
