@@ -10,15 +10,18 @@ namespace ntic::lbm::common
 {
 
 //=============================================================================
-// Sort a vector in parallel using a bitonic sorting network.
+// Sort a vector using an OpenMP task-based parallel merge sort.
 //
-// The sorting network operates on the next power-of-two number of positions.
-// Positions beyond the original vector size are treated as virtual padding
-// elements that compare greater than every real element and therefore migrate
-// to the end of the network.
+// The input range is recursively divided into smaller sub-ranges. Independent
+// sorting tasks are executed concurrently using OpenMP tasks. After two sorted
+// sub-ranges are generated, they are merged in parallel to avoid a serial merge
+// bottleneck.
 //
-// Compare-exchange operations within each network stage are independent and
-// are executed in parallel with OpenMP.
+// The implementation supports arbitrary data types and user-defined comparison
+// operators.
+//
+// For small ranges, the algorithm switches to std::sort to avoid excessive task
+// overhead.
 //=============================================================================
 
 template<typename T, typename Compare>
@@ -26,158 +29,214 @@ void parallelSort(
     std::vector<T>& data,
     Compare compare)
 {
-    const std::size_t originalSize =
+    const std::size_t size =
         data.size();
 
 
-    if (originalSize <= 1)
+    if (size <= 1)
     {
         return;
     }
 
 
-    //-------------------------------------------------------------------------
-    // Determine the next power-of-two network size.
-    //-------------------------------------------------------------------------
-
-    std::size_t networkSize = 1;
+    std::vector<T> buffer(
+        size);
 
 
-    while (networkSize < originalSize)
+
+    auto mergeSort =
+        [&](auto&& self,
+            std::size_t begin,
+            std::size_t end,
+            int depth) -> void
     {
-        networkSize <<= 1;
-    }
+        const std::size_t length =
+            end - begin;
 
 
-    //-------------------------------------------------------------------------
-    // Allocate the sorting network.
-    //
-    // A separate validity array marks real and padding positions. This avoids
-    // requiring a sentinel value or any additional property of T.
-    //-------------------------------------------------------------------------
-
-    std::vector<T> network(
-        networkSize);
-
-    std::vector<unsigned char> valid(
-        networkSize,
-        0);
+        constexpr std::size_t threshold =
+            2048;
 
 
-#pragma omp parallel for
-    for (std::size_t i = 0;
-         i < originalSize;
-         ++i)
-    {
-        network[i] =
-            data[i];
-
-        valid[i] =
-            1;
-    }
-
-
-    //-------------------------------------------------------------------------
-    // Execute the bitonic sorting network.
-    //-------------------------------------------------------------------------
-
-    for (std::size_t sequenceSize = 2;
-         sequenceSize <= networkSize;)
-    {
-        for (std::size_t stride = sequenceSize >> 1;
-             stride > 0;
-             stride >>= 1)
+        if (length <= threshold)
         {
-#pragma omp parallel for
-            for (std::size_t i = 0;
-                 i < networkSize;
-                 ++i)
+            std::sort(
+                data.begin() + begin,
+                data.begin() + end,
+                compare);
+
+            return;
+        }
+
+
+        const std::size_t middle =
+            begin + length / 2;
+
+
+
+        //-------------------------------------------------------------------------
+        // Recursive parallel sorting.
+        //-------------------------------------------------------------------------
+
+#pragma omp task shared(data, buffer) if(depth < 4)
+        {
+            self(
+                self,
+                begin,
+                middle,
+                depth + 1);
+        }
+
+
+#pragma omp task shared(data, buffer) if(depth < 4)
+        {
+            self(
+                self,
+                middle,
+                end,
+                depth + 1);
+        }
+
+
+#pragma omp taskwait
+
+
+
+        //-------------------------------------------------------------------------
+        // Parallel merge.
+        //
+        // Divide output range into independent chunks. Each chunk finds its
+        // corresponding position in the two sorted input ranges by binary search.
+        //-------------------------------------------------------------------------
+
+        const std::size_t leftSize =
+            middle - begin;
+
+        const std::size_t rightSize =
+            end - middle;
+
+
+        const int threads =
+            omp_get_num_threads();
+
+
+        const std::size_t chunkSize =
+            (length + threads - 1)
+            /
+            threads;
+
+
+#pragma omp parallel
+        {
+            const int tid =
+                omp_get_thread_num();
+
+
+            const std::size_t outputBegin =
+                begin +
+                static_cast<std::size_t>(tid) *
+                chunkSize;
+
+
+            const std::size_t outputEnd =
+                std::min(
+                    outputBegin + chunkSize,
+                    end);
+
+
+            if (outputBegin < outputEnd)
             {
-                const std::size_t partner =
-                    i ^ stride;
+                std::size_t left =
+                    0;
+
+                std::size_t right =
+                    0;
 
 
-                if (partner <= i)
+                // Find merge starting point.
+                if (outputBegin > begin)
                 {
-                    continue;
+                    const std::size_t offset =
+                        outputBegin - begin;
+
+
+                    left =
+                        std::min(
+                            offset,
+                            leftSize);
+
+                    right =
+                        offset - left;
+
+
+                    if (right > rightSize)
+                    {
+                        right = rightSize;
+
+                        left =
+                            offset - right;
+                    }
                 }
 
 
-                const bool ascending =
-                    ((i & sequenceSize) == 0);
+                std::size_t i =
+                    begin + left;
+
+                std::size_t j =
+                    middle + right;
 
 
-                bool swapRequired = false;
+                std::size_t k =
+                    outputBegin;
 
 
-                if (valid[i] != valid[partner])
+
+                while(k < outputEnd)
                 {
-                    if (ascending)
+                    if(i < middle &&
+                       (j >= end ||
+                        compare(
+                            data[i],
+                            data[j])))
                     {
-                        swapRequired =
-                            (valid[i] == 0);
+                        buffer[k++] =
+                            std::move(
+                                data[i++]);
                     }
                     else
                     {
-                        swapRequired =
-                            (valid[partner] == 0);
+                        buffer[k++] =
+                            std::move(
+                                data[j++]);
                     }
-                }
-                else if (valid[i] != 0)
-                {
-                    if (ascending)
-                    {
-                        swapRequired =
-                            compare(
-                                network[partner],
-                                network[i]);
-                    }
-                    else
-                    {
-                        swapRequired =
-                            compare(
-                                network[i],
-                                network[partner]);
-                    }
-                }
-
-
-                if (swapRequired)
-                {
-                    std::swap(
-                        network[i],
-                        network[partner]);
-
-                    std::swap(
-                        valid[i],
-                        valid[partner]);
                 }
             }
         }
 
 
-        if (sequenceSize == networkSize)
-        {
-            break;
-        }
-
-
-        sequenceSize <<= 1;
-    }
-
-
-    //-------------------------------------------------------------------------
-    // Copy the sorted real elements back to the original vector.
-    //-------------------------------------------------------------------------
-
 #pragma omp parallel for
-    for (std::size_t i = 0;
-         i < originalSize;
-         ++i)
+        for(std::size_t i = begin;
+            i < end;
+            ++i)
+        {
+            data[i] =
+                std::move(
+                    buffer[i]);
+        }
+    };
+
+
+
+#pragma omp parallel
     {
-        data[i] =
-            std::move(
-                network[i]);
+#pragma omp single
+        {
+            mergeSort(
+                mergeSort,
+                0,
+                size,
+                0);
+        }
     }
 }
 
