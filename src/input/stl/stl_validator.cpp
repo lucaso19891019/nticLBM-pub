@@ -903,6 +903,170 @@ void buildFacetSpatialCells(
         facetCellEntryLess);
 }
 
+//=============================================================================
+// Temporary facet spatial-cell coverage validation
+//=============================================================================
+//
+// TEMPORARY:
+//
+// Verify that the spatial-cell range assigned to every facet fully covers
+// the welding-tolerance neighborhood of all three of its vertices.
+//
+// This check is used only while the new facet-based candidate search is being
+// validated. Remove it once the new geometric-vertex welding path has fully
+// replaced the legacy spatial-bin implementation and passed all regression
+// tests.
+//
+
+void validateFacetSpatialCellCoverage(
+    const STLData& data,
+    const std::vector<FacetGeometry>& facetGeometry,
+    const GeometryBounds& bounds,
+    const double averageFacetArea)
+{
+    const double cellSize =
+        computeFacetSpatialCellSize(
+            averageFacetArea);
+
+    const double vertexTolerance =
+        bounds.scale *
+        RELATIVE_VERTEX_TOLERANCE;
+
+
+    std::int64_t firstInvalidFacet =
+        -1;
+
+    std::int64_t firstInvalidVertex =
+        -1;
+
+
+    #pragma omp parallel for schedule(static)
+    for (std::int64_t i = 0;
+         i < static_cast<std::int64_t>(
+                 data.facets.size());
+         ++i)
+    {
+        BinKey facetMinimumKey;
+        BinKey facetMaximumKey;
+
+        computeFacetCellRange(
+            facetGeometry[
+                static_cast<std::size_t>(i)],
+            bounds,
+            cellSize,
+            vertexTolerance,
+            facetMinimumKey,
+            facetMaximumKey);
+
+
+        const auto& facet =
+            data.facets[
+                static_cast<std::size_t>(i)];
+
+
+        for (std::size_t v = 0;
+             v < 3;
+             ++v)
+        {
+            const auto& vertex =
+                facet.vertices[v];
+
+
+            const BinKey vertexMinimumKey
+            {
+                static_cast<std::int64_t>(
+                    std::floor(
+                        (vertex[0] -
+                         vertexTolerance -
+                         bounds.min[0]) /
+                        cellSize)),
+
+                static_cast<std::int64_t>(
+                    std::floor(
+                        (vertex[1] -
+                         vertexTolerance -
+                         bounds.min[1]) /
+                        cellSize)),
+
+                static_cast<std::int64_t>(
+                    std::floor(
+                        (vertex[2] -
+                         vertexTolerance -
+                         bounds.min[2]) /
+                        cellSize))
+            };
+
+
+            const BinKey vertexMaximumKey
+            {
+                static_cast<std::int64_t>(
+                    std::floor(
+                        (vertex[0] +
+                         vertexTolerance -
+                         bounds.min[0]) /
+                        cellSize)),
+
+                static_cast<std::int64_t>(
+                    std::floor(
+                        (vertex[1] +
+                         vertexTolerance -
+                         bounds.min[1]) /
+                        cellSize)),
+
+                static_cast<std::int64_t>(
+                    std::floor(
+                        (vertex[2] +
+                         vertexTolerance -
+                         bounds.min[2]) /
+                        cellSize))
+            };
+
+
+            const bool covered =
+                vertexMinimumKey.x >= facetMinimumKey.x &&
+                vertexMinimumKey.y >= facetMinimumKey.y &&
+                vertexMinimumKey.z >= facetMinimumKey.z &&
+
+                vertexMaximumKey.x <= facetMaximumKey.x &&
+                vertexMaximumKey.y <= facetMaximumKey.y &&
+                vertexMaximumKey.z <= facetMaximumKey.z;
+
+
+            if (!covered)
+            {
+                #pragma omp critical
+                {
+                    if (firstInvalidFacet < 0 ||
+                        i < firstInvalidFacet ||
+                        (i == firstInvalidFacet &&
+                         static_cast<std::int64_t>(v) <
+                             firstInvalidVertex))
+                    {
+                        firstInvalidFacet =
+                            i;
+
+                        firstInvalidVertex =
+                            static_cast<std::int64_t>(v);
+                    }
+                }
+            }
+        }
+    }
+
+
+    if (firstInvalidFacet >= 0)
+    {
+        throw std::runtime_error(
+            "Internal STL validation error: "
+            "facet spatial-cell coverage does not fully cover "
+            "the welding-tolerance neighborhood of facet " +
+            std::to_string(firstInvalidFacet) +
+            ", vertex " +
+            std::to_string(firstInvalidVertex) +
+            ".");
+    }
+}
+
 BinKey makeBinKey(
     const STLVector& vertex,
     const GeometryBounds& bounds,
@@ -2387,6 +2551,19 @@ void validate(
         averageFacetArea,
         facetCellEntries);
 
+//-------------------------------------------------------------------------
+// TEMPORARY:
+//
+// Validate the geometric coverage used by the new facet spatial search.
+// Remove this check after the new welding path has fully replaced the
+// legacy implementation and passed all regression tests.
+//-------------------------------------------------------------------------
+
+validateFacetSpatialCellCoverage(
+    data,
+    topology.facetGeometry,
+    bounds,
+    averageFacetArea);
 
     //-------------------------------------------------------------------------
     // Build the tolerance-welded geometric vertex representation.
