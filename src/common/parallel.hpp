@@ -12,11 +12,13 @@ namespace ntic::lbm::common
 //=============================================================================
 // Sort a vector in parallel using a bitonic sorting network.
 //
-// The input is temporarily padded to the next power-of-two size required by
-// the bitonic sorting network. Compare-exchange operations at each network
-// stage are independent and are executed in parallel with OpenMP.
+// The sorting network operates on the next power-of-two number of positions.
+// Positions beyond the original vector size are treated as virtual padding
+// elements that compare greater than every real element and therefore migrate
+// to the end of the network.
 //
-// The original vector size is restored after sorting.
+// Compare-exchange operations within each network stage are independent and
+// are executed in parallel with OpenMP.
 //=============================================================================
 
 template<typename T, typename Compare>
@@ -28,100 +30,155 @@ void parallelSort(
         data.size();
 
 
-    if(originalSize <= 1)
+    if (originalSize <= 1)
     {
         return;
     }
 
 
     //-------------------------------------------------------------------------
-    // Find next power of two.
+    // Determine the next power-of-two network size.
     //-------------------------------------------------------------------------
 
-    std::size_t size = 1;
+    std::size_t networkSize = 1;
 
-    while(size < originalSize)
+
+    while (networkSize < originalSize)
     {
-        size *= 2;
+        networkSize <<= 1;
     }
 
 
-    T maxValue =
-        data[0];
-
-    for(const auto& value : data)
-    {
-        if(compare(maxValue,value))
-        {
-            maxValue = value;
-        }
-    }
-
-
-    data.resize(
-        size,
-        maxValue);
-
-
-
     //-------------------------------------------------------------------------
-    // Bitonic sorting network.
+    // Allocate the sorting network.
+    //
+    // A separate validity array marks real and padding positions. This avoids
+    // requiring a sentinel value or any additional property of T.
     //-------------------------------------------------------------------------
 
-    for(std::size_t k = 2;
-        k <= size;
-        k *= 2)
-    {
-        for(std::size_t j = k / 2;
-            j > 0;
-            j /= 2)
-        {
+    std::vector<T> network(
+        networkSize);
+
+    std::vector<unsigned char> valid(
+        networkSize,
+        0);
+
 
 #pragma omp parallel for
-            for(std::size_t i = 0;
-                i < size;
-                ++i)
+    for (std::size_t i = 0;
+         i < originalSize;
+         ++i)
+    {
+        network[i] =
+            data[i];
+
+        valid[i] =
+            1;
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Execute the bitonic sorting network.
+    //-------------------------------------------------------------------------
+
+    for (std::size_t sequenceSize = 2;
+         sequenceSize <= networkSize;)
+    {
+        for (std::size_t stride = sequenceSize >> 1;
+             stride > 0;
+             stride >>= 1)
+        {
+#pragma omp parallel for
+            for (std::size_t i = 0;
+                 i < networkSize;
+                 ++i)
             {
-                const std::size_t ixj =
-                    i ^ j;
+                const std::size_t partner =
+                    i ^ stride;
 
 
-                if(ixj > i)
+                if (partner <= i)
                 {
-                    const bool ascending =
-                        ((i & k) == 0);
+                    continue;
+                }
 
 
-                    if(ascending)
+                const bool ascending =
+                    ((i & sequenceSize) == 0);
+
+
+                bool swapRequired = false;
+
+
+                if (valid[i] != valid[partner])
+                {
+                    if (ascending)
                     {
-                        if(compare(
-                               data[ixj],
-                               data[i]))
-                        {
-                            std::swap(
-                                data[i],
-                                data[ixj]);
-                        }
+                        swapRequired =
+                            (valid[i] == 0);
                     }
                     else
                     {
-                        if(compare(
-                               data[i],
-                               data[ixj]))
-                        {
-                            std::swap(
-                                data[i],
-                                data[ixj]);
-                        }
+                        swapRequired =
+                            (valid[partner] == 0);
                     }
+                }
+                else if (valid[i] != 0)
+                {
+                    if (ascending)
+                    {
+                        swapRequired =
+                            compare(
+                                network[partner],
+                                network[i]);
+                    }
+                    else
+                    {
+                        swapRequired =
+                            compare(
+                                network[i],
+                                network[partner]);
+                    }
+                }
+
+
+                if (swapRequired)
+                {
+                    std::swap(
+                        network[i],
+                        network[partner]);
+
+                    std::swap(
+                        valid[i],
+                        valid[partner]);
                 }
             }
         }
+
+
+        if (sequenceSize == networkSize)
+        {
+            break;
+        }
+
+
+        sequenceSize <<= 1;
     }
 
 
-    data.resize(
-        originalSize);
+    //-------------------------------------------------------------------------
+    // Copy the sorted real elements back to the original vector.
+    //-------------------------------------------------------------------------
+
+#pragma omp parallel for
+    for (std::size_t i = 0;
+         i < originalSize;
+         ++i)
+    {
+        data[i] =
+            std::move(
+                network[i]);
+    }
 }
 
 
