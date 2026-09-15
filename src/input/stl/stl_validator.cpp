@@ -80,26 +80,6 @@ struct BinKey
     }
 };
 
-struct BinKeyHash
-{
-    std::size_t operator()(const BinKey& key) const noexcept
-    {
-        const std::size_t hx =
-            std::hash<std::int64_t>{}(key.x);
-
-        const std::size_t hy =
-            std::hash<std::int64_t>{}(key.y);
-
-        const std::size_t hz =
-            std::hash<std::int64_t>{}(key.z);
-
-        return
-            hx ^
-            (hy << 1) ^
-            (hz << 2);
-    }
-};
-
 //=============================================================================
 // Triangle key
 //=============================================================================
@@ -134,12 +114,6 @@ struct TriangleKeyHash
             (h2 << 2);
     }
 };
-
-using SpatialBins =
-    std::unordered_map<
-        BinKey,
-        std::vector<std::size_t>,
-        BinKeyHash>;
 
 //=============================================================================
 // Facet spatial cells
