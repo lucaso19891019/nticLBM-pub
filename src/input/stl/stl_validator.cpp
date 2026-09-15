@@ -1474,52 +1474,65 @@ void buildGeometricVerticesFromRepresentatives(
     const std::size_t rawVertexCount =
         representatives.size();
 
-
-    std::unordered_map<std::size_t,std::size_t>
-        representativeToID;
-
-
     geometry.vertices.clear();
 
     geometry.facetVertexIDs.resize(
         data.facets.size());
 
+    std::vector<std::size_t> uniqueRepresentatives =
+    representatives;
+
+    std::sort(
+        uniqueRepresentatives.begin(),
+        uniqueRepresentatives.end());
+
+    uniqueRepresentatives.erase(
+        std::unique(
+            uniqueRepresentatives.begin(),
+            uniqueRepresentatives.end()),
+        uniqueRepresentatives.end());
+
+
+    geometry.vertices.reserve(
+        uniqueRepresentatives.size());
+
+
+    std::unordered_map<std::size_t,std::size_t>
+        representativeToID;
+
 
     representativeToID.reserve(
-        rawVertexCount);
+        uniqueRepresentatives.size());
 
 
+    for(std::size_t id = 0;
+        id < uniqueRepresentatives.size();
+        ++id)
+    {
+        representativeToID.emplace(
+            uniqueRepresentatives[id],
+            id);
+    }
 
     for(std::size_t rawID = 0;
         rawID < rawVertexCount;
         ++rawID)
     {
-        const std::size_t representative =
-            representatives[rawID];
-
-
-        auto result =
-            representativeToID.emplace(
-                representative,
-                geometry.vertices.size());
-
-
-        if(result.second)
+        if(representatives[rawID] != rawID)
         {
-            const std::size_t facetID =
-                rawID / 3;
-
-            const std::size_t localVertex =
-                rawID % 3;
-
-
-            geometry.vertices.push_back(
-                data.facets[facetID]
-                    .vertices[localVertex]);
+            continue;
         }
+
+        const std::size_t facetID =
+            rawID / 3;
+
+        const std::size_t localVertex =
+            rawID % 3;
+
+        geometry.vertices.push_back(
+            data.facets[facetID]
+                .vertices[localVertex]);
     }
-
-
 
     for(std::size_t facetID = 0;
         facetID < data.facets.size();
