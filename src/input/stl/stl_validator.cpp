@@ -4,6 +4,8 @@
 
 #include <omp.h>
 
+#include <atomic>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -1364,114 +1366,205 @@ void buildRawVertexRepresentatives(
     //-------------------------------------------------------------------------
     // Initialize the disjoint-set forest.
     //
-    // Every raw STL vertex initially belongs to its own set.
+    // Shiloach-Vishkin style connectivity algorithm:
+    // each vertex initially points to itself.
     //-------------------------------------------------------------------------
 
-    std::vector<std::size_t> parent(
+    std::vector<std::atomic<std::size_t>> parent(
         rawVertexCount);
 
-    std::vector<std::size_t> rank(
-        rawVertexCount,
-        0);
 
-
+#pragma omp parallel for
     for (std::size_t i = 0;
          i < rawVertexCount;
          ++i)
     {
-        parent[i] = i;
+        parent[i].store(
+            i,
+            std::memory_order_relaxed);
     }
 
 
     //-------------------------------------------------------------------------
-    // Find with path compression.
+    // Parallel Shiloach-Vishkin hooking + pointer jumping.
+    //
+    // Each vertex pair represents an undirected edge.
+    // The algorithm repeatedly:
+    //
+    // 1. Hooks a larger root to a smaller root.
+    // 2. Performs pointer jumping compression.
+    //
+    // The iteration stops when no parent changes.
     //-------------------------------------------------------------------------
 
-    const auto findRoot =
-        [&parent](std::size_t vertex)
+    bool changed = true;
+
+
+    while (changed)
+    {
+        changed = false;
+
+
+        //-------------------------------------------------------------------------
+        // Hooking phase.
+        //
+        // For every edge (a,b):
+        //
+        //     rootA = component root of a
+        //     rootB = component root of b
+        //
+        // Connect the larger root to the smaller root.
+        //
+        // CAS guarantees correctness when multiple edges update the
+        // same component simultaneously.
+        //-------------------------------------------------------------------------
+
+#pragma omp parallel for reduction(|| : changed)
+        for (std::size_t i = 0;
+             i < vertexPairs.size();
+             ++i)
         {
-            std::size_t root =
-                vertex;
-
-            while (parent[root] != root)
-            {
-                root =
-                    parent[root];
-            }
+            const VertexPair& pair =
+                vertexPairs[i];
 
 
-            while (parent[vertex] != vertex)
+            std::size_t rootA =
+                pair.first;
+
+
+            while (true)
             {
                 const std::size_t next =
-                    parent[vertex];
+                    parent[rootA].load(
+                        std::memory_order_relaxed);
 
-                parent[vertex] =
-                    root;
+                if (next == rootA)
+                {
+                    break;
+                }
 
-                vertex =
-                    next;
+                rootA = next;
             }
 
-            return root;
-        };
+
+            std::size_t rootB =
+                pair.second;
 
 
-    //-------------------------------------------------------------------------
-    // Union every matching raw-vertex pair.
-    //
-    // This implementation is intentionally serial. It serves as the reference
-    // implementation while the new spatial welding path is being validated.
-    //-------------------------------------------------------------------------
+            while (true)
+            {
+                const std::size_t next =
+                    parent[rootB].load(
+                        std::memory_order_relaxed);
 
-    for (const VertexPair& pair :
-         vertexPairs)
-    {
-        std::size_t rootA =
-            findRoot(pair.first);
+                if (next == rootB)
+                {
+                    break;
+                }
 
-        std::size_t rootB =
-            findRoot(pair.second);
+                rootB = next;
+            }
 
 
-        if (rootA == rootB)
-        {
-            continue;
+            if (rootA == rootB)
+            {
+                continue;
+            }
+
+
+            if (rootA < rootB)
+            {
+                std::swap(
+                    rootA,
+                    rootB);
+            }
+
+
+            std::size_t expected =
+                rootA;
+
+
+            if (parent[rootA].compare_exchange_strong(
+                    expected,
+                    rootB,
+                    std::memory_order_relaxed))
+            {
+                changed = true;
+            }
         }
 
 
-        if (rank[rootA] < rank[rootB])
+        //-------------------------------------------------------------------------
+        // Pointer jumping phase.
+        //
+        // parent[i] = parent[parent[i]]
+        //
+        // This flattens the forest and accelerates convergence.
+        //-------------------------------------------------------------------------
+
+#pragma omp parallel for reduction(|| : changed)
+        for (std::size_t i = 0;
+             i < rawVertexCount;
+             ++i)
         {
-            std::swap(
-                rootA,
-                rootB);
-        }
+            const std::size_t parentIndex =
+                parent[i].load(
+                    std::memory_order_relaxed);
 
 
-        parent[rootB] =
-            rootA;
+            const std::size_t grandParent =
+                parent[parentIndex].load(
+                    std::memory_order_relaxed);
 
 
-        if (rank[rootA] == rank[rootB])
-        {
-            ++rank[rootA];
+            if (parentIndex != grandParent)
+            {
+                parent[i].store(
+                    grandParent,
+                    std::memory_order_relaxed);
+
+                changed = true;
+            }
         }
     }
 
 
     //-------------------------------------------------------------------------
-    // Store the final representative of every raw STL vertex.
+    // Store final representatives.
+    //
+    // After convergence every vertex points to its component root.
     //-------------------------------------------------------------------------
 
     representatives.resize(
         rawVertexCount);
 
 
+#pragma omp parallel for
     for (std::size_t i = 0;
          i < rawVertexCount;
          ++i)
     {
+        std::size_t root =
+            i;
+
+
+        while (true)
+        {
+            const std::size_t next =
+                parent[root].load(
+                    std::memory_order_relaxed);
+
+            if (next == root)
+            {
+                break;
+            }
+
+            root = next;
+        }
+
+
         representatives[i] =
-            findRoot(i);
+            root;
     }
 }
 
