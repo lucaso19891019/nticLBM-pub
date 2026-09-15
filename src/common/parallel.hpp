@@ -9,16 +9,14 @@
 namespace ntic::lbm::common
 {
 
-
 //=============================================================================
-// Parallel sort
+// Sort a vector in parallel using a bitonic sorting network.
 //
-// Strategy:
-// 1. Split input vector into thread-local chunks.
-// 2. Sort every chunk independently in parallel.
-// 3. Merge sorted chunks serially.
+// The input is temporarily padded to the next power-of-two size required by
+// the bitonic sorting network. Compare-exchange operations at each network
+// stage are independent and are executed in parallel with OpenMP.
 //
-// The interface remains identical to std::sort style.
+// The original vector size is restored after sorting.
 //=============================================================================
 
 template<typename T, typename Compare>
@@ -26,115 +24,104 @@ void parallelSort(
     std::vector<T>& data,
     Compare compare)
 {
-    const std::size_t size =
+    const std::size_t originalSize =
         data.size();
 
 
-    if(size < 1024)
+    if(originalSize <= 1)
     {
-        std::sort(
-            data.begin(),
-            data.end(),
-            compare);
-
         return;
     }
 
 
-    const int threadCount =
-        omp_get_max_threads();
-
-
-    const std::size_t chunkSize =
-        (size +
-         static_cast<std::size_t>(threadCount) -
-         1)
-        /
-        static_cast<std::size_t>(threadCount);
-
-
-
     //-------------------------------------------------------------------------
-    // Sort independent chunks.
+    // Find next power of two.
     //-------------------------------------------------------------------------
 
-    #pragma omp parallel for schedule(static)
-    for(int t = 0;
-        t < threadCount;
-        ++t)
+    std::size_t size = 1;
+
+    while(size < originalSize)
     {
-        const std::size_t begin =
-            static_cast<std::size_t>(t) *
-            chunkSize;
+        size *= 2;
+    }
 
 
-        const std::size_t end =
-            std::min(
-                begin + chunkSize,
-                size);
+    T maxValue =
+        data[0];
 
-
-        if(begin < end)
+    for(const auto& value : data)
+    {
+        if(compare(maxValue,value))
         {
-            std::sort(
-                data.begin() + begin,
-                data.begin() + end,
-                compare);
+            maxValue = value;
         }
     }
 
 
+    data.resize(
+        size,
+        maxValue);
+
+
 
     //-------------------------------------------------------------------------
-    // Merge sorted chunks.
-    //
-    // This stage is currently serial.
-    // It keeps the implementation simple and deterministic.
-    // It can later be replaced by parallel merge tree.
+    // Bitonic sorting network.
     //-------------------------------------------------------------------------
 
-    std::vector<T> buffer(
-        size);
-
-
-    for(std::size_t width = chunkSize;
-        width < size;
-        width *= 2)
+    for(std::size_t k = 2;
+        k <= size;
+        k *= 2)
     {
-        for(std::size_t begin = 0;
-            begin < size;
-            begin += 2 * width)
+        for(std::size_t j = k / 2;
+            j > 0;
+            j /= 2)
         {
-            const std::size_t middle =
-                std::min(
-                    begin + width,
-                    size);
 
-
-            const std::size_t end =
-                std::min(
-                    begin + 2 * width,
-                    size);
-
-
-            if(middle >= end)
+#pragma omp parallel for
+            for(std::size_t i = 0;
+                i < size;
+                ++i)
             {
-                continue;
+                const std::size_t ixj =
+                    i ^ j;
+
+
+                if(ixj > i)
+                {
+                    const bool ascending =
+                        ((i & k) == 0);
+
+
+                    if(ascending)
+                    {
+                        if(compare(
+                               data[ixj],
+                               data[i]))
+                        {
+                            std::swap(
+                                data[i],
+                                data[ixj]);
+                        }
+                    }
+                    else
+                    {
+                        if(compare(
+                               data[i],
+                               data[ixj]))
+                        {
+                            std::swap(
+                                data[i],
+                                data[ixj]);
+                        }
+                    }
+                }
             }
-
-
-            std::merge(
-                data.begin() + begin,
-                data.begin() + middle,
-                data.begin() + middle,
-                data.begin() + end,
-                buffer.begin() + begin,
-                compare);
         }
-
-
-        data.swap(buffer);
     }
+
+
+    data.resize(
+        originalSize);
 }
 
 
