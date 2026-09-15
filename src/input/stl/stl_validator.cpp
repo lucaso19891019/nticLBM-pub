@@ -2038,7 +2038,7 @@ void validateFlatEdges(
 
 #pragma omp parallel for
     for(std::size_t i = 0;
-        i + 1 < edgeCount;
+        i < edgeCount - 1;
         ++i)
     {
         if(boundaries[i + 1])
