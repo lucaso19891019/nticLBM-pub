@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <vector>
-
+#include <cstddef>
 
 namespace ntic::lbm::common
 {
@@ -44,6 +44,26 @@ void parallelScan(
         *result = sum;
         sum += *first;
     }
+}
+
+template<typename T>
+std::size_t parallelScan(
+    const std::vector<T>& input,
+    std::vector<std::size_t>& offsets)
+{
+    offsets.resize(input.size());
+
+    std::size_t sum = 0;
+
+    for (std::size_t i = 0;
+         i < input.size();
+         ++i)
+    {
+        offsets[i] = sum;
+        sum += static_cast<std::size_t>(input[i]);
+    }
+
+    return sum;
 }
 
 }
