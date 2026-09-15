@@ -244,7 +244,7 @@ bool facetCellEntryLess(
 // Flat edge
 //=============================================================================
 //
-// Flat edge representation used for parallel topology construction.
+// Flat edge representation used for topology validation and adjacency construction.
 //
 // Each STL facet contributes exactly three FlatEdge records. The canonical
 // EdgeKey identifies the undirected geometric edge, while EdgeUse retains
@@ -2005,6 +2005,7 @@ void validateFlatEdges(
     // Convert group boundaries into group indices.
     //
     // parallelScan is exclusive scan.
+    // groupIds[i] gives the zero-based group index containing entry i.
     //-------------------------------------------------------------------------
 
     std::vector<std::size_t> groupIds;
@@ -2198,8 +2199,9 @@ void buildFacetAdjacency(
     //-------------------------------------------------------------------------
     // Count how many neighbors have been assigned to each facet.
     //
-    // validateFlatEdges() has already guaranteed that every geometric edge
-    // has exactly two incident facets.
+    // flatEdges is sorted by edge key.
+    // Since validateFlatEdges() guarantees a closed manifold surface,
+    // every edge group contains exactly two consecutive records.
     //-------------------------------------------------------------------------
 
     std::vector<unsigned char>
@@ -2274,6 +2276,13 @@ void buildComponents(
     const std::vector<std::array<std::size_t,3>>& adjacency,
     STLComponents& components)
 {
+
+    //---------------------------------------------------------------------
+    // Identify connected facet components from the facet adjacency graph.
+    //
+    // Each BFS traversal produces one independent STL component.
+    //---------------------------------------------------------------------
+
     const std::size_t n =
         adjacency.size();
 
@@ -2295,7 +2304,6 @@ void buildComponents(
 
         std::vector<std::size_t>
             component;
-
 
         std::queue<std::size_t>
             queue;
