@@ -1466,6 +1466,84 @@ void buildRawVertexRepresentatives(
     }
 }
 
+void buildGeometricVerticesFromRepresentatives(
+    const STLData& data,
+    const RawVertexRepresentatives& representatives,
+    GeometricVertices& geometry)
+{
+    const std::size_t rawVertexCount =
+        representatives.size();
+
+
+    std::unordered_map<std::size_t,std::size_t>
+        representativeToID;
+
+
+    geometry.vertices.clear();
+
+    geometry.facetVertexIDs.resize(
+        data.facets.size());
+
+
+    representativeToID.reserve(
+        rawVertexCount);
+
+
+
+    for(std::size_t rawID = 0;
+        rawID < rawVertexCount;
+        ++rawID)
+    {
+        const std::size_t representative =
+            representatives[rawID];
+
+
+        auto result =
+            representativeToID.emplace(
+                representative,
+                geometry.vertices.size());
+
+
+        if(result.second)
+        {
+            const std::size_t facetID =
+                rawID / 3;
+
+            const std::size_t localVertex =
+                rawID % 3;
+
+
+            geometry.vertices.push_back(
+                data.facets[facetID]
+                    .vertices[localVertex]);
+        }
+    }
+
+
+
+    for(std::size_t facetID = 0;
+        facetID < data.facets.size();
+        ++facetID)
+    {
+        auto& vertexIDs =
+            geometry.facetVertexIDs[facetID];
+
+
+        for(std::size_t v = 0;
+            v < 3;
+            ++v)
+        {
+            const std::size_t rawID =
+                facetID * 3 + v;
+
+
+            vertexIDs[v] =
+                representativeToID.at(
+                    representatives[rawID]);
+        }
+    }
+}
+
 void buildLegacyRawVertexRepresentatives(
     const GeometricVertices& geometry,
     RawVertexRepresentatives& representatives)
@@ -1804,145 +1882,74 @@ bool sameGeometricVertex(
         distanceSquared <= toleranceSquared;
 }
 
-std::size_t getOrCreateVertexID(
-    const STLVector& vertex,
-    const GeometryBounds& bounds,
-    const double tolerance,
-    const double toleranceSquared,
-    std::vector<STLVector>& uniqueVertices,
-    SpatialBins& bins)
-{
-    const BinKey baseKey =
-        makeBinKey(
-            vertex,
-            bounds,
-            tolerance);
-
-
-    //-------------------------------------------------------------------------
-    // Search the current spatial bin and all 26 neighboring bins.
-    //
-    // Vertices within the geometric tolerance may lie on opposite sides of
-    // a bin boundary. Searching neighboring bins prevents such vertices from
-    // being incorrectly treated as different geometric vertices.
-    //-------------------------------------------------------------------------
-
-    for (int dz = -1; dz <= 1; ++dz) {
-        for (int dy = -1; dy <= 1; ++dy) {
-            for (int dx = -1; dx <= 1; ++dx) {
-
-                const BinKey neighborKey{
-                    baseKey.x + dx,
-                    baseKey.y + dy,
-                    baseKey.z + dz
-                };
-
-                const auto binIt =
-                    bins.find(neighborKey);
-
-                if (binIt == bins.end()) {
-                    continue;
-                }
-
-                for (const std::size_t vertexID :
-                     binIt->second) {
-
-                    if (sameGeometricVertex(
-                            vertex,
-                            uniqueVertices[vertexID],
-                            toleranceSquared)) {
-
-                        return vertexID;
-                    }
-                }
-            }
-        }
-    }
-
-
-    //-------------------------------------------------------------------------
-    // No matching geometric vertex was found.
-    // Register a new canonical vertex.
-    //-------------------------------------------------------------------------
-
-    const std::size_t newID =
-        uniqueVertices.size();
-
-    uniqueVertices.push_back(vertex);
-
-    bins[baseKey].push_back(newID);
-
-    return newID;
-}
-
 GeometricVertices buildGeometricVertices(
     const STLData& data,
     const GeometryBounds& bounds)
 {
-    const double vertexTolerance =
-        bounds.scale * RELATIVE_VERTEX_TOLERANCE;
-
-    const double vertexToleranceSquared =
-        vertexTolerance * vertexTolerance;
-
-
-    //-------------------------------------------------------------------------
-    // Allocate the geometric vertex representation.
-    //-------------------------------------------------------------------------
-
     GeometricVertices geometry;
 
-    geometry.vertices.reserve(
-        data.facets.size() * 3);
 
-    geometry.facetVertexIDs.resize(
-        data.facets.size());
+    std::vector<FacetGeometry> facetGeometry;
 
-
-    //-------------------------------------------------------------------------
-    // Spatial bins used during vertex welding.
-    //-------------------------------------------------------------------------
-
-    SpatialBins bins;
-
-    bins.reserve(
-        data.facets.size() * 3);
+    const double averageFacetArea =
+        computeFacetGeometry(
+            data,
+            facetGeometry);
 
 
-    //-------------------------------------------------------------------------
-    // Convert every STL vertex into a geometric vertex ID.
-    //
-    // Vertices within the geometry-relative tolerance are welded to the same
-    // geometric vertex.
-    //
-    // The original vertex ordering of each facet is preserved.
-    //-------------------------------------------------------------------------
+    FacetCellEntries facetEntries;
 
-    for (std::size_t i = 0;
-         i < data.facets.size();
-         ++i) {
+    buildFacetSpatialCells(
+        facetGeometry,
+        bounds,
+        averageFacetArea,
+        facetEntries);
 
-        const auto& facet =
-            data.facets[i];
 
-        auto& vertexIDs =
-            geometry.facetVertexIDs[i];
+    FacetCellRanges facetRanges;
 
-        for (std::size_t v = 0; v < 3; ++v) {
+    buildFacetCellRanges(
+        facetEntries,
+        facetRanges);
 
-            vertexIDs[v] =
-                getOrCreateVertexID(
-                    facet.vertices[v],
-                    bounds,
-                    vertexTolerance,
-                    vertexToleranceSquared,
-                    geometry.vertices,
-                    bins);
-        }
-    }
+
+    FacetPairs facetPairs;
+
+    buildCandidateFacetPairs(
+        facetEntries,
+        facetRanges,
+        facetPairs);
+
+
+    VertexPairs vertexPairs;
+
+    buildCandidateVertexPairs(
+        data,
+        bounds,
+        facetPairs,
+        vertexPairs);
+
+
+    RawVertexRepresentatives representatives;
+
+    buildRawVertexRepresentatives(
+        data,
+        vertexPairs,
+        representatives);
+
+
+    buildGeometricVerticesFromRepresentatives(
+        data,
+        representatives,
+        geometry);
+
 
     return geometry;
 }
+
+GeometricVertices buildGeometricVerticesParallel(
+    const STLData& data,
+    const GeometryBounds& bounds);
 
 EdgeKey makeEdgeKey(
     const std::size_t a,
