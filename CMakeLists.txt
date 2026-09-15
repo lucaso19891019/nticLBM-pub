@@ -647,6 +647,7 @@ target_include_directories(
     test_stl_normal_reconstruction
     PRIVATE
     src/input/stl
+    src/common
 )
 
 target_link_libraries(
