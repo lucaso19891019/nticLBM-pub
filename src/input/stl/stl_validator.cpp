@@ -1,6 +1,6 @@
 #include "stl_validator.hpp"
 #include "stl_topology.hpp"
-#include "parallel_sort.hpp"
+#include "parallel.hpp"
 
 #include <omp.h>
 
