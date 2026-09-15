@@ -2060,7 +2060,7 @@ void validateFlatEdges(
 
     // Last group ends at edgeCount.
 
-    groups[groupCount - 1].second =
+    groupEnd[groupCount - 1] =
         edgeCount;
 
 
