@@ -51,12 +51,28 @@ struct BinKey
     std::int64_t y;
     std::int64_t z;
 
-    bool operator==(const BinKey& other) const noexcept
+    bool operator==(
+        const BinKey& other) const noexcept
     {
         return
             x == other.x &&
             y == other.y &&
             z == other.z;
+    }
+
+
+    bool operator<(
+        const BinKey& other) const noexcept
+    {
+        if (x != other.x) {
+            return x < other.x;
+        }
+
+        if (y != other.y) {
+            return y < other.y;
+        }
+
+        return z < other.z;
     }
 };
 
@@ -125,19 +141,42 @@ using SpatialBins =
 // Facet spatial cells
 //=============================================================================
 //
-// Spatial cells used to generate candidate neighboring facets.
+// Flat entries used to organize facets into spatial cells.
 //
-// A facet may be inserted into multiple cells. The covered cells are
-// determined from the facet centroid and centroid radius so that facets
-// sharing nearby geometric vertices can be discovered without globally
-// comparing every facet pair.
+// A facet may generate multiple entries because its centroid-radius search
+// region can overlap multiple cells. Entries are generated independently in
+// parallel and later sorted by cell key.
+//
+// Keeping the representation flat avoids concurrent insertion into shared
+// hash tables and provides contiguous facet ranges for subsequent candidate
+// pair generation.
 //
 
-using FacetSpatialCells =
-    std::unordered_map<
-        BinKey,
-        std::vector<std::size_t>,
-        BinKeyHash>;
+struct FacetCellEntry
+{
+    BinKey key;
+
+    std::size_t facetID;
+};
+
+
+using FacetCellEntries =
+    std::vector<FacetCellEntry>;
+
+bool facetCellEntryLess(
+    const FacetCellEntry& a,
+    const FacetCellEntry& b) noexcept
+{
+    if (a.key < b.key) {
+        return true;
+    }
+
+    if (b.key < a.key) {
+        return false;
+    }
+
+    return a.facetID < b.facetID;
+}
 
 //=============================================================================
 // Flat edge
@@ -730,6 +769,135 @@ void computeFacetCellRange(
                  bounds.min[2]) /
                 cellSize))
     };
+}
+
+void buildFacetSpatialCells(
+    const std::vector<FacetGeometry>& facetGeometry,
+    const GeometryBounds& bounds,
+    const double averageFacetArea,
+    FacetCellEntries& entries)
+{
+    const double cellSize =
+        computeFacetSpatialCellSize(
+            averageFacetArea);
+
+    const double vertexTolerance =
+        bounds.scale *
+        RELATIVE_VERTEX_TOLERANCE;
+
+
+    //-------------------------------------------------------------------------
+    // Generate facet-cell entries independently on each OpenMP thread.
+    //
+    // Each facet is inserted into every spatial cell overlapped by its
+    // centroid-radius search region. Thread-local storage avoids synchronization
+    // while entries are being generated.
+    //-------------------------------------------------------------------------
+
+    const int maxThreads =
+        omp_get_max_threads();
+
+    std::vector<FacetCellEntries>
+        threadEntries(
+            static_cast<std::size_t>(
+                maxThreads));
+
+
+    #pragma omp parallel
+    {
+        const int threadID =
+            omp_get_thread_num();
+
+        auto& localEntries =
+            threadEntries[
+                static_cast<std::size_t>(
+                    threadID)];
+
+
+        #pragma omp for schedule(static)
+        for (std::int64_t i = 0;
+             i < static_cast<std::int64_t>(
+                     facetGeometry.size());
+             ++i)
+        {
+            BinKey minimumKey;
+            BinKey maximumKey;
+
+            computeFacetCellRange(
+                facetGeometry[
+                    static_cast<std::size_t>(i)],
+                bounds,
+                cellSize,
+                vertexTolerance,
+                minimumKey,
+                maximumKey);
+
+
+            for (std::int64_t z = minimumKey.z;
+                 z <= maximumKey.z;
+                 ++z)
+            {
+                for (std::int64_t y = minimumKey.y;
+                     y <= maximumKey.y;
+                     ++y)
+                {
+                    for (std::int64_t x = minimumKey.x;
+                         x <= maximumKey.x;
+                         ++x)
+                    {
+                        localEntries.push_back(
+                            {
+                                {x, y, z},
+                                static_cast<std::size_t>(i)
+                            });
+                    }
+                }
+            }
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Concatenate thread-local entries.
+    //-------------------------------------------------------------------------
+
+    std::size_t totalEntries = 0;
+
+    for (const auto& localEntries :
+         threadEntries)
+    {
+        totalEntries +=
+            localEntries.size();
+    }
+
+
+    entries.clear();
+
+    entries.reserve(
+        totalEntries);
+
+
+    for (auto& localEntries :
+         threadEntries)
+    {
+        entries.insert(
+            entries.end(),
+            localEntries.begin(),
+            localEntries.end());
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Sort first by spatial cell and then by facet ID.
+    //
+    // This produces contiguous ranges for every spatial cell and makes the
+    // representation independent of OpenMP execution order.
+    //-------------------------------------------------------------------------
+
+    std::sort(
+        entries.begin(),
+        entries.end(),
+        facetCellEntryLess);
 }
 
 BinKey makeBinKey(
@@ -2199,6 +2367,22 @@ void validate(
     checkFacetMeshQuality(
         topology.facetGeometry,
         averageFacetArea);
+
+    //-------------------------------------------------------------------------
+    // Build the facet spatial search structure.
+    //
+    // This structure is not yet used by geometric vertex welding. It is built
+    // here first so that the new parallel candidate-search path can be validated
+    // independently before replacing the existing welding implementation.
+    //-------------------------------------------------------------------------
+
+    FacetCellEntries facetCellEntries;
+
+    buildFacetSpatialCells(
+        topology.facetGeometry,
+        bounds,
+        averageFacetArea,
+        facetCellEntries);
 
 
     //-------------------------------------------------------------------------
