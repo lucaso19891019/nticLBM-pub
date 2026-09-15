@@ -1950,15 +1950,22 @@ void sortFlatEdges(
 void validateFlatEdges(
     const std::vector<FlatEdge>& flatEdges)
 {
+    std::vector<std::pair<std::size_t,
+                          std::size_t>> groups;
+
+
+    //---------------------------------------------------------------------
+    // Find all geometric edge groups.
+    //
+    // flatEdges is already sorted by edge key.
+    // Therefore all uses of one geometric edge are consecutive.
+    //---------------------------------------------------------------------
+
     std::size_t begin = 0;
 
 
     while (begin < flatEdges.size())
     {
-        //---------------------------------------------------------------------
-        // Find the complete group corresponding to one geometric edge.
-        //---------------------------------------------------------------------
-
         std::size_t end =
             begin + 1;
 
@@ -1972,39 +1979,85 @@ void validateFlatEdges(
         }
 
 
+        groups.emplace_back(
+            begin,
+            end);
+
+
+        begin =
+            end;
+    }
+
+
+
+    //---------------------------------------------------------------------
+    // Validate edge groups in parallel.
+    //---------------------------------------------------------------------
+
+    std::atomic<int> errorCode(
+        0);
+
+
+#pragma omp parallel for
+    for (std::size_t group = 0;
+         group < groups.size();
+         ++group)
+    {
+        if (errorCode.load(
+                std::memory_order_relaxed) != 0)
+        {
+            continue;
+        }
+
+
+        const std::size_t begin =
+            groups[group].first;
+
+
+        const std::size_t end =
+            groups[group].second;
+
+
         const std::size_t useCount =
             end - begin;
 
 
-        //---------------------------------------------------------------------
+
+        //-----------------------------------------------------------------
         // A closed surface requires every geometric edge to be shared by
         // exactly two facets.
-        //---------------------------------------------------------------------
+        //-----------------------------------------------------------------
 
         if (useCount == 1)
         {
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "open boundary edge detected.");
+            errorCode.store(
+                1,
+                std::memory_order_relaxed);
+
+            continue;
         }
 
 
-        //---------------------------------------------------------------------
+
+        //-----------------------------------------------------------------
         // More than two incident facets form a non-manifold edge.
-        //---------------------------------------------------------------------
+        //-----------------------------------------------------------------
 
         if (useCount > 2)
         {
-            throw std::runtime_error(
-                "Invalid STL geometry: "
-                "non-manifold edge detected.");
+            errorCode.store(
+                2,
+                std::memory_order_relaxed);
+
+            continue;
         }
 
 
-        //---------------------------------------------------------------------
-        // For a consistently wound orientable surface, the two incident
-        // facets must traverse their shared edge in opposite directions.
-        //---------------------------------------------------------------------
+
+        //-----------------------------------------------------------------
+        // Two incident facets must traverse their shared edge in opposite
+        // directions.
+        //-----------------------------------------------------------------
 
         const auto& use0 =
             flatEdges[begin].use;
@@ -2017,14 +2070,37 @@ void validateFlatEdges(
         if (use0.forward ==
             use1.forward)
         {
+            errorCode.store(
+                3,
+                std::memory_order_relaxed);
+        }
+    }
+
+
+
+    //---------------------------------------------------------------------
+    // Report validation result.
+    //---------------------------------------------------------------------
+
+    switch (errorCode.load())
+    {
+        case 1:
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "open boundary edge detected.");
+
+        case 2:
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "non-manifold edge detected.");
+
+        case 3:
             throw std::runtime_error(
                 "Invalid STL geometry: "
                 "inconsistent facet winding detected.");
-        }
 
-
-        begin =
-            end;
+        default:
+            break;
     }
 }
 
