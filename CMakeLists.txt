@@ -620,6 +620,7 @@ target_include_directories(
     test_stl_validator
     PRIVATE
     src/input/stl
+    src/common
 )
 
 target_link_libraries(
