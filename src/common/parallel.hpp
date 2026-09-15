@@ -98,6 +98,7 @@ void parallelSort(
 
                 if (i < aEnd - aBegin &&
                     j > 0 &&
+                    j <= bEnd - bBegin &&
                     compare(
                         data[aBegin + i],
                         data[bBegin + j - 1]))
