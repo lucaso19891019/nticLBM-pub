@@ -2009,7 +2009,8 @@ void validateFlatEdges(
 
 
     const std::size_t groupCount =
-        groupIds.back();
+        groupIds.back() +
+        boundaries.back();
 
 
 
