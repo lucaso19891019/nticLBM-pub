@@ -184,6 +184,48 @@ struct FacetPair
 using FacetPairs =
     std::vector<FacetPair>;
 
+//=============================================================================
+// Vertex pair
+//=============================================================================
+//
+// A raw STL vertex is identified by its flattened index:
+//
+//     rawVertexID = facetID * 3 + localVertexID
+//
+// VertexPair stores two raw STL vertices that are within the geometric
+// welding tolerance. The smaller raw vertex ID is always stored first.
+//
+
+struct VertexPair
+{
+    std::size_t first;
+    std::size_t second;
+
+    bool operator==(
+        const VertexPair& other) const noexcept
+    {
+        return
+            first == other.first &&
+            second == other.second;
+    }
+};
+
+
+using VertexPairs =
+    std::vector<VertexPair>;
+
+
+bool vertexPairLess(
+    const VertexPair& a,
+    const VertexPair& b) noexcept
+{
+    if (a.first != b.first) {
+        return a.first < b.first;
+    }
+
+    return a.second < b.second;
+}
+
 struct FacetCellRange
 {
     std::size_t begin;
@@ -1125,6 +1167,178 @@ void buildCandidateFacetPairs(
             pairs.begin(),
             pairs.end()),
         pairs.end());
+}
+
+bool sameGeometricVertex(
+    const STLVector& a,
+    const STLVector& b,
+    const double toleranceSquared);
+
+void buildCandidateVertexPairs(
+    const STLData& data,
+    const GeometryBounds& bounds,
+    const FacetPairs& facetPairs,
+    VertexPairs& vertexPairs)
+{
+    const double vertexTolerance =
+        bounds.scale *
+        RELATIVE_VERTEX_TOLERANCE;
+
+    const double vertexToleranceSquared =
+        vertexTolerance *
+        vertexTolerance;
+
+
+    //-------------------------------------------------------------------------
+    // Generate matching raw-vertex pairs independently for every candidate
+    // facet pair.
+    //
+    // Each candidate facet pair contributes at most 3 x 3 possible raw-vertex
+    // comparisons. Only vertex pairs within the geometric welding tolerance
+    // are retained.
+    //
+    // Thread-local storage avoids synchronization during pair generation.
+    //-------------------------------------------------------------------------
+
+    const int maxThreads =
+        omp_get_max_threads();
+
+    std::vector<VertexPairs>
+        threadPairs(
+            static_cast<std::size_t>(
+                maxThreads));
+
+
+    #pragma omp parallel
+    {
+        const int threadID =
+            omp_get_thread_num();
+
+        auto& localPairs =
+            threadPairs[
+                static_cast<std::size_t>(
+                    threadID)];
+
+
+        #pragma omp for schedule(static)
+        for (std::int64_t pairIndex = 0;
+             pairIndex <
+                 static_cast<std::int64_t>(
+                     facetPairs.size());
+             ++pairIndex)
+        {
+            const FacetPair& facetPair =
+                facetPairs[
+                    static_cast<std::size_t>(
+                        pairIndex)];
+
+            const auto& facetA =
+                data.facets[
+                    facetPair.first];
+
+            const auto& facetB =
+                data.facets[
+                    facetPair.second];
+
+
+            for (std::size_t a = 0;
+                 a < 3;
+                 ++a)
+            {
+                const std::size_t rawVertexA =
+                    facetPair.first * 3 + a;
+
+
+                for (std::size_t b = 0;
+                     b < 3;
+                     ++b)
+                {
+                    if (!sameGeometricVertex(
+                            facetA.vertices[a],
+                            facetB.vertices[b],
+                            vertexToleranceSquared))
+                    {
+                        continue;
+                    }
+
+
+                    const std::size_t rawVertexB =
+                        facetPair.second * 3 + b;
+
+
+                    if (rawVertexA < rawVertexB)
+                    {
+                        localPairs.push_back(
+                            {
+                                rawVertexA,
+                                rawVertexB
+                            });
+                    }
+                    else
+                    {
+                        localPairs.push_back(
+                            {
+                                rawVertexB,
+                                rawVertexA
+                            });
+                    }
+                }
+            }
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Merge thread-local vertex pairs.
+    //-------------------------------------------------------------------------
+
+    std::size_t totalPairs =
+        0;
+
+    for (const auto& localPairs :
+         threadPairs)
+    {
+        totalPairs +=
+            localPairs.size();
+    }
+
+
+    vertexPairs.clear();
+
+    vertexPairs.reserve(
+        totalPairs);
+
+
+    for (auto& localPairs :
+         threadPairs)
+    {
+        vertexPairs.insert(
+            vertexPairs.end(),
+            localPairs.begin(),
+            localPairs.end());
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Sort and remove duplicate raw-vertex pairs.
+    //
+    // TEMPORARY PERFORMANCE NOTE:
+    // std::sort is retained during correctness validation. It will be replaced
+    // together with the other serial sorting stages after the complete welding
+    // refactor has passed regression testing.
+    //-------------------------------------------------------------------------
+
+    std::sort(
+        vertexPairs.begin(),
+        vertexPairs.end(),
+        vertexPairLess);
+
+
+    vertexPairs.erase(
+        std::unique(
+            vertexPairs.begin(),
+            vertexPairs.end()),
+        vertexPairs.end());
 }
 
 //=============================================================================
@@ -2806,6 +3020,21 @@ validateFacetSpatialCellCoverage(
         facetCellEntries,
         facetCellRanges,
         candidateFacetPairs);
+
+    //-------------------------------------------------------------------------
+    // Build matching raw-vertex pairs from the candidate facet pairs.
+    //
+    // This is the new parallel welding candidate path. It is currently built
+    // only for validation and does not yet replace buildGeometricVertices().
+    //-------------------------------------------------------------------------
+
+    VertexPairs candidateVertexPairs;
+
+    buildCandidateVertexPairs(
+        data,
+        bounds,
+        candidateFacetPairs,
+        candidateVertexPairs);
 
     //-------------------------------------------------------------------------
     // Build the tolerance-welded geometric vertex representation.
