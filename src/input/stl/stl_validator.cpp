@@ -948,31 +948,47 @@ void buildFacetSpatialCells(
     // Concatenate thread-local entries.
     //-------------------------------------------------------------------------
 
-    std::size_t totalEntries = 0;
+    std::vector<std::size_t> threadSizes(
+        threadEntries.size());
 
-    for (const auto& localEntries :
-         threadEntries)
+    for (std::size_t i = 0;
+        i < threadEntries.size();
+        ++i)
     {
-        totalEntries +=
-            localEntries.size();
+        threadSizes[i] =
+            threadEntries[i].size();
     }
 
 
-    entries.clear();
+    std::vector<std::size_t> offsets;
 
-    entries.reserve(
+
+    const std::size_t totalEntries =
+        common::parallelScan(
+            threadSizes,
+            offsets);
+
+
+    entries.resize(
         totalEntries);
 
 
-    for (auto& localEntries :
-         threadEntries)
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t i = 0;
+        i < static_cast<std::ptrdiff_t>(
+                threadEntries.size());
+        ++i)
     {
-        entries.insert(
-            entries.end(),
-            localEntries.begin(),
-            localEntries.end());
-    }
+        const std::size_t threadID =
+            static_cast<std::size_t>(i);
 
+
+        std::copy(
+            threadEntries[threadID].begin(),
+            threadEntries[threadID].end(),
+            entries.begin() +
+                offsets[threadID]);
+    }
 
     //-------------------------------------------------------------------------
     // Sort first by spatial cell and then by facet ID.
@@ -1123,29 +1139,47 @@ void buildCandidateFacetPairs(
     // Merge thread-local candidate pairs.
     //-------------------------------------------------------------------------
 
-    std::size_t totalPairs = 0;
+    std::vector<std::size_t> threadSizes(
+        threadPairs.size());
 
-    for (const auto& localPairs :
-         threadPairs)
+
+    for (std::size_t i = 0;
+        i < threadPairs.size();
+        ++i)
     {
-        totalPairs +=
-            localPairs.size();
+        threadSizes[i] =
+            threadPairs[i].size();
     }
 
 
-    pairs.clear();
+    std::vector<std::size_t> offsets;
 
-    pairs.reserve(
+
+    const std::size_t totalPairs =
+        common::parallelScan(
+            threadSizes,
+            offsets);
+
+
+    pairs.resize(
         totalPairs);
 
 
-    for (auto& localPairs :
-         threadPairs)
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t i = 0;
+        i < static_cast<std::ptrdiff_t>(
+                threadPairs.size());
+        ++i)
     {
-        pairs.insert(
-            pairs.end(),
-            localPairs.begin(),
-            localPairs.end());
+        const std::size_t threadID =
+            static_cast<std::size_t>(i);
+
+
+        std::copy(
+            threadPairs[threadID].begin(),
+            threadPairs[threadID].end(),
+            pairs.begin() +
+                offsets[threadID]);
     }
 
 
@@ -1287,32 +1321,48 @@ void buildCandidateVertexPairs(
     // Merge thread-local vertex pairs.
     //-------------------------------------------------------------------------
 
-    std::size_t totalPairs =
-        0;
+    std::vector<std::size_t> threadSizes(
+        threadPairs.size());
 
-    for (const auto& localPairs :
-         threadPairs)
+
+    for (std::size_t i = 0;
+        i < threadPairs.size();
+        ++i)
     {
-        totalPairs +=
-            localPairs.size();
+        threadSizes[i] =
+            threadPairs[i].size();
     }
 
 
-    vertexPairs.clear();
+    std::vector<std::size_t> offsets;
 
-    vertexPairs.reserve(
+
+    const std::size_t totalPairs =
+        common::parallelScan(
+            threadSizes,
+            offsets);
+
+
+    vertexPairs.resize(
         totalPairs);
 
 
-    for (auto& localPairs :
-         threadPairs)
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t i = 0;
+        i < static_cast<std::ptrdiff_t>(
+                threadPairs.size());
+        ++i)
     {
-        vertexPairs.insert(
-            vertexPairs.end(),
-            localPairs.begin(),
-            localPairs.end());
-    }
+        const std::size_t threadID =
+            static_cast<std::size_t>(i);
 
+
+        std::copy(
+            threadPairs[threadID].begin(),
+            threadPairs[threadID].end(),
+            vertexPairs.begin() +
+                offsets[threadID]);
+    }
 
     //-------------------------------------------------------------------------
     // Sort and remove duplicate raw-vertex pairs.
