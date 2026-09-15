@@ -9,20 +9,22 @@
 namespace ntic::lbm::common
 {
 
+#pragma once
+
+#include <vector>
+#include <parallel/algorithm>
+
+namespace ntic::lbm::common
+{
+
 //=============================================================================
-// Sort a vector using an OpenMP task-based parallel merge sort.
+// Sort a vector using GCC parallel sorting backend.
 //
-// The algorithm recursively divides the input range into smaller sorted
-// segments. Independent segments are processed concurrently using OpenMP
-// tasks. The sorted segments are combined using a parallel merge-path based
-// merge operation.
+// The implementation uses the GNU libstdc++ parallel sorting algorithm,
+// which provides multi-threaded sorting and merging internally.
 //
-// Unlike a traditional merge sort, the merge stage is also parallelized.
-// Each worker is assigned an independent output range, eliminating the serial
-// merge bottleneck.
-//
-// The implementation supports arbitrary data types and user-defined comparison
-// operators.
+// The interface hides the backend implementation and allows future replacement
+// with other parallel execution models.
 //=============================================================================
 
 template<typename T, typename Compare>
@@ -30,285 +32,12 @@ void parallelSort(
     std::vector<T>& data,
     Compare compare)
 {
-    const std::size_t size =
-        data.size();
+    __gnu_parallel::sort(
+        data.begin(),
+        data.end(),
+        compare);
+}
 
-
-    if (size <= 1)
-    {
-        return;
-    }
-
-
-    std::vector<T> buffer(
-        size);
-
-
-
-    //-------------------------------------------------------------------------
-    // Merge-path partition.
-    //
-    // Given two sorted ranges:
-    //
-    //     A = [aBegin, aEnd)
-    //     B = [bBegin, bEnd)
-    //
-    // Find the partition point on diagonal k:
-    //
-    //     i + j = k
-    //
-    // such that:
-    //
-    //     A[i-1] <= B[j]
-    //     B[j-1] <  A[i]
-    //
-    //-------------------------------------------------------------------------
-    
-    auto mergePath =
-        [&](std::size_t k,
-            std::size_t aBegin,
-            std::size_t aEnd,
-            std::size_t bBegin,
-            std::size_t bEnd)
-        {
-            std::size_t low =
-                (k > (bEnd - bBegin))
-                ?
-                k - (bEnd - bBegin)
-                :
-                0;
-
-
-            std::size_t high =
-                std::min(
-                    k,
-                    aEnd - aBegin);
-
-
-
-            while (low < high)
-            {
-                const std::size_t i =
-                    (low + high) / 2;
-
-
-                const std::size_t j =
-                    k - i;
-
-
-                if (i < aEnd - aBegin &&
-                    j > 0 &&
-                    j <= bEnd - bBegin &&
-                    compare(
-                        data[aBegin + i],
-                        data[bBegin + j - 1]))
-                {
-                    low =
-                        i + 1;
-                }
-                else
-                {
-                    high =
-                        i;
-                }
-            }
-
-
-            return low;
-        };
-
-
-
-    //-------------------------------------------------------------------------
-    // Parallel merge.
-    //
-    // The output range is divided into independent diagonal segments.
-    // Each thread performs a local sequential merge inside its segment.
-    //-------------------------------------------------------------------------
-
-    auto parallelMerge =
-        [&](std::size_t begin,
-            std::size_t middle,
-            std::size_t end)
-        {
-            const std::size_t leftSize =
-                middle - begin;
-
-
-            const std::size_t rightSize =
-                end - middle;
-
-
-            const std::size_t total =
-                leftSize + rightSize;
-
-
-            const int threads =
-                omp_get_max_threads();
-
-
-            const std::size_t chunk =
-                (total + threads - 1)
-                /
-                threads;
-
-
-
-#pragma omp parallel
-            {
-                const int tid =
-                    omp_get_thread_num();
-
-
-                const std::size_t outBegin =
-                    std::min(
-                        static_cast<std::size_t>(tid) * chunk,
-                        total);
-
-
-                const std::size_t outEnd =
-                    std::min(
-                        outBegin + chunk,
-                        total);
-
-
-                if (outBegin < outEnd)
-                {
-                    const std::size_t a0 =
-                        mergePath(
-                            outBegin,
-                            begin,
-                            middle,
-                            middle,
-                            end);
-
-
-                    const std::size_t b0 =
-                        outBegin - a0;
-
-                    std::size_t i =
-                        begin + a0;
-
-
-                    std::size_t j =
-                        middle + b0;
-
-
-                    std::size_t k =
-                        begin + outBegin;
-
-
-                    while (k < begin + outEnd)
-                    {
-                        if (i < middle &&
-                            (j >= end ||
-                             compare(
-                                 data[i],
-                                 data[j])))
-                        {
-                            buffer[k++] =
-                                std::move(
-                                    data[i++]);
-                        }
-                        else
-                        {
-                            buffer[k++] =
-                                std::move(
-                                    data[j++]);
-                        }
-                    }
-                }
-            }
-
-
-#pragma omp parallel for
-            for (std::size_t i = begin;
-                 i < end;
-                 ++i)
-            {
-                data[i] =
-                    std::move(
-                        buffer[i]);
-            }
-        };
-
-
-
-    //-------------------------------------------------------------------------
-    // Recursive parallel merge sort.
-    //-------------------------------------------------------------------------
-
-    auto mergeSort =
-        [&](auto&& self,
-            std::size_t begin,
-            std::size_t end,
-            int depth) -> void
-        {
-            const std::size_t length =
-                end - begin;
-
-
-            constexpr std::size_t threshold =
-                2048;
-
-
-            if (length <= threshold)
-            {
-                std::sort(
-                    data.begin() + begin,
-                    data.begin() + end,
-                    compare);
-
-                return;
-            }
-
-
-            const std::size_t middle =
-                begin + length / 2;
-
-
-#pragma omp task if(depth < 4)
-            {
-                self(
-                    self,
-                    begin,
-                    middle,
-                    depth + 1);
-            }
-
-
-#pragma omp task if(depth < 4)
-            {
-                self(
-                    self,
-                    middle,
-                    end,
-                    depth + 1);
-            }
-
-
-#pragma omp taskwait
-
-
-            parallelMerge(
-                begin,
-                middle,
-                end);
-        };
-
-
-
-#pragma omp parallel
-    {
-#pragma omp single
-        {
-            mergeSort(
-                mergeSort,
-                0,
-                size,
-                0);
-        }
-    }
 }
 
 
