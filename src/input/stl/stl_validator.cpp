@@ -2074,6 +2074,16 @@ void validateFlatEdges(
         edgeCount;
 
 
+    for(const auto& group : groups)
+    {
+        if(group.first >= group.second ||
+        group.second > edgeCount)
+        {
+            throw std::runtime_error(
+                "Invalid edge group construction.");
+        }
+    }
+
 
     //---------------------------------------------------------------------
     // Validate edge groups in parallel.
