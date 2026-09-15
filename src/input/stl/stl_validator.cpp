@@ -122,6 +122,24 @@ using SpatialBins =
         BinKeyHash>;
 
 //=============================================================================
+// Facet spatial cells
+//=============================================================================
+//
+// Spatial cells used to generate candidate neighboring facets.
+//
+// A facet may be inserted into multiple cells. The covered cells are
+// determined from the facet centroid and centroid radius so that facets
+// sharing nearby geometric vertices can be discovered without globally
+// comparing every facet pair.
+//
+
+using FacetSpatialCells =
+    std::unordered_map<
+        BinKey,
+        std::vector<std::size_t>,
+        BinKeyHash>;
+
+//=============================================================================
 // Flat edge
 //=============================================================================
 //
@@ -629,6 +647,89 @@ void checkFacetMeshQuality(
             << " times the average facet area)."
             << std::endl;
     }
+}
+
+double computeFacetSpatialCellSize(
+    const double averageFacetArea)
+{
+    constexpr double FACET_CELL_SIZE_FACTOR =
+        2.0;
+
+    if(!std::isfinite(averageFacetArea) ||
+       averageFacetArea <= 0.0)
+    {
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "invalid average facet area.");
+    }
+
+
+    return
+        FACET_CELL_SIZE_FACTOR *
+        std::sqrt(averageFacetArea);
+}
+
+void computeFacetCellRange(
+    const FacetGeometry& facetGeometry,
+    const GeometryBounds& bounds,
+    const double cellSize,
+    const double vertexTolerance,
+    BinKey& minimumKey,
+    BinKey& maximumKey)
+{
+    const double radius =
+        facetGeometry.centroidRadius +
+        vertexTolerance;
+
+
+    minimumKey =
+    {
+        static_cast<std::int64_t>(
+            std::floor(
+                (facetGeometry.centroid[0] -
+                 radius -
+                 bounds.min[0]) /
+                cellSize)),
+
+        static_cast<std::int64_t>(
+            std::floor(
+                (facetGeometry.centroid[1] -
+                 radius -
+                 bounds.min[1]) /
+                cellSize)),
+
+        static_cast<std::int64_t>(
+            std::floor(
+                (facetGeometry.centroid[2] -
+                 radius -
+                 bounds.min[2]) /
+                cellSize))
+    };
+
+
+    maximumKey =
+    {
+        static_cast<std::int64_t>(
+            std::floor(
+                (facetGeometry.centroid[0] +
+                 radius -
+                 bounds.min[0]) /
+                cellSize)),
+
+        static_cast<std::int64_t>(
+            std::floor(
+                (facetGeometry.centroid[1] +
+                 radius -
+                 bounds.min[1]) /
+                cellSize)),
+
+        static_cast<std::int64_t>(
+            std::floor(
+                (facetGeometry.centroid[2] +
+                 radius -
+                 bounds.min[2]) /
+                cellSize))
+    };
 }
 
 BinKey makeBinKey(
