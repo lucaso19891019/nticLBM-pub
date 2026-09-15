@@ -2001,7 +2001,6 @@ void validateFlatEdges(
         }
     }
 
-
     //-------------------------------------------------------------------------
     // Convert group boundaries into group indices.
     //
@@ -2010,25 +2009,20 @@ void validateFlatEdges(
 
     std::vector<std::size_t> groupIds;
 
-
     common::parallelScan(
         boundaries,
         groupIds);
-
-
 
     const std::size_t groupCount =
         groupIds.back()
         +
         boundaries.back();
 
-
-
-    std::vector<std::pair<std::size_t,
-                        std::size_t>> groups(
+    std::vector<std::size_t> groupBegin(
         groupCount);
 
-
+    std::vector<std::size_t> groupEnd(
+        groupCount);
 
     #pragma omp parallel for
     for(std::size_t i = 0;
@@ -2041,7 +2035,7 @@ void validateFlatEdges(
                 groupIds[i];
 
 
-            groups[group].first =
+            groupBegin[group] =
                 i;
         }
     }
@@ -2058,7 +2052,7 @@ void validateFlatEdges(
             const std::size_t group =
                 groupIds[i] - 1;
 
-            groups[group].second =
+            groupEnd[group] =
                 i;
         }
     }
@@ -2070,10 +2064,12 @@ void validateFlatEdges(
         edgeCount;
 
 
-    for(const auto& group : groups)
+    for(std::size_t i = 0;
+        i < groupCount;
+        ++i)
     {
-        if(group.first >= group.second ||
-        group.second > edgeCount)
+        if(groupBegin[i] >= groupEnd[i] ||
+        groupEnd[i] > edgeCount)
         {
             throw std::runtime_error(
                 "Invalid edge group construction.");
@@ -2091,8 +2087,8 @@ void validateFlatEdges(
 
 #pragma omp parallel for
     for (std::size_t group = 0;
-         group < groups.size();
-         ++group)
+        group < groupCount;
+        ++group)
     {
         if (errorCode.load(
                 std::memory_order_relaxed) != 0)
@@ -2102,11 +2098,11 @@ void validateFlatEdges(
 
 
         const std::size_t begin =
-            groups[group].first;
+            groupBegin[group];
 
 
         const std::size_t end =
-            groups[group].second;
+            groupEnd[group];
 
 
         const std::size_t useCount =
