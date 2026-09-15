@@ -1510,53 +1510,80 @@ void buildGeometricVerticesFromRepresentatives(
     const std::size_t rawVertexCount =
         representatives.size();
 
-    geometry.vertices.clear();
 
     geometry.facetVertexIDs.resize(
         data.facets.size());
 
-    std::vector<std::size_t> uniqueRepresentatives =
-    representatives;
 
-    common::parallelSort(
-        uniqueRepresentatives);
+    //-------------------------------------------------------------------------
+    // Mark the representative raw vertices.
+    //
+    // Every Union-Find root corresponds to exactly one geometric vertex.
+    //-------------------------------------------------------------------------
 
-    uniqueRepresentatives.erase(
-        std::unique(
-            uniqueRepresentatives.begin(),
-            uniqueRepresentatives.end()),
-        uniqueRepresentatives.end());
+    std::vector<std::size_t> representativeFlags(
+        rawVertexCount);
 
 
-    geometry.vertices.reserve(
-        uniqueRepresentatives.size());
+    #pragma omp parallel for schedule(static)
 
-
-    std::unordered_map<std::size_t,std::size_t>
-        representativeToID;
-
-
-    representativeToID.reserve(
-        uniqueRepresentatives.size());
-
-
-    for(std::size_t id = 0;
-        id < uniqueRepresentatives.size();
-        ++id)
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 rawVertexCount);
+         ++index)
     {
-        representativeToID.emplace(
-            uniqueRepresentatives[id],
-            id);
+        const std::size_t rawID =
+            static_cast<std::size_t>(
+                index);
+
+
+        representativeFlags[rawID] =
+            representatives[rawID] == rawID
+                ? std::size_t{1}
+                : std::size_t{0};
     }
 
-    for(std::size_t rawID = 0;
-        rawID < rawVertexCount;
-        ++rawID)
+
+    //-------------------------------------------------------------------------
+    // Assign a compact geometric vertex ID to every representative.
+    //-------------------------------------------------------------------------
+
+    std::vector<std::size_t> representativeIDs;
+
+
+    const std::size_t geometricVertexCount =
+        common::parallelScan(
+            representativeFlags,
+            representativeIDs);
+
+
+    geometry.vertices.resize(
+        geometricVertexCount);
+
+
+    //-------------------------------------------------------------------------
+    // Store every unique geometric vertex at its compact geometric vertex ID.
+    //-------------------------------------------------------------------------
+
+    #pragma omp parallel for schedule(static)
+
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 rawVertexCount);
+         ++index)
     {
-        if(representatives[rawID] != rawID)
+        const std::size_t rawID =
+            static_cast<std::size_t>(
+                index);
+
+
+        if (representativeFlags[rawID] == 0)
         {
             continue;
         }
+
 
         const std::size_t facetID =
             rawID / 3;
@@ -1564,30 +1591,49 @@ void buildGeometricVerticesFromRepresentatives(
         const std::size_t localVertex =
             rawID % 3;
 
-        geometry.vertices.push_back(
-            data.facets[facetID]
-                .vertices[localVertex]);
+
+        geometry.vertices[
+            representativeIDs[rawID]] =
+                data.facets[facetID]
+                    .vertices[localVertex];
     }
 
-    for(std::size_t facetID = 0;
-        facetID < data.facets.size();
-        ++facetID)
+
+    //-------------------------------------------------------------------------
+    // Convert every raw STL vertex to its geometric vertex ID.
+    //-------------------------------------------------------------------------
+
+    #pragma omp parallel for schedule(static)
+
+    for (std::ptrdiff_t index = 0;
+         index <
+             static_cast<std::ptrdiff_t>(
+                 data.facets.size());
+         ++index)
     {
+        const std::size_t facetID =
+            static_cast<std::size_t>(
+                index);
+
         auto& vertexIDs =
-            geometry.facetVertexIDs[facetID];
+            geometry.facetVertexIDs[
+                facetID];
 
 
-        for(std::size_t v = 0;
-            v < 3;
-            ++v)
+        for (std::size_t v = 0;
+             v < 3;
+             ++v)
         {
             const std::size_t rawID =
                 facetID * 3 + v;
 
+            const std::size_t representative =
+                representatives[rawID];
+
 
             vertexIDs[v] =
-                representativeToID.at(
-                    representatives[rawID]);
+                representativeIDs[
+                    representative];
         }
     }
 }
