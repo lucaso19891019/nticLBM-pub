@@ -1950,9 +1950,6 @@ void sortFlatEdges(
 void validateFlatEdges(
     const std::vector<FlatEdge>& flatEdges)
 {
-    std::vector<std::pair<std::size_t,
-                          std::size_t>> groups;
-
 
     //---------------------------------------------------------------------
     // Find all geometric edge groups.
