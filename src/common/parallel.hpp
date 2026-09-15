@@ -3,19 +3,13 @@
 #include <algorithm>
 #include <vector>
 #include <cstddef>
+#include <parallel/algorithm>
 #include <omp.h>
 
 
 namespace ntic::lbm::common
 {
 
-#pragma once
-
-#include <vector>
-#include <parallel/algorithm>
-
-namespace ntic::lbm::common
-{
 
 //=============================================================================
 // Sort a vector using GCC parallel sorting backend.
@@ -36,8 +30,6 @@ void parallelSort(
         data.begin(),
         data.end(),
         compare);
-}
-
 }
 
 
