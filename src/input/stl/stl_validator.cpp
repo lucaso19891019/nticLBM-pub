@@ -2502,6 +2502,12 @@ void computeComponentBounds(
             maxZ
         };
 
+        bounds.center =
+        {
+            0.5*(minX+maxX),
+            0.5*(minY+maxY),
+            0.5*(minZ+maxZ)
+        };
 
         const double dx =
             maxX - minX;
@@ -2512,16 +2518,17 @@ void computeComponentBounds(
         const double dz =
             maxZ - minZ;
 
-
         bounds.scale =
             std::sqrt(
                 dx * dx +
                 dy * dy +
                 dz * dz);
 
-
         component.bounds =
             bounds;
+
+        component.referencePoint =
+            bounds.center;
     }
 }
 
@@ -3262,20 +3269,23 @@ void validateComponentConsistency(
         topology.geometry,
         topology.components);
 
-
-    for(std::size_t i = 0;
-        i < topology.components.size();
-        ++i)
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+        static_cast<std::ptrdiff_t>(
+            topology.components.size());
+        ++index)
     {
+        const std::size_t i =
+            static_cast<std::size_t>(index);
+
         auto& component =
             topology.components[i];
-
 
         component.signedVolume =
             computeSignedVolume(
                 topology.geometry,
                 component);
-
 
         validateComponentVolume(
             component,
