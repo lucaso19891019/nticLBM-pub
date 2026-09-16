@@ -71,6 +71,7 @@ struct FacetTopology
     std::vector<FacetGeometry>
         facetGeometry;
 
+    double averageFacetArea = 0.0;
 
     std::vector<std::array<std::size_t,3>>
         adjacency;
