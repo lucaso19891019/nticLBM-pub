@@ -253,6 +253,27 @@ bool facetCellEntryLess(
 // the facet ID and the original traversal direction.
 //
 
+struct EdgeKey
+{
+    std::size_t v0;
+
+    std::size_t v1;
+
+    bool operator==(const EdgeKey& other) const noexcept
+    {
+        return v0 == other.v0 &&
+               v1 == other.v1;
+    }
+};
+
+
+struct EdgeUse
+{
+    std::size_t facetID;
+
+    bool forward;
+};
+
 struct FlatEdge
 {
     EdgeKey key;
