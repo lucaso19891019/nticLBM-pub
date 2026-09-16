@@ -1743,15 +1743,6 @@ GeometricVertices buildGeometricVertices(
             data,
             facetGeometry);
 
-    for(std::size_t i = 0;
-        i < topology.facetGeometry.size();
-        ++i)
-    {
-        topology.facetGeometry[i].normal =
-            data.facets[i].normal;
-    }
-
-
     FacetCellEntries facetEntries;
 
     buildFacetSpatialCells(
@@ -2312,6 +2303,8 @@ void buildComponents(
             continue;
         }
 
+        const std::size_t componentID =
+            components.size();
 
         std::vector<std::size_t>
             component;
@@ -3079,7 +3072,23 @@ void validateDuplicateFacets(
 void validateTopologyWindingAndComponents(
     FacetTopology& topology)
 {
+
     //-------------------------------------------------------------------------
+    // Sort by canonical geometric edge.
+    //-------------------------------------------------------------------------
+
+    sortFlatEdges(
+        flatEdges);
+
+
+    //-------------------------------------------------------------------------
+    // Validate surface closedness, manifoldness, and local facet winding.
+    //-------------------------------------------------------------------------
+
+    validateFlatEdges(
+        flatEdges);
+
+        //-------------------------------------------------------------------------
     // Build the flat edge representation.
     //-------------------------------------------------------------------------
 
@@ -3147,22 +3156,6 @@ void validateTopologyWindingAndComponents(
                 edge);
         }
     }
-
-
-    //-------------------------------------------------------------------------
-    // Sort by canonical geometric edge.
-    //-------------------------------------------------------------------------
-
-    sortFlatEdges(
-        flatEdges);
-
-
-    //-------------------------------------------------------------------------
-    // Validate surface closedness, manifoldness, and local facet winding.
-    //-------------------------------------------------------------------------
-
-    validateFlatEdges(
-        flatEdges);
 
 
     //-------------------------------------------------------------------------
@@ -3323,10 +3316,17 @@ void validate(
             data,
             topology.facetGeometry);
 
-    for(std::size_t i = 0;
-        i < topology.facetGeometry.size();
-        ++i)
+    #pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                topology.facetGeometry.size());
+        ++index)
     {
+        const std::size_t i =
+            static_cast<std::size_t>(
+                index);
+
         topology.facetGeometry[i].normal =
             data.facets[i].normal;
     }
