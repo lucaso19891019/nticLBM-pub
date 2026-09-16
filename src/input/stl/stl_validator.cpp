@@ -3120,17 +3120,6 @@ void validateTopologyWindingAndComponents(
     validateFlatEdges(
         flatEdges);
 
-        //-------------------------------------------------------------------------
-    // Build the flat edge representation.
-    //-------------------------------------------------------------------------
-
-    std::vector<FlatEdge>
-        flatEdges;
-
-    buildFlatEdges(
-        topology.geometry,
-        flatEdges);
-
     //-------------------------------------------------------------------------
     // Build exported geometric edge topology.
     //
