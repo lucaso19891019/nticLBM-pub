@@ -3260,21 +3260,61 @@ void validateComponentConsistency(
         topology.components);
 
 
-    for(std::size_t i = 0;
-        i < topology.components.size();
-        ++i)
+    const std::size_t componentCount =
+        topology.components.size();
+
+
+    std::size_t invalidComponent =
+        componentCount;
+
+
+#pragma omp parallel for schedule(static) \
+    reduction(min:invalidComponent)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                componentCount);
+        ++index)
     {
+        const std::size_t componentID =
+            static_cast<std::size_t>(
+                index);
+
+
         auto& component =
-            topology.components[i];
+            topology.components[
+                componentID];
+
 
         component.signedVolume =
             computeSignedVolume(
                 topology.geometry,
                 component);
 
+
+        try
+        {
+            validateComponentVolume(
+                component,
+                componentID);
+        }
+        catch(const std::exception&)
+        {
+            invalidComponent =
+                std::min(
+                    invalidComponent,
+                    componentID);
+        }
+    }
+
+
+    if(invalidComponent <
+       componentCount)
+    {
         validateComponentVolume(
-            component,
-            i);
+            topology.components[
+                invalidComponent],
+            invalidComponent);
     }
 }
 
