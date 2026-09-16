@@ -644,6 +644,11 @@ double computeFacetGeometry(
         facetGeometry[facetID] =
         {
             centroid,
+            {
+                nx,
+                ny,
+                nz
+            },
             area,
             quality,
             centroidRadius
@@ -3310,21 +3315,6 @@ void validate(
             data,
             topology.facetGeometry);
 
-    #pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                topology.facetGeometry.size());
-        ++index)
-    {
-        const std::size_t i =
-            static_cast<std::size_t>(
-                index);
-
-        topology.facetGeometry[i].normal =
-            data.facets[i].normal;
-    }
-
 
     checkFacetMeshQuality(
         topology.facetGeometry,
@@ -3374,7 +3364,9 @@ void validate(
     topology.geometry =
         buildGeometricVertices(
             data,
-            bounds);
+            bounds,
+            topology.facetGeometry,
+            averageFacetArea);
 
     //-------------------------------------------------------------------------
     // 3. Duplicate facets
