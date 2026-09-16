@@ -2527,8 +2527,6 @@ void computeComponentBounds(
         component.bounds =
             bounds;
 
-        component.referencePoint =
-            bounds.center;
     }
 }
 
@@ -2537,24 +2535,16 @@ double computeSignedVolume(
     const STLComponent& component)
 {
     const double referenceX =
-        0.5 *
-        (component.bounds.min[0] +
-         component.bounds.max[0]);
+        component.bounds.center[0];
 
     const double referenceY =
-        0.5 *
-        (component.bounds.min[1] +
-         component.bounds.max[1]);
+        component.bounds.center[1];
 
     const double referenceZ =
-        0.5 *
-        (component.bounds.min[2] +
-         component.bounds.max[2]);
-
+        component.bounds.center[2];
 
     long double volume =
         0.0L;
-
 
     //---------------------------------------------------------------------
     // Accumulate signed tetrahedral volumes in parallel.
