@@ -3259,16 +3259,11 @@ void validateComponentConsistency(
         topology.geometry,
         topology.components);
 
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-        static_cast<std::ptrdiff_t>(
-            topology.components.size());
-        ++index)
-    {
-        const std::size_t i =
-            static_cast<std::size_t>(index);
 
+    for(std::size_t i = 0;
+        i < topology.components.size();
+        ++i)
+    {
         auto& component =
             topology.components[i];
 
