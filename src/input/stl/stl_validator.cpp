@@ -3094,6 +3094,18 @@ void validateTopologyWindingAndComponents(
 {
 
     //-------------------------------------------------------------------------
+    // Build the flat edge representation.
+    //-------------------------------------------------------------------------
+
+    std::vector<FlatEdge>
+        flatEdges;
+
+    buildFlatEdges(
+        topology.geometry,
+        flatEdges);
+
+
+    //-------------------------------------------------------------------------
     // Sort by canonical geometric edge.
     //-------------------------------------------------------------------------
 
@@ -3340,40 +3352,6 @@ void validate(
     checkFacetMeshQuality(
         topology.facetGeometry,
         averageFacetArea);
-
-    //-------------------------------------------------------------------------
-    // Build the facet spatial search structure.
-    //
-    // This structure is not yet used by geometric vertex welding. It is built
-    // here first so that the new parallel candidate-search path can be validated
-    // independently before replacing the existing welding implementation.
-    //-------------------------------------------------------------------------
-
-    FacetCellEntries facetCellEntries;
-
-    buildFacetSpatialCells(
-        topology.facetGeometry,
-        bounds,
-        averageFacetArea,
-        facetCellEntries);
-
-    //-------------------------------------------------------------------------
-    // Build candidate neighboring facet pairs from the spatial-cell structure.
-    //-------------------------------------------------------------------------
-
-    FacetCellRanges facetCellRanges;
-
-    buildFacetCellRanges(
-        facetCellEntries,
-        facetCellRanges);
-
-
-    FacetPairs candidateFacetPairs;
-
-    buildCandidateFacetPairs(
-        facetCellEntries,
-        facetCellRanges,
-        candidateFacetPairs);
 
     //-------------------------------------------------------------------------
     // Build matching raw-vertex pairs from the candidate facet pairs.
