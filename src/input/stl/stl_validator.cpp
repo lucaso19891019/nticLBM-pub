@@ -20,6 +20,8 @@
 
 #include <queue>
 
+#include <limits>
+
 namespace ntic::lbm::stl {
 
 namespace {
@@ -1741,6 +1743,14 @@ GeometricVertices buildGeometricVertices(
             data,
             facetGeometry);
 
+    for(std::size_t i = 0;
+        i < topology.facetGeometry.size();
+        ++i)
+    {
+        topology.facetGeometry[i].normal =
+            data.facets[i].normal;
+    }
+
 
     FacetCellEntries facetEntries;
 
@@ -2274,7 +2284,8 @@ void buildFacetAdjacency(
 
 void buildComponents(
     const std::vector<std::array<std::size_t,3>>& adjacency,
-    STLComponents& components)
+    STLComponents& components,
+    std::vector<std::size_t>& facetComponentIDs)
 {
 
     //---------------------------------------------------------------------
@@ -2292,12 +2303,12 @@ void buildComponents(
         false);
 
 
-    for (std::size_t i = 0;
-         i < n;
-         ++i) {
+    for (std::size_t startFacet = 0;
+         startFacet < n;
+         ++startFacet) {
 
 
-        if (visited[i]) {
+        if (visited[startFacet]) {
             continue;
         }
 
@@ -2309,9 +2320,12 @@ void buildComponents(
             queue;
 
 
-        queue.push(i);
+        queue.push(startFacet);
 
-        visited[i] = true;
+        visited[startFacet] = true;
+
+        facetComponentIDs[startFacet] =
+            componentID;
 
 
         while (!queue.empty()) {
@@ -2326,15 +2340,18 @@ void buildComponents(
                 current);
 
 
-            for (const auto next :
+            for (const auto neighbor :
                  adjacency[current]) {
 
 
-                if (!visited[next]) {
+                if(!visited[neighbor])
+                {
+                    visited[neighbor] = true;
 
-                    visited[next] = true;
+                    facetComponentIDs[neighbor] =
+                        componentID;
 
-                    queue.push(next);
+                    queue.push(neighbor);
                 }
             }
         }
@@ -3073,6 +3090,64 @@ void validateTopologyWindingAndComponents(
         topology.geometry,
         flatEdges);
 
+    //-------------------------------------------------------------------------
+    // Build exported geometric edge topology.
+    //
+    // FlatEdge contains one use of an edge. After validation, every geometric
+    // edge must have exactly two facet uses.
+    //-------------------------------------------------------------------------
+
+    topology.edges.clear();
+
+    topology.edges.reserve(
+        flatEdges.size() / 2);
+
+
+    for(std::size_t i = 0;
+        i < flatEdges.size();)
+    {
+        const std::size_t begin = i;
+
+
+        const EdgeKey key =
+            flatEdges[i].key;
+
+
+        while(i < flatEdges.size() &&
+            sameEdgeKey(
+                key,
+                flatEdges[i].key))
+        {
+            ++i;
+        }
+
+
+        const std::size_t useCount =
+            i - begin;
+
+
+        if(useCount == 2)
+        {
+            STLEdge edge;
+
+            edge.v0 =
+                key.v0;
+
+            edge.v1 =
+                key.v1;
+
+            edge.facets[0] =
+                flatEdges[begin].use.facetID;
+
+            edge.facets[1] =
+                flatEdges[begin + 1].use.facetID;
+
+
+            topology.edges.push_back(
+                edge);
+        }
+    }
+
 
     //-------------------------------------------------------------------------
     // Sort by canonical geometric edge.
@@ -3113,9 +3188,17 @@ void validateTopologyWindingAndComponents(
 
     topology.components.clear();
 
+    topology.facetComponentIDs.clear();
+
+    topology.facetComponentIDs.resize(
+        topology.adjacency.size(),
+        std::numeric_limits<std::size_t>::max());
+
+
     buildComponents(
         topology.adjacency,
-        topology.components);
+        topology.components,
+        topology.facetComponentIDs);
 }
 
 //=============================================================================
@@ -3239,6 +3322,14 @@ void validate(
         computeFacetGeometry(
             data,
             topology.facetGeometry);
+
+    for(std::size_t i = 0;
+        i < topology.facetGeometry.size();
+        ++i)
+    {
+        topology.facetGeometry[i].normal =
+            data.facets[i].normal;
+    }
 
 
     checkFacetMeshQuality(
