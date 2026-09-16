@@ -1731,17 +1731,11 @@ bool sameGeometricVertex(
 
 GeometricVertices buildGeometricVertices(
     const STLData& data,
-    const GeometryBounds& bounds)
+    const GeometryBounds& bounds,
+    const std::vector<FacetGeometry>& facetGeometry,
+    const double averageFacetArea)
 {
     GeometricVertices geometry;
-
-
-    std::vector<FacetGeometry> facetGeometry;
-
-    const double averageFacetArea =
-        computeFacetGeometry(
-            data,
-            facetGeometry);
 
     FacetCellEntries facetEntries;
 
