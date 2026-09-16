@@ -2385,14 +2385,8 @@ void computeComponentBounds(
     const GeometricVertices& geometry,
     STLComponents& components)
 {
-    #pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index < static_cast<std::ptrdiff_t>(components.size());
-        ++index)
+    for(auto& component : components)
     {
-        auto& component =
-            components[
-                static_cast<std::size_t>(index)];
 
         const auto firstFacetID =
             component.facets[0];
@@ -2414,6 +2408,9 @@ void computeComponentBounds(
         double maxY = firstPoint[1];
         double maxZ = firstPoint[2];
 
+        double cx = 0.0;
+        double cy = 0.0;
+        double cz = 0.0;
 
         //---------------------------------------------------------------------
         // Compute component bounds in parallel over its facets.
@@ -2422,6 +2419,7 @@ void computeComponentBounds(
         #pragma omp parallel for \
             reduction(min:minX,minY,minZ) \
             reduction(max:maxX,maxY,maxZ) \
+            reduction(+:cx,cy,cz) \
             schedule(static)
 
         for(std::ptrdiff_t index = 0;
@@ -2480,6 +2478,12 @@ void computeComponentBounds(
                     std::max(
                         maxZ,
                         p[2]);
+
+                cx += p[0];
+
+                cy += p[1];
+
+                cz += p[2];
             }
         }
 
