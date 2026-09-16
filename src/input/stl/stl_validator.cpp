@@ -2385,8 +2385,15 @@ void computeComponentBounds(
     const GeometricVertices& geometry,
     STLComponents& components)
 {
-    for(auto& component : components)
+    #pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index < static_cast<std::ptrdiff_t>(components.size());
+        ++index)
     {
+        auto& component =
+            components[
+                static_cast<std::size_t>(index)];
+
         const auto firstFacetID =
             component.facets[0];
 
