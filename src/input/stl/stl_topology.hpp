@@ -37,6 +37,8 @@ struct STLComponent
     double signedVolume = 0.0;
 };
 
+using STLComponents =
+    std::vector<STLComponent>;
 
 struct STLEdge
 {
