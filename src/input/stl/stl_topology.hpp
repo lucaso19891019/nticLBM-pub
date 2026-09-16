@@ -34,9 +34,6 @@ struct STLComponent
 
     GeometryBounds bounds;
 
-    std::array<double,3>
-        centroid{};
-
     double signedVolume = 0.0;
 };
 
