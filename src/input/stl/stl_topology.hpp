@@ -9,14 +9,11 @@ namespace ntic::lbm::stl
 
 struct GeometricVertices
 {
-    // One representative coordinate for each welded geometric vertex.
-    std::vector<std::array<double,3>> vertices;
+    std::vector<std::array<double,3>>
+        vertices;
 
-    // Geometric vertex IDs for each STL facet.
-    //
-    // facetVertexIDs[i][0..2] correspond to the three vertices of facet i
-    // in their original winding order.
-    std::vector<std::array<std::size_t,3>> facetVertexIDs;
+    std::vector<std::array<std::size_t,3>>
+        facetVertexIDs;
 };
 
 
@@ -24,13 +21,16 @@ struct GeometryBounds
 {
     std::array<double,3> min;
     std::array<double,3> max;
+    std::array<double,3> center;
+
     double scale;
 };
 
 
 struct STLComponent
 {
-    std::vector<std::size_t> facets;
+    std::vector<std::size_t>
+        facets;
 
     GeometryBounds bounds;
 
@@ -38,33 +38,22 @@ struct STLComponent
 };
 
 
-using STLComponents =
-    std::vector<STLComponent>;
-
-
-struct EdgeUse
-{
-    std::size_t facetID;
-
-    bool forward;
-};
-
-
-struct EdgeKey
+struct STLEdge
 {
     std::size_t v0;
+
     std::size_t v1;
 
-    bool operator==(const EdgeKey& other) const noexcept
-    {
-        return v0 == other.v0 &&
-               v1 == other.v1;
-    }
+    std::array<std::size_t,2>
+        facets;
 };
+
 
 struct FacetGeometry
 {
     std::array<double,3> centroid{};
+
+    std::array<double,3> normal{};
 
     double area = 0.0;
 
@@ -78,11 +67,22 @@ struct FacetTopology
 {
     GeometricVertices geometry;
 
+
     std::vector<FacetGeometry>
         facetGeometry;
 
+
     std::vector<std::array<std::size_t,3>>
         adjacency;
+
+
+    std::vector<STLEdge>
+        edges;
+
+
+    std::vector<std::size_t>
+        facetComponentIDs;
+
 
     STLComponents components;
 };
