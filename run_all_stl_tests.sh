@@ -64,3 +64,20 @@ $APP $STL_DIR/two_closed_tetrahedra.stl valid full
 
 $APP $STL_DIR/large_tetrahedron.stl valid full
 $APP $STL_DIR/zero_volume_closed_component.stl invalid full
+
+#=============================================================================
+# 6. Component intersections
+#=============================================================================
+
+$APP $STL_DIR/two_separated_tetrahedra.stl valid full
+$APP $STL_DIR/nested_tetrahedra.stl valid full
+$APP $STL_DIR/intersecting_tetrahedra.stl invalid full
+$APP $STL_DIR/vertex_touching_tetrahedra.stl invalid full
+$APP $STL_DIR/edge_touching_tetrahedra.stl invalid full
+$APP $STL_DIR/face_touching_tetrahedra.stl invalid full
+$APP $STL_DIR/near_but_not_touching_tetrahedra.stl valid full
+$APP $STL_DIR/aabb_overlap_separated.stl valid full
+$APP $STL_DIR/small_component_intersection.stl invalid full
+$APP $STL_DIR/large_facet_intersection.stl invalid full
+$APP $STL_DIR/coplanar_partial_overlap.stl invalid full
+$APP $STL_DIR/coplanar_edge_crossing.stl invalid full
