@@ -1201,6 +1201,34 @@ void buildCandidateFacetPairs(
         pairs.end());
 }
 
+void buildFacetCandidates(
+    const std::vector<FacetGeometry>& facetGeometry,
+    const GeometryBounds& bounds,
+    const double averageFacetArea,
+    FacetPairs& facetPairs)
+{
+    FacetCellEntries facetEntries;
+
+    buildFacetSpatialCells(
+        facetGeometry,
+        bounds,
+        averageFacetArea,
+        facetEntries);
+
+
+    FacetCellRanges facetRanges;
+
+    buildFacetCellRanges(
+        facetEntries,
+        facetRanges);
+
+
+    buildCandidateFacetPairs(
+        facetEntries,
+        facetRanges,
+        facetPairs);
+}
+
 bool sameGeometricVertex(
     const STLVector& a,
     const STLVector& b,
@@ -1758,33 +1786,9 @@ bool sameGeometricVertex(
 GeometricVertices buildGeometricVertices(
     const STLData& data,
     const GeometryBounds& bounds,
-    const std::vector<FacetGeometry>& facetGeometry,
-    const double averageFacetArea)
+    const FacetPairs& facetPairs)
 {
     GeometricVertices geometry;
-
-    FacetCellEntries facetEntries;
-
-    buildFacetSpatialCells(
-        facetGeometry,
-        bounds,
-        averageFacetArea,
-        facetEntries);
-
-
-    FacetCellRanges facetRanges;
-
-    buildFacetCellRanges(
-        facetEntries,
-        facetRanges);
-
-
-    FacetPairs facetPairs;
-
-    buildCandidateFacetPairs(
-        facetEntries,
-        facetRanges,
-        facetPairs);
 
 
     VertexPairs vertexPairs;
@@ -3318,6 +3322,613 @@ void validateComponentConsistency(
     }
 }
 
+
+//===================================
+// Helpers for Step 6.
+//===================================
+//
+std::array<double,3> subtract(
+    const std::array<double,3>& a,
+    const std::array<double,3>& b)
+{
+    return
+    {
+        a[0] - b[0],
+        a[1] - b[1],
+        a[2] - b[2]
+    };
+}
+
+
+std::array<double,3> cross(
+    const std::array<double,3>& a,
+    const std::array<double,3>& b)
+{
+    return
+    {
+        a[1] * b[2] -
+            a[2] * b[1],
+
+        a[2] * b[0] -
+            a[0] * b[2],
+
+        a[0] * b[1] -
+            a[1] * b[0]
+    };
+}
+
+
+double dot(
+    const std::array<double,3>& a,
+    const std::array<double,3>& b)
+{
+    return
+        a[0] * b[0] +
+        a[1] * b[1] +
+        a[2] * b[2];
+}
+
+
+double normSquared(
+    const std::array<double,3>& a)
+{
+    return dot(a, a);
+}
+
+
+//===========================================
+// triangle AABB rejection
+//===========================================
+//
+
+bool triangleBoundsOverlap(
+    const std::array<double,3>& a0,
+    const std::array<double,3>& a1,
+    const std::array<double,3>& a2,
+    const std::array<double,3>& b0,
+    const std::array<double,3>& b1,
+    const std::array<double,3>& b2,
+    const double tolerance)
+{
+    for(std::size_t d = 0;
+        d < 3;
+        ++d)
+    {
+        const double minimumA =
+            std::min(
+                a0[d],
+                std::min(
+                    a1[d],
+                    a2[d]));
+
+        const double maximumA =
+            std::max(
+                a0[d],
+                std::max(
+                    a1[d],
+                    a2[d]));
+
+
+        const double minimumB =
+            std::min(
+                b0[d],
+                std::min(
+                    b1[d],
+                    b2[d]));
+
+        const double maximumB =
+            std::max(
+                b0[d],
+                std::max(
+                    b1[d],
+                    b2[d]));
+
+
+        if(maximumA <
+               minimumB - tolerance ||
+           maximumB <
+               minimumA - tolerance)
+        {
+            return false;
+        }
+    }
+
+
+    return true;
+}
+
+//========================================================
+// SAT projection helper
+//========================================================
+//
+
+bool separatedOnAxis(
+    const std::array<double,3>& axis,
+    const std::array<double,3>& a0,
+    const std::array<double,3>& a1,
+    const std::array<double,3>& a2,
+    const std::array<double,3>& b0,
+    const std::array<double,3>& b1,
+    const std::array<double,3>& b2,
+    const double tolerance)
+{
+    const double axisLengthSquared =
+        normSquared(axis);
+
+
+    if(axisLengthSquared <=
+       std::numeric_limits<double>::epsilon())
+    {
+        return false;
+    }
+
+
+    const double pA0 =
+        dot(axis, a0);
+
+    const double pA1 =
+        dot(axis, a1);
+
+    const double pA2 =
+        dot(axis, a2);
+
+
+    const double pB0 =
+        dot(axis, b0);
+
+    const double pB1 =
+        dot(axis, b1);
+
+    const double pB2 =
+        dot(axis, b2);
+
+
+    const double minimumA =
+        std::min(
+            pA0,
+            std::min(
+                pA1,
+                pA2));
+
+    const double maximumA =
+        std::max(
+            pA0,
+            std::max(
+                pA1,
+                pA2));
+
+
+    const double minimumB =
+        std::min(
+            pB0,
+            std::min(
+                pB1,
+                pB2));
+
+    const double maximumB =
+        std::max(
+            pB0,
+            std::max(
+                pB1,
+                pB2));
+
+
+    const double projectedTolerance =
+        tolerance *
+        std::sqrt(
+            axisLengthSquared);
+
+
+    return
+        maximumA <
+            minimumB -
+            projectedTolerance ||
+        maximumB <
+            minimumA -
+            projectedTolerance;
+}
+
+//====================================
+// trianglesIntersect
+//====================================
+//
+
+bool trianglesIntersect(
+    const GeometricVertices& geometry,
+    const std::size_t facetA,
+    const std::size_t facetB,
+    const double tolerance)
+{
+    const auto& idsA =
+        geometry.facetVertexIDs[
+            facetA];
+
+    const auto& idsB =
+        geometry.facetVertexIDs[
+            facetB];
+
+
+    const auto& a0 =
+        geometry.vertices[
+            idsA[0]];
+
+    const auto& a1 =
+        geometry.vertices[
+            idsA[1]];
+
+    const auto& a2 =
+        geometry.vertices[
+            idsA[2]];
+
+
+    const auto& b0 =
+        geometry.vertices[
+            idsB[0]];
+
+    const auto& b1 =
+        geometry.vertices[
+            idsB[1]];
+
+    const auto& b2 =
+        geometry.vertices[
+            idsB[2]];
+
+
+    if(!triangleBoundsOverlap(
+           a0,
+           a1,
+           a2,
+           b0,
+           b1,
+           b2,
+           tolerance))
+    {
+        return false;
+    }
+
+
+    const std::array<std::array<double,3>,3>
+        edgesA =
+    {{
+        subtract(a1, a0),
+        subtract(a2, a1),
+        subtract(a0, a2)
+    }};
+
+
+    const std::array<std::array<double,3>,3>
+        edgesB =
+    {{
+        subtract(b1, b0),
+        subtract(b2, b1),
+        subtract(b0, b2)
+    }};
+
+
+    const auto normalA =
+        cross(
+            edgesA[0],
+            edgesA[1]);
+
+    const auto normalB =
+        cross(
+            edgesB[0],
+            edgesB[1]);
+
+
+    //-------------------------------------------------------------------------
+    // Triangle face normals.
+    //-------------------------------------------------------------------------
+
+    if(separatedOnAxis(
+           normalA,
+           a0,
+           a1,
+           a2,
+           b0,
+           b1,
+           b2,
+           tolerance))
+    {
+        return false;
+    }
+
+
+    if(separatedOnAxis(
+           normalB,
+           a0,
+           a1,
+           a2,
+           b0,
+           b1,
+           b2,
+           tolerance))
+    {
+        return false;
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Edge-edge separating axes.
+    //-------------------------------------------------------------------------
+
+    for(std::size_t i = 0;
+        i < 3;
+        ++i)
+    {
+        for(std::size_t j = 0;
+            j < 3;
+            ++j)
+        {
+            const auto axis =
+                cross(
+                    edgesA[i],
+                    edgesB[j]);
+
+
+            if(separatedOnAxis(
+                   axis,
+                   a0,
+                   a1,
+                   a2,
+                   b0,
+                   b1,
+                   b2,
+                   tolerance))
+            {
+                return false;
+            }
+        }
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Coplanar separating axes.
+    //
+    // For coplanar triangles, the face normals and edge-edge cross products
+    // alone are not sufficient because the edge-edge axes collapse onto the
+    // common plane normal.  The in-plane edge-normal axes are therefore also
+    // tested.
+    //-------------------------------------------------------------------------
+
+    const double normalCrossSquared =
+        normSquared(
+            cross(
+                normalA,
+                normalB));
+
+    const double normalProductSquared =
+        normSquared(normalA) *
+        normSquared(normalB);
+
+
+    if(normalCrossSquared <=
+       normalProductSquared *
+       1.0e-24)
+    {
+        for(std::size_t i = 0;
+            i < 3;
+            ++i)
+        {
+            const auto axis =
+                cross(
+                    normalA,
+                    edgesA[i]);
+
+
+            if(separatedOnAxis(
+                   axis,
+                   a0,
+                   a1,
+                   a2,
+                   b0,
+                   b1,
+                   b2,
+                   tolerance))
+            {
+                return false;
+            }
+        }
+
+
+        for(std::size_t i = 0;
+            i < 3;
+            ++i)
+        {
+            const auto axis =
+                cross(
+                    normalA,
+                    edgesB[i]);
+
+
+            if(separatedOnAxis(
+                   axis,
+                   a0,
+                   a1,
+                   a2,
+                   b0,
+                   b1,
+                   b2,
+                   tolerance))
+            {
+                return false;
+            }
+        }
+    }
+
+
+    return true;
+}
+
+//========================================================================
+// Component AABB broad rejection
+//========================================================================
+//
+
+bool componentBoundsOverlap(
+    const GeometryBounds& a,
+    const GeometryBounds& b,
+    const double tolerance)
+{
+    for(std::size_t d = 0;
+        d < 3;
+        ++d)
+    {
+        if(a.max[d] <
+               b.min[d] - tolerance ||
+           b.max[d] <
+               a.min[d] - tolerance)
+        {
+            return false;
+        }
+    }
+
+
+    return true;
+}
+
+//=============================================================================
+// 6. Component intersections
+//=============================================================================
+//
+// Reject geometric intersections between different closed surface components.
+//
+// Spatial candidate facet pairs generated earlier for geometric vertex welding
+// are reused here.  Candidate pairs belonging to the same connected component
+// are ignored.
+//
+// Component bounding boxes provide an additional broad-phase rejection before
+// the triangle-triangle narrow-phase test.
+//
+// Surface crossing, overlap, edge contact, and vertex contact between different
+// components are all treated as invalid component intersections.
+//
+void validateComponentIntersections(
+    const FacetTopology& topology,
+    const FacetPairs& facetPairs,
+    const GeometryBounds& bounds)
+{
+    if(topology.components.size() < 2 ||
+       facetPairs.empty())
+    {
+        return;
+    }
+
+
+    const double tolerance =
+        bounds.scale *
+        RELATIVE_VERTEX_TOLERANCE;
+
+
+    const std::size_t pairCount =
+        facetPairs.size();
+
+
+    //-------------------------------------------------------------------------
+    // pairCount is used as the sentinel value for no intersection.
+    //
+    // The minimum offending candidate-pair index is retained so that the
+    // reported validation error is deterministic and independent of OpenMP
+    // execution order.
+    //-------------------------------------------------------------------------
+
+    std::size_t invalidPair =
+        pairCount;
+
+
+    #pragma omp parallel for schedule(static) \
+        reduction(min:invalidPair)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                pairCount);
+        ++index)
+    {
+        const std::size_t pairID =
+            static_cast<std::size_t>(
+                index);
+
+
+        const auto& pair =
+            facetPairs[
+                pairID];
+
+
+        const std::size_t componentA =
+            topology.facetComponentIDs[
+                pair.first];
+
+        const std::size_t componentB =
+            topology.facetComponentIDs[
+                pair.second];
+
+
+        if(componentA ==
+           componentB)
+        {
+            continue;
+        }
+
+
+        if(!componentBoundsOverlap(
+               topology.components[
+                   componentA].bounds,
+               topology.components[
+                   componentB].bounds,
+               tolerance))
+        {
+            continue;
+        }
+
+
+        if(!trianglesIntersect(
+               topology.geometry,
+               pair.first,
+               pair.second,
+               tolerance))
+        {
+            continue;
+        }
+
+
+        invalidPair =
+            std::min(
+                invalidPair,
+                pairID);
+    }
+
+
+    if(invalidPair <
+       pairCount)
+    {
+        const auto& pair =
+            facetPairs[
+                invalidPair];
+
+
+        const std::size_t componentA =
+            topology.facetComponentIDs[
+                pair.first];
+
+        const std::size_t componentB =
+            topology.facetComponentIDs[
+                pair.second];
+
+
+        throw std::runtime_error(
+            "Invalid STL geometry: "
+            "component " +
+            std::to_string(componentA) +
+            " intersects component " +
+            std::to_string(componentB) +
+            " at facets " +
+            std::to_string(pair.first) +
+            " and " +
+            std::to_string(pair.second) +
+            ".");
+    }
+}
+
 } // namespace
 
 
@@ -3388,19 +3999,28 @@ void validate(
         topology.facetGeometry,
         averageFacetArea);
 
+
     //-------------------------------------------------------------------------
-    // Build matching raw-vertex pairs from the candidate facet pairs.
+    // Build spatial candidate facet pairs.
     //
-    // This is the new parallel welding candidate path. It is currently built
-    // only for validation and does not yet replace buildGeometricVertices().
+    // The candidate pairs are shared by geometric vertex welding and the
+    // component-intersection validation stage.
     //-------------------------------------------------------------------------
+
+    FacetPairs facetPairs;
+
+    buildFacetCandidates(
+        topology.facetGeometry,
+        bounds,
+        averageFacetArea,
+        facetPairs);
+
 
     topology.geometry =
         buildGeometricVertices(
             data,
             bounds,
-            topology.facetGeometry,
-            averageFacetArea);
+            facetPairs);
 
     //-------------------------------------------------------------------------
     // 3. Duplicate facets
@@ -3432,6 +4052,16 @@ void validate(
 
     validateComponentConsistency(
         topology);
+
+
+    //-------------------------------------------------------------------------
+    // 6. Component intersections
+    //-------------------------------------------------------------------------
+
+    validateComponentIntersections(
+        topology,
+        facetPairs,
+        bounds);
 }
 
 } // namespace ntic::lbm::stl
