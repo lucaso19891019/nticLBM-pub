@@ -3529,6 +3529,45 @@ bool separatedOnAxis(
 }
 
 //====================================
+// facetsShareGeometricVertex
+//====================================
+//
+
+bool facetsShareGeometricVertex(
+    const GeometricVertices& geometry,
+    const std::size_t facetA,
+    const std::size_t facetB)
+{
+    const auto& verticesA =
+        geometry.facetVertexIDs[
+            facetA];
+
+    const auto& verticesB =
+        geometry.facetVertexIDs[
+            facetB];
+
+
+    for(std::size_t a = 0;
+        a < 3;
+        ++a)
+    {
+        for(std::size_t b = 0;
+            b < 3;
+            ++b)
+        {
+            if(verticesA[a] ==
+               verticesB[b])
+            {
+                return true;
+            }
+        }
+    }
+
+
+    return false;
+}
+
+//====================================
 // trianglesIntersect
 //====================================
 //
@@ -3788,28 +3827,31 @@ bool componentBoundsOverlap(
 }
 
 //=============================================================================
-// 6. Component intersections
+// 6. Surface intersections
 //=============================================================================
 //
-// Reject geometric intersections between different closed surface components.
+// Reject geometric intersections of the validated closed surface mesh.
 //
 // Spatial candidate facet pairs generated earlier for geometric vertex welding
-// are reused here.  Candidate pairs belonging to the same connected component
-// are ignored.
+// are reused here.
 //
-// Component bounding boxes provide an additional broad-phase rejection before
-// the triangle-triangle narrow-phase test.
+// For different connected components, any surface crossing, overlap, edge
+// contact, or vertex contact is invalid.
 //
-// Surface crossing, overlap, edge contact, and vertex contact between different
-// components are all treated as invalid component intersections.
+// For facets belonging to the same component, pairs sharing an existing
+// geometric vertex are incident mesh facets and are excluded from the
+// self-intersection test. Non-incident facet pairs are tested geometrically.
 //
-void validateComponentIntersections(
+// Component bounding boxes provide an additional broad-phase rejection for
+// pairs belonging to different components.
+//
+
+void validateSurfaceIntersections(
     const FacetTopology& topology,
     const FacetPairs& facetPairs,
     const GeometryBounds& bounds)
 {
-    if(topology.components.size() < 2 ||
-       facetPairs.empty())
+    if(facetPairs.empty())
     {
         return;
     }
@@ -3864,22 +3906,28 @@ void validateComponentIntersections(
 
 
         if(componentA ==
-           componentB)
+            componentB)
         {
-            continue;
+            if(facetsShareGeometricVertex(
+                topology.geometry,
+                pair.first,
+                pair.second))
+            {
+                continue;
+            }
         }
-
-
-        if(!componentBoundsOverlap(
-               topology.components[
-                   componentA].bounds,
-               topology.components[
-                   componentB].bounds,
-               tolerance))
+        else
         {
-            continue;
+            if(!componentBoundsOverlap(
+                topology.components[
+                    componentA].bounds,
+                topology.components[
+                    componentB].bounds,
+                tolerance))
+            {
+                continue;
+            }
         }
-
 
         if(!trianglesIntersect(
                topology.geometry,
@@ -3913,6 +3961,21 @@ void validateComponentIntersections(
         const std::size_t componentB =
             topology.facetComponentIDs[
                 pair.second];
+
+
+        if(componentA ==
+            componentB)
+        {
+            throw std::runtime_error(
+                "Invalid STL geometry: "
+                "self-intersection detected in component " +
+                std::to_string(componentA) +
+                " at facets " +
+                std::to_string(pair.first) +
+                " and " +
+                std::to_string(pair.second) +
+                ".");
+        }
 
 
         throw std::runtime_error(
@@ -4058,7 +4121,7 @@ void validate(
     // 6. Component intersections
     //-------------------------------------------------------------------------
 
-    validateComponentIntersections(
+    validateSurfaceIntersections(
         topology,
         facetPairs,
         bounds);
