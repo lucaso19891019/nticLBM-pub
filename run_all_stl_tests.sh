@@ -81,3 +81,5 @@ $APP $STL_DIR/small_component_intersection.stl invalid full
 $APP $STL_DIR/large_facet_intersection.stl invalid full
 $APP $STL_DIR/coplanar_partial_overlap.stl invalid full
 $APP $STL_DIR/coplanar_edge_crossing.stl invalid full
+$APP $STL_DIR/valid_closed_octahedron.stl valid full
+$APP $STL_DIR/self_intersecting_octahedron.stl invalid full
