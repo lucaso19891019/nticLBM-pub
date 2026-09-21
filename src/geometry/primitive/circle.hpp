@@ -3,7 +3,6 @@
 #include "point.hpp"
 #include "bounding_box.hpp"
 
-#include <stdexcept>
 
 namespace ntic::lbm::geometry
 {
@@ -33,12 +32,6 @@ struct Circle
 
     bool contains(const Point& point) const
     {
-        if(point[2] != 0.0)
-        {
-            throw std::invalid_argument(
-                "Circle contains() requires point z = 0.");
-        }
-
 
         const double dx =
             point[0] - center[0];
