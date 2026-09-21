@@ -3,6 +3,8 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include <limits>
+
 #include "point.hpp"
 
 namespace ntic::lbm::geometry
@@ -25,8 +27,17 @@ namespace ntic::lbm::geometry
 
 struct BoundingBox
 {
-    Point min{};
-    Point max{};
+    Point min{
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity()
+    };
+
+    Point max{
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity()
+    };
 
 
     double width() const noexcept
