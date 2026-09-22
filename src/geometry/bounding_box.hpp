@@ -71,6 +71,19 @@ struct BoundingBox
             point[2] <= max[2];
     }
 
+    bool contains(
+        const BoundingBox& box) const noexcept
+    {
+        return
+            box.min[0] >= min[0] &&
+            box.max[0] <= max[0] &&
+
+            box.min[1] >= min[1] &&
+            box.max[1] <= max[1] &&
+
+            box.min[2] >= min[2] &&
+            box.max[2] <= max[2];
+    }
 
     void expand(const Point& point) noexcept
     {
