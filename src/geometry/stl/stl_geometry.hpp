@@ -2,11 +2,16 @@
 
 #include "bounding_box.hpp"
 #include "flow_type.hpp"
-
+#include "point.hpp"
 #include "stl_topology.hpp"
+
 
 namespace ntic::lbm::geometry
 {
+
+//=============================================================================
+// STLGeometry
+//=============================================================================
 
 struct STLGeometry
 {
@@ -21,10 +26,19 @@ struct STLGeometry
 };
 
 
-STLGeometry prepareSTLGeometry(
+//=============================================================================
+// STL geometry preparation
+//=============================================================================
+
+[[nodiscard]]
+STLGeometry prepareInternalSTLGeometry(
+    stl::FacetTopology topology);
+
+
+[[nodiscard]]
+STLGeometry prepareExternalSTLGeometry(
     stl::FacetTopology topology,
-    FlowType flowType,
-    const BoundingBox& openBox = {},
-    const Point& targetSTLMin = {});
+    const BoundingBox& openBox,
+    const Point& targetSTLMin);
 
 } // namespace ntic::lbm::geometry
