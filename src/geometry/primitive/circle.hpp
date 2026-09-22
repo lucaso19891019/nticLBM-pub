@@ -3,6 +3,9 @@
 #include "point.hpp"
 #include "bounding_box.hpp"
 
+#include "flow_type.hpp"
+
+#include <stdexcept>
 
 namespace ntic::lbm::geometry
 {
@@ -30,9 +33,11 @@ struct Circle
     double radius;
 
 
-    bool contains(const Point& point) const
+    bool contains(
+        const Point& point,
+        const FlowType flowType,
+        const BoundingBox* openBox = nullptr) const
     {
-
         const double dx =
             point[0] - center[0];
 
@@ -40,10 +45,42 @@ struct Circle
             point[1] - center[1];
 
 
-        return
+        const double distanceSquared =
             dx * dx +
-            dy * dy
-            <= radius * radius;
+            dy * dy;
+
+        const double radiusSquared =
+            radius * radius;
+
+
+        if(flowType ==
+        FlowType::Internal)
+        {
+            return
+                distanceSquared <
+                radiusSquared;
+        }
+
+
+        if(openBox == nullptr)
+        {
+            throw std::invalid_argument(
+                "External flow requires an open box.");
+        }
+
+
+        const bool insideOpenBox =
+            point[0] > openBox->min[0] &&
+            point[0] < openBox->max[0] &&
+
+            point[1] > openBox->min[1] &&
+            point[1] < openBox->max[1];
+
+
+        return
+            insideOpenBox &&
+            distanceSquared >
+                radiusSquared;
     }
 
 
