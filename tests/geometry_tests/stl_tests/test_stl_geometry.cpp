@@ -1,6 +1,9 @@
 #include "stl_geometry.hpp"
+#include "stl_reader.hpp"
+#include "stl_validator.hpp"
 
 #include <cstddef>
+#include <exception>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -10,9 +13,9 @@
 namespace
 {
 
+using ntic::lbm::geometry::BoundingBox;
 using ntic::lbm::geometry::Point;
 using ntic::lbm::geometry::STLGeometry;
-using ntic::lbm::stl::FacetTopology;
 
 
 //=============================================================================
@@ -51,51 +54,24 @@ void requirePointEqual(
 
 
 //=============================================================================
-// Test topology
+// Reference bounding box
 //=============================================================================
 
-FacetTopology makeTestTopology()
+BoundingBox makeReferenceBounds(
+    const ntic::lbm::stl::FacetTopology& topology)
 {
-    FacetTopology topology;
+    BoundingBox bounds;
 
 
-    topology.geometry.vertices = {
-
-        {-2.0, 3.0, 5.0},
-        { 4.0, 3.0, 5.0},
-        {-2.0, 8.0, 5.0},
-        { 4.0, 8.0, 5.0},
-
-        {-2.0, 3.0, 12.0},
-        { 4.0, 3.0, 12.0},
-        {-2.0, 8.0, 12.0},
-        { 4.0, 8.0, 12.0}
-    };
+    for(const auto& vertex :
+        topology.geometry.vertices)
+    {
+        bounds.expand(
+            vertex);
+    }
 
 
-    topology.geometry.facetVertexIDs = {
-
-        {0, 3, 1},
-        {0, 2, 3},
-
-        {4, 5, 7},
-        {4, 7, 6},
-
-        {0, 1, 5},
-        {0, 5, 4},
-
-        {2, 6, 7},
-        {2, 7, 3},
-
-        {0, 4, 6},
-        {0, 6, 2},
-
-        {1, 3, 7},
-        {1, 7, 5}
-    };
-
-
-    return topology;
+    return bounds;
 }
 
 
@@ -103,10 +79,43 @@ FacetTopology makeTestTopology()
 // STL geometry construction
 //=============================================================================
 
-void testConstruction()
+void testConstruction(
+    const std::string& stlFile,
+    const std::string& validationMode)
 {
-    FacetTopology topology =
-        makeTestTopology();
+    using namespace ntic::lbm;
+
+
+    //-------------------------------------------------------------------------
+    // Read and validate STL
+    //-------------------------------------------------------------------------
+
+    stl::STLData data =
+        stl::read(
+            stlFile);
+
+
+    stl::FacetTopology topology;
+
+
+    stl::validate(
+        data,
+        validationMode,
+        topology);
+
+
+    require(
+        !topology.geometry.vertices.empty(),
+        "Validated STL topology contains no vertices.");
+
+
+    //-------------------------------------------------------------------------
+    // Reference data before ownership transfer
+    //-------------------------------------------------------------------------
+
+    const BoundingBox referenceBounds =
+        makeReferenceBounds(
+            topology);
 
 
     const std::size_t vertexCount =
@@ -115,23 +124,40 @@ void testConstruction()
     const std::size_t facetCount =
         topology.geometry.facetVertexIDs.size();
 
+    const std::size_t facetGeometryCount =
+        topology.facetGeometry.size();
+
+    const std::size_t edgeCount =
+        topology.edges.size();
+
+    const std::size_t componentIDCount =
+        topology.facetComponentIDs.size();
+
+    const std::size_t componentCount =
+        topology.components.size();
+
+
+    const std::size_t middleVertexIndex =
+        vertexCount / 2;
+
 
     const Point firstVertex =
         topology.geometry.vertices.front();
 
-    const std::size_t middleIndex =
-        vertexCount / 2;
-
     const Point middleVertex =
         topology.geometry.vertices[
-            middleIndex];
+            middleVertexIndex];
 
     const Point lastVertex =
         topology.geometry.vertices.back();
 
 
+    //-------------------------------------------------------------------------
+    // Transfer ownership to Geometry
+    //-------------------------------------------------------------------------
+
     STLGeometry geometry =
-        ntic::lbm::geometry::constructSTLGeometry(
+        geometry::constructSTLGeometry(
             std::move(topology));
 
 
@@ -149,6 +175,26 @@ void testConstruction()
             facetCount,
         "Facet count changed during STL geometry construction.");
 
+    require(
+        geometry.topology.facetGeometry.size() ==
+            facetGeometryCount,
+        "Facet geometry count changed during STL geometry construction.");
+
+    require(
+        geometry.topology.edges.size() ==
+            edgeCount,
+        "Edge count changed during STL geometry construction.");
+
+    require(
+        geometry.topology.facetComponentIDs.size() ==
+            componentIDCount,
+        "Facet component ID count changed during STL geometry construction.");
+
+    require(
+        geometry.topology.components.size() ==
+            componentCount,
+        "Component count changed during STL geometry construction.");
+
 
     //-------------------------------------------------------------------------
     // Coordinate preservation
@@ -161,7 +207,7 @@ void testConstruction()
 
     requirePointEqual(
         geometry.topology.geometry.vertices[
-            middleIndex],
+            middleVertexIndex],
         middleVertex,
         "Middle vertex changed during STL geometry construction.");
 
@@ -172,36 +218,19 @@ void testConstruction()
 
 
     //-------------------------------------------------------------------------
-    // Tight bounding box
+    // Bounding box
     //-------------------------------------------------------------------------
-
-    const Point expectedMin{
-        -2.0,
-        3.0,
-        5.0
-    };
-
-    const Point expectedMax{
-        4.0,
-        8.0,
-        12.0
-    };
-
 
     requirePointEqual(
         geometry.bounds.min,
-        expectedMin,
+        referenceBounds.min,
         "STL geometry minimum bound is incorrect.");
 
     requirePointEqual(
         geometry.bounds.max,
-        expectedMax,
+        referenceBounds.max,
         "STL geometry maximum bound is incorrect.");
 
-
-    //-------------------------------------------------------------------------
-    // Bounding-box containment
-    //-------------------------------------------------------------------------
 
     for(const auto& vertex :
         geometry.topology.geometry.vertices)
@@ -220,7 +249,7 @@ void testConstruction()
 
 void testEmptyGeometry()
 {
-    FacetTopology topology;
+    ntic::lbm::stl::FacetTopology topology;
 
 
     bool caughtExpectedException =
@@ -255,11 +284,35 @@ void testEmptyGeometry()
 // Main
 //=============================================================================
 
-int main()
+int main(
+    const int argc,
+    char* argv[])
 {
+    if(argc != 3)
+    {
+        std::cerr
+            << "Usage: "
+            << argv[0]
+            << " <stl_file> <validation_mode>"
+            << std::endl;
+
+        return 1;
+    }
+
+
     try
     {
-        testConstruction();
+        const std::string stlFile =
+            argv[1];
+
+        const std::string validationMode =
+            argv[2];
+
+
+        testConstruction(
+            stlFile,
+            validationMode);
+
 
         testEmptyGeometry();
 
