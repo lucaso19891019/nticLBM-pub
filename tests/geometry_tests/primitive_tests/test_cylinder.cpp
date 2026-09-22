@@ -1,209 +1,215 @@
+#include "axis.hpp"
 #include "cylinder.hpp"
+#include "flow_type.hpp"
+#include "vtk_output.hpp"
+#include "vtk_output_3d.hpp"
 
-#include <cassert>
-#include <cmath>
+#include <filesystem>
 #include <iostream>
+#include <stdexcept>
 
 
 using namespace ntic::lbm::geometry;
-
-
-namespace
-{
-
-bool nearlyEqual(
-    const double a,
-    const double b,
-    const double tolerance = 1.0e-12)
-{
-    return
-        std::abs(a - b) <= tolerance;
-}
-
-} // namespace
+using namespace ntic::lbm::geometry::test;
 
 
 int main()
 {
+    try
     {
         const Cylinder cylinder{
-            {1.0, 2.0, 3.0},
-            2.0,
-            6.0,
-            Axis::X
-        };
-
-
-        assert(cylinder.contains(
-            Point{1.0, 2.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{4.0, 2.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{-2.0, 2.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{1.0, 4.0, 3.0}));
-
-
-        assert(!cylinder.contains(
-            Point{4.1, 2.0, 3.0}));
-
-        assert(!cylinder.contains(
-            Point{1.0, 4.1, 3.0}));
-
-
-        const BoundingBox bounds =
-            cylinder.boundingBox();
-
-
-        assert(nearlyEqual(
-            bounds.min[0],
-            -2.0));
-
-        assert(nearlyEqual(
-            bounds.min[1],
-            0.0));
-
-        assert(nearlyEqual(
-            bounds.min[2],
-            1.0));
-
-        assert(nearlyEqual(
-            bounds.max[0],
-            4.0));
-
-        assert(nearlyEqual(
-            bounds.max[1],
-            4.0));
-
-        assert(nearlyEqual(
-            bounds.max[2],
-            5.0));
-    }
-
-
-    {
-        const Cylinder cylinder{
-            {1.0, 2.0, 3.0},
-            2.0,
-            6.0,
-            Axis::Y
-        };
-
-
-        assert(cylinder.contains(
-            Point{1.0, 2.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{1.0, 5.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{1.0, -1.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{3.0, 2.0, 3.0}));
-
-
-        assert(!cylinder.contains(
-            Point{1.0, 5.1, 3.0}));
-
-        assert(!cylinder.contains(
-            Point{3.1, 2.0, 3.0]));
-
-
-        const BoundingBox bounds =
-            cylinder.boundingBox();
-
-
-        assert(nearlyEqual(
-            bounds.min[0],
-            -1.0));
-
-        assert(nearlyEqual(
-            bounds.min[1],
-            -1.0));
-
-        assert(nearlyEqual(
-            bounds.min[2],
-            1.0));
-
-        assert(nearlyEqual(
-            bounds.max[0],
-            3.0));
-
-        assert(nearlyEqual(
-            bounds.max[1],
-            5.0));
-
-        assert(nearlyEqual(
-            bounds.max[2],
-            5.0));
-    }
-
-
-    {
-        const Cylinder cylinder{
-            {1.0, 2.0, 3.0},
+            {4.0, 3.0, 5.0},
             2.0,
             6.0,
             Axis::Z
         };
 
 
-        assert(cylinder.contains(
-            Point{1.0, 2.0, 3.0}));
-
-        assert(cylinder.contains(
-            Point{1.0, 2.0, 6.0}));
-
-        assert(cylinder.contains(
-            Point{1.0, 2.0, 0.0}));
-
-        assert(cylinder.contains(
-            Point{3.0, 2.0, 3.0]));
-
-
-        assert(!cylinder.contains(
-            Point{1.0, 2.0, 6.1}));
-
-        assert(!cylinder.contains(
-            Point{3.1, 2.0, 3.0]));
-
-
-        const BoundingBox bounds =
+        const BoundingBox boundingBox =
             cylinder.boundingBox();
 
 
-        assert(nearlyEqual(
-            bounds.min[0],
-            -1.0));
+        const BoundingBox openBox{
+            {-1.0, -2.0, -1.0},
+            {9.0, 8.0, 11.0}
+        };
 
-        assert(nearlyEqual(
-            bounds.min[1],
-            0.0));
 
-        assert(nearlyEqual(
-            bounds.min[2],
-            0.0));
+        std::cout
+            << "========================================\n"
+            << "Cylinder Geometry Test\n"
+            << "========================================\n\n"
 
-        assert(nearlyEqual(
-            bounds.max[0],
-            3.0));
+            << "Cylinder:\n"
+            << "  center = ("
+            << cylinder.center[0] << ", "
+            << cylinder.center[1] << ", "
+            << cylinder.center[2] << ")\n"
+            << "  radius = "
+            << cylinder.radius
+            << "\n"
+            << "  length = "
+            << cylinder.length
+            << "\n"
+            << "  axis   = Z\n\n"
 
-        assert(nearlyEqual(
-            bounds.max[1],
-            4.0));
+            << "Bounding box:\n"
+            << "  min = ("
+            << boundingBox.min[0] << ", "
+            << boundingBox.min[1] << ", "
+            << boundingBox.min[2] << ")\n"
+            << "  max = ("
+            << boundingBox.max[0] << ", "
+            << boundingBox.max[1] << ", "
+            << boundingBox.max[2] << ")\n\n"
 
-        assert(nearlyEqual(
-            bounds.max[2],
-            6.0));
+            << "Open box:\n"
+            << "  min = ("
+            << openBox.min[0] << ", "
+            << openBox.min[1] << ", "
+            << openBox.min[2] << ")\n"
+            << "  max = ("
+            << openBox.max[0] << ", "
+            << openBox.max[1] << ", "
+            << openBox.max[2] << ")\n\n"
+
+            << "Expected internal fluid region:\n"
+            << "  Strictly inside the finite cylinder.\n"
+            << "  Side surface and end surfaces are not fluid.\n\n"
+
+            << "Expected external fluid region:\n"
+            << "  Strictly inside the open box and\n"
+            << "  strictly outside the finite cylinder.\n"
+            << "  Cylinder surface is not fluid.\n"
+            << "  Open-box surface is not fluid.\n\n";
+
+
+        double spacing =
+            0.0;
+
+        std::cout
+            << "Enter grid spacing: ";
+
+        std::cin
+            >> spacing;
+
+
+        if(!std::cin ||
+           spacing <= 0.0)
+        {
+            throw std::invalid_argument(
+                "Grid spacing must be positive.");
+        }
+
+
+        const std::filesystem::path outputDirectory =
+            "test_cylinder_vtks";
+
+        const std::filesystem::path internalDirectory =
+            outputDirectory /
+            "internal_vtks";
+
+        const std::filesystem::path externalDirectory =
+            outputDirectory /
+            "external_vtks";
+
+
+        recreateOutputDirectory(
+            outputDirectory);
+
+        std::filesystem::create_directories(
+            internalDirectory);
+
+        std::filesystem::create_directories(
+            externalDirectory);
+
+
+        writeVTK3DGeometry(
+            internalDirectory /
+                "geometry.vtk",
+            boundingBox,
+            spacing,
+            [&cylinder](
+                const Point& point)
+            {
+                return
+                    cylinder.contains(
+                        point,
+                        FlowType::Internal);
+            });
+
+
+        writeVTK3DBoundingBox(
+            internalDirectory /
+                "bounding_box.vtk",
+            boundingBox);
+
+
+        writeVTK3DGeometry(
+            externalDirectory /
+                "geometry.vtk",
+            openBox,
+            spacing,
+            [&cylinder, &openBox](
+                const Point& point)
+            {
+                return
+                    cylinder.contains(
+                        point,
+                        FlowType::External,
+                        &openBox);
+            });
+
+
+        writeVTK3DBoundingBox(
+            externalDirectory /
+                "bounding_box.vtk",
+            boundingBox);
+
+
+        writeVTK3DBoundingBox(
+            externalDirectory /
+                "open_box.vtk",
+            openBox);
+
+
+        std::cout
+            << "\nVTK output completed.\n\n"
+
+            << "Internal files:\n"
+            << "  "
+            << (internalDirectory /
+                "geometry.vtk")
+            << "\n"
+            << "  "
+            << (internalDirectory /
+                "bounding_box.vtk")
+            << "\n\n"
+
+            << "External files:\n"
+            << "  "
+            << (externalDirectory /
+                "geometry.vtk")
+            << "\n"
+            << "  "
+            << (externalDirectory /
+                "bounding_box.vtk")
+            << "\n"
+            << "  "
+            << (externalDirectory /
+                "open_box.vtk")
+            << "\n";
+
+
+        return 0;
     }
+    catch(const std::exception& error)
+    {
+        std::cerr
+            << "Error: "
+            << error.what()
+            << "\n";
 
-
-    std::cout
-        << "Cylinder tests passed.\n";
-
-    return 0;
+        return 1;
+    }
 }
