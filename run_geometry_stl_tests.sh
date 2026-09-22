@@ -10,4 +10,4 @@ STL_DIR=tests/geometry_tests/stl_tests/stls
 #=============================================================================
 
 $GEOMETRY_APP_DIR/test_stl_geometry \
-    $STL_DIR/pipe_flat_binary.stl
+    $STL_DIR/smooth_irregular_branched_channel.stl

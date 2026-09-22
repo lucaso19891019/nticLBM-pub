@@ -49,3 +49,7 @@ include(
 include(
     cmake/tests/geometry_primitive_tests.cmake
 )
+
+include(
+    cmake/tests/geometry_stl_tests.cmake
+)
