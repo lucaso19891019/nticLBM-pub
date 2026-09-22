@@ -3,6 +3,10 @@
 #include "point.hpp"
 #include "bounding_box.hpp"
 
+#include "flow_type.hpp"
+
+#include <stdexcept>
+
 namespace ntic::lbm::geometry
 {
 
@@ -27,7 +31,10 @@ struct Sphere
     double radius;
 
 
-    bool contains(const Point& point) const noexcept
+    bool contains(
+        const Point& point,
+        const FlowType flowType,
+        const BoundingBox* openBox = nullptr) const
     {
         const double dx =
             point[0] - center[0];
@@ -39,11 +46,35 @@ struct Sphere
             point[2] - center[2];
 
 
-        return
+        const double distanceSquared =
             dx * dx +
             dy * dy +
-            dz * dz
-            <= radius * radius;
+            dz * dz;
+
+        const double radiusSquared =
+            radius * radius;
+
+
+        if(flowType ==
+        FlowType::Internal)
+        {
+            return
+                distanceSquared <
+                radiusSquared;
+        }
+
+
+        if(openBox == nullptr)
+        {
+            throw std::invalid_argument(
+                "External flow requires an open box.");
+        }
+
+
+        return
+            openBox->strictlyContains(point) &&
+            distanceSquared >
+                radiusSquared;
     }
 
 
