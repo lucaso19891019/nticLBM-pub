@@ -23,6 +23,7 @@ endfunction()
 
 set(GEOMETRY_PRIMITIVE_INCLUDE_DIRS
     src/geometry
+    src/geometry/primitive
     tests/geometry_tests/outputs
     tests/geometry_tests/primitive_tests
 )
