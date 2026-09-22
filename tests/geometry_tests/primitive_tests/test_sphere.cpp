@@ -103,4 +103,70 @@ int main()
 
         const std::filesystem::path externalDirectory =
             outputDirectory /
-            "
+            "external_vtks";
+
+        std::filesystem::create_directories(
+            internalDirectory);
+
+        std::filesystem::create_directories(
+            externalDirectory);
+
+        writeVTK3DGeometry(
+            internalDirectory /
+                "geometry.vtk",
+            boundingBox,
+            spacing,
+            [&sphere](
+                const Point& point)
+            {
+                return sphere.contains(
+                    point,
+                    FlowType::Internal);
+            });
+
+        writeVTK3DBoundingBox(
+            internalDirectory /
+                "bounding_box.vtk",
+            boundingBox);
+
+        writeVTK3DGeometry(
+            externalDirectory /
+                "geometry.vtk",
+            openBox,
+            spacing,
+            [&sphere, &openBox](
+                const Point& point)
+            {
+                return sphere.contains(
+                    point,
+                    FlowType::External,
+                    &openBox);
+            });
+
+        writeVTK3DBoundingBox(
+            externalDirectory /
+                "bounding_box.vtk",
+            boundingBox);
+
+        writeVTK3DBoundingBox(
+            externalDirectory /
+                "open_box.vtk",
+            openBox);
+
+        std::cout
+            << "\nVTK output written to:\n"
+            << outputDirectory
+            << "\n";
+
+        return 0;
+    }
+    catch(const std::exception& exception)
+    {
+        std::cerr
+            << "Error: "
+            << exception.what()
+            << "\n";
+
+        return 1;
+    }
+}
