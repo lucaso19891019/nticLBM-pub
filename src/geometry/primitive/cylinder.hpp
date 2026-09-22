@@ -6,6 +6,7 @@
 
 #include "flow_type.hpp"
 
+#include <cmath>
 #include <stdexcept>
 
 namespace ntic::lbm::geometry
