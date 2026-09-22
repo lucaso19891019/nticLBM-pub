@@ -69,7 +69,7 @@ struct Circle
         }
 
 
-        const bool insideOpenBox =
+        const bool strictlyInsideOpenBox =
             point[0] > openBox->min[0] &&
             point[0] < openBox->max[0] &&
 
@@ -78,7 +78,7 @@ struct Circle
 
 
         return
-            insideOpenBox &&
+            strictlyInsideOpenBox &&
             distanceSquared >
                 radiusSquared;
     }
