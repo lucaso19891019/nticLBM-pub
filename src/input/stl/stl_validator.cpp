@@ -3720,83 +3720,76 @@ bool trianglesIntersect(
         }
     }
 
-
     //-------------------------------------------------------------------------
-    // Coplanar separating axes.
+    // In-plane edge-normal separating axes.
     //
-    // For coplanar triangles, the face normals and edge-edge cross products
-    // alone are not sufficient because the edge-edge axes collapse onto the
-    // common plane normal.  The in-plane edge-normal axes are therefore also
-    // tested.
+    // These axes are tested unconditionally.
+    //
+    // For coplanar or nearly coplanar triangles, the triangle face normals and
+    // edge-edge cross-product axes may not provide a sufficiently robust
+    // separating direction because the edge-edge axes can become nearly
+    // degenerate.
+    //
+    // Testing the in-plane edge-normal axes unconditionally avoids introducing
+    // a separate angular tolerance for deciding whether two triangles should be
+    // treated as coplanar or nearly coplanar.
+    //
+    // Each triangle uses its own face normal when constructing its edge-normal
+    // axes.
     //-------------------------------------------------------------------------
 
-    const double normalCrossSquared =
-        normSquared(
+    for(std::size_t i = 0;
+        i < 3;
+        ++i)
+    {
+        const auto axis =
             cross(
                 normalA,
-                normalB));
-
-    const double normalProductSquared =
-        normSquared(normalA) *
-        normSquared(normalB);
+                edgesA[i]);
 
 
-    if(normalCrossSquared <=
-       normalProductSquared *
-       1.0e-24)
-    {
-        for(std::size_t i = 0;
-            i < 3;
-            ++i)
+        if(separatedOnAxis(
+            axis,
+            a0,
+            a1,
+            a2,
+            b0,
+            b1,
+            b2,
+            tolerance))
         {
-            const auto axis =
-                cross(
-                    normalA,
-                    edgesA[i]);
-
-
-            if(separatedOnAxis(
-                   axis,
-                   a0,
-                   a1,
-                   a2,
-                   b0,
-                   b1,
-                   b2,
-                   tolerance))
-            {
-                return false;
-            }
+            return false;
         }
+    }
 
 
-        for(std::size_t i = 0;
-            i < 3;
-            ++i)
+    for(std::size_t i = 0;
+        i < 3;
+        ++i)
+    {
+        const auto axis =
+            cross(
+                normalB,
+                edgesB[i]);
+
+
+        if(separatedOnAxis(
+            axis,
+            a0,
+            a1,
+            a2,
+            b0,
+            b1,
+            b2,
+            tolerance))
         {
-            const auto axis =
-                cross(
-                    normalA,
-                    edgesB[i]);
-
-
-            if(separatedOnAxis(
-                   axis,
-                   a0,
-                   a1,
-                   a2,
-                   b0,
-                   b1,
-                   b2,
-                   tolerance))
-            {
-                return false;
-            }
+            return false;
         }
     }
 
 
     return true;
+
 }
 
 //========================================================================
