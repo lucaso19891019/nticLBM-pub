@@ -63,10 +63,11 @@ std::array<double,3> cross(
 double norm(
     const std::array<double,3>& a)
 {
-    return std::sqrt(
-        dot(
-            a,
-            a));
+    return
+        std::sqrt(
+            dot(
+                a,
+                a));
 }
 
 
@@ -183,9 +184,19 @@ bool pointInComponent(
         0.0;
 
 
-    for(const std::size_t facetID :
-        component.facets)
+#pragma omp parallel for schedule(static) reduction(+:solidAngle)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                component.facets.size());
+        ++index)
     {
+        const std::size_t facetID =
+            component.facets[
+                static_cast<std::size_t>(
+                    index)];
+
+
         const auto& vertexIDs =
             topology.geometry.facetVertexIDs[
                 facetID];
@@ -225,10 +236,10 @@ bool pointInComponent(
 
 
 //=============================================================================
-// Component vertex IDs
+// Component test point
 //=============================================================================
 
-std::vector<std::size_t> collectComponentVertices(
+Point componentTestPoint(
     const STLGeometry& geometry,
     const std::size_t componentID)
 {
@@ -240,50 +251,20 @@ std::vector<std::size_t> collectComponentVertices(
             componentID];
 
 
-    const std::size_t vertexCount =
-        topology.geometry.vertices.size();
-
-
-    std::vector<unsigned char> used(
-        vertexCount,
-        0);
-
-
-    for(const std::size_t facetID :
-        component.facets)
+    if(component.facets.empty())
     {
-        const auto& vertexIDs =
-            topology.geometry.facetVertexIDs[
-                facetID];
-
-
-        used[vertexIDs[0]] =
-            1;
-
-        used[vertexIDs[1]] =
-            1;
-
-        used[vertexIDs[2]] =
-            1;
+        throw std::runtime_error(
+            "STL component contains no facets.");
     }
 
 
-    std::vector<std::size_t> vertexIDs;
+    const std::size_t facetID =
+        component.facets.front();
 
 
-    for(std::size_t vertexID = 0;
-        vertexID < vertexCount;
-        ++vertexID)
-    {
-        if(used[vertexID] != 0)
-        {
-            vertexIDs.push_back(
-                vertexID);
-        }
-    }
-
-
-    return vertexIDs;
+    return
+        topology.facetGeometry[
+            facetID].centroid;
 }
 
 
@@ -296,65 +277,17 @@ bool componentInComponent(
     const std::size_t innerComponentID,
     const std::size_t outerComponentID)
 {
-    const std::vector<std::size_t> vertexIDs =
-        collectComponentVertices(
+    const Point testPoint =
+        componentTestPoint(
             geometry,
             innerComponentID);
 
 
-    if(vertexIDs.empty())
-    {
-        throw std::runtime_error(
-            "STL component contains no vertices.");
-    }
-
-
-    std::vector<unsigned char> inside(
-        vertexIDs.size(),
-        0);
-
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                vertexIDs.size());
-        ++index)
-    {
-        const std::size_t vertexID =
-            vertexIDs[
-                static_cast<std::size_t>(
-                    index)];
-
-
-        const Point& point =
-            geometry.topology.geometry.vertices[
-                vertexID];
-
-
-        inside[
-            static_cast<std::size_t>(
-                index)] =
-            pointInComponent(
-                geometry,
-                outerComponentID,
-                point)
-                ? 1
-                : 0;
-    }
-
-
-    for(const unsigned char result :
-        inside)
-    {
-        if(result == 0)
-        {
-            return false;
-        }
-    }
-
-
-    return true;
+    return
+        pointInComponent(
+            geometry,
+            outerComponentID,
+            testPoint);
 }
 
 
@@ -370,8 +303,12 @@ std::size_t findDirectParent(
         contains.size();
 
 
-    std::size_t parent =
+    const std::size_t noParent =
         std::numeric_limits<std::size_t>::max();
+
+
+    std::size_t parent =
+        noParent;
 
 
     for(std::size_t candidate = 0;
@@ -427,7 +364,7 @@ std::size_t findDirectParent(
 
 
         if(parent !=
-           std::numeric_limits<std::size_t>::max())
+           noParent)
         {
             throw std::runtime_error(
                 "Invalid STL component containment: "
@@ -468,16 +405,19 @@ void assignRootAndLevel(
         ++count)
     {
         const std::size_t parent =
-            containment[current].parent;
+            containment[
+                current].parent;
 
 
         if(parent ==
            noParent)
         {
-            containment[componentID].root =
+            containment[
+                componentID].root =
                 current;
 
-            containment[componentID].level =
+            containment[
+                componentID].level =
                 level;
 
             return;
@@ -510,17 +450,17 @@ void analyzeSTLContainment(
         geometry.topology.components.size();
 
 
-    geometry.containment.clear();
-
-    geometry.containment.resize(
-        componentCount);
-
-
     if(componentCount == 0)
     {
         throw std::runtime_error(
             "Cannot analyze STL containment without components.");
     }
+
+
+    geometry.containment.clear();
+
+    geometry.containment.resize(
+        componentCount);
 
 
     //-------------------------------------------------------------------------
