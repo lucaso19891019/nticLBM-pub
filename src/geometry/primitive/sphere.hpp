@@ -45,7 +45,6 @@ struct Sphere
         const double dz =
             point[2] - center[2];
 
-
         const double distanceSquared =
             dx * dx +
             dy * dy +
