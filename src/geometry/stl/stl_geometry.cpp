@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 
 namespace ntic::lbm::geometry
@@ -18,57 +19,53 @@ namespace
 BoundingBox makeSTLBounds(
     const stl::FacetTopology& topology)
 {
+    const std::size_t vertexCount =
+        topology.geometry.vertices.size();
+
+
     BoundingBox bounds;
 
 
-    for(const auto& vertex :
-        topology.geometry.vertices)
+#pragma omp parallel
     {
-        bounds.expand(vertex);
+        BoundingBox localBounds;
+
+        bool hasVertex =
+            false;
+
+
+#pragma omp for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index <
+                static_cast<std::ptrdiff_t>(
+                    vertexCount);
+            ++index)
+        {
+            localBounds.expand(
+                topology.geometry.vertices[
+                    static_cast<std::size_t>(
+                        index)]);
+
+            hasVertex =
+                true;
+        }
+
+
+        if(hasVertex)
+        {
+#pragma omp critical
+            {
+                bounds.expand(
+                    localBounds.min);
+
+                bounds.expand(
+                    localBounds.max);
+            }
+        }
     }
 
 
     return bounds;
-}
-
-
-//=============================================================================
-// Translation
-//=============================================================================
-
-Point computeTranslation(
-    const BoundingBox& bounds,
-    const FlowType flowType,
-    const Point& targetSTLMin)
-{
-    Point translation{};
-
-
-    if(flowType ==
-       FlowType::Internal)
-    {
-        for(std::size_t d = 0;
-            d < 3;
-            ++d)
-        {
-            translation[d] =
-                -bounds.min[d];
-        }
-    }
-    else
-    {
-        for(std::size_t d = 0;
-            d < 3;
-            ++d)
-        {
-            translation[d] =
-                targetSTLMin[d] -
-                bounds.min[d];
-        }
-    }
-
-
-    return translation;
 }
 
 
@@ -152,21 +149,11 @@ void translateComponents(
     stl::STLComponents& components,
     const Point& translation)
 {
-    const std::size_t componentCount =
-        components.size();
-
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                componentCount);
-        ++index)
+    for(auto& component :
+        components)
     {
         auto& bounds =
-            components[
-                static_cast<std::size_t>(
-                    index)].bounds;
+            component.bounds;
 
 
         for(std::size_t d = 0;
@@ -232,12 +219,66 @@ void translateBounds(
 
 
 //=============================================================================
-// Prepare STL geometry
+// Internal STL geometry
 //=============================================================================
 
-STLGeometry prepareSTLGeometry(
+STLGeometry prepareInternalSTLGeometry(
+    stl::FacetTopology topology)
+{
+    if(topology.geometry.vertices.empty())
+    {
+        throw std::runtime_error(
+            "Cannot prepare empty STL geometry.");
+    }
+
+
+    STLGeometry geometry;
+
+    geometry.flowType =
+        FlowType::Internal;
+
+    geometry.bounds =
+        makeSTLBounds(
+            topology);
+
+
+    Point translation{};
+
+    for(std::size_t d = 0;
+        d < 3;
+        ++d)
+    {
+        translation[d] =
+            -geometry.bounds.min[d];
+    }
+
+
+    translateTopology(
+        topology,
+        translation);
+
+    translateBounds(
+        geometry.bounds,
+        translation);
+
+
+    geometry.domainBounds =
+        geometry.bounds;
+
+    geometry.topology =
+        std::move(topology);
+
+
+    return geometry;
+}
+
+
+//=============================================================================
+// External STL geometry
+//=============================================================================
+
+STLGeometry prepareExternalSTLGeometry(
     stl::FacetTopology topology,
-    const FlowType flowType,
     const BoundingBox& openBox,
     const Point& targetSTLMin)
 {
@@ -251,18 +292,23 @@ STLGeometry prepareSTLGeometry(
     STLGeometry geometry;
 
     geometry.flowType =
-        flowType;
+        FlowType::External;
 
     geometry.bounds =
         makeSTLBounds(
             topology);
 
 
-    const Point translation =
-        computeTranslation(
-            geometry.bounds,
-            flowType,
-            targetSTLMin);
+    Point translation{};
+
+    for(std::size_t d = 0;
+        d < 3;
+        ++d)
+    {
+        translation[d] =
+            targetSTLMin[d] -
+            geometry.bounds.min[d];
+    }
 
 
     translateTopology(
@@ -274,27 +320,17 @@ STLGeometry prepareSTLGeometry(
         translation);
 
 
-    if(flowType ==
-       FlowType::Internal)
+    if(!openBox.contains(
+           geometry.bounds))
     {
-        geometry.domainBounds =
-            geometry.bounds;
-    }
-    else
-    {
-        if(!openBox.contains(
-               geometry.bounds))
-        {
-            throw std::runtime_error(
-                "Translated STL bounding box is not "
-                "fully contained in the open box.");
-        }
-
-
-        geometry.domainBounds =
-            openBox;
+        throw std::runtime_error(
+            "Translated STL bounding box is not "
+            "fully contained in the open box.");
     }
 
+
+    geometry.domainBounds =
+        openBox;
 
     geometry.topology =
         std::move(topology);
