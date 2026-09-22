@@ -115,9 +115,13 @@ struct Cylinder
         const double radiusSquared =
             radius * radius;
 
+        const double absoluteAxialDistance =
+            std::abs(
+                axialDistance);
+
 
         const bool strictlyInside =
-            std::abs(axialDistance) <
+            absoluteAxialDistance <
                 halfLength &&
             radialDistanceSquared <
                 radiusSquared;
@@ -138,16 +142,24 @@ struct Cylinder
         }
 
 
-        const bool strictlyOutside =
-            std::abs(axialDistance) >
-                halfLength ||
+        const bool onEndSurface =
+            absoluteAxialDistance ==
+                halfLength &&
+            radialDistanceSquared <=
+                radiusSquared;
 
-            (
-                std::abs(axialDistance) <
-                    halfLength &&
-                radialDistanceSquared >
-                    radiusSquared
-            );
+
+        const bool onSideSurface =
+            absoluteAxialDistance <=
+                halfLength &&
+            radialDistanceSquared ==
+                radiusSquared;
+
+
+        const bool strictlyOutside =
+            !strictlyInside &&
+            !onEndSurface &&
+            !onSideSurface;
 
 
         return
