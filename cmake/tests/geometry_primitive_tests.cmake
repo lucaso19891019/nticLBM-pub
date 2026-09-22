@@ -1,18 +1,32 @@
 #====================================================
-# Geometry primitive test output
+# Geometry primitive paths
 #====================================================
 
 set(GEOMETRY_PRIMITIVE_TEST_OUTPUT_DIR
     "${CMAKE_BINARY_DIR}/geometry/primitive"
 )
 
+set(GEOMETRY_TEST_OUTPUT_DIR
+    "${CMAKE_SOURCE_DIR}/tests/geometry_tests/outputs"
+)
 
-function(set_geometry_primitive_test_output TARGET_NAME)
+
+#====================================================
+# Geometry primitive test configuration
+#====================================================
+
+function(configure_geometry_primitive_test TARGET_NAME)
     set_target_properties(
         ${TARGET_NAME}
         PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY
             "${GEOMETRY_PRIMITIVE_TEST_OUTPUT_DIR}"
+    )
+
+    target_compile_definitions(
+        ${TARGET_NAME}
+        PRIVATE
+        "GEOMETRY_TEST_OUTPUT_DIR=\"${GEOMETRY_TEST_OUTPUT_DIR}\""
     )
 endfunction()
 
@@ -49,7 +63,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_primitive_test_output(
+configure_geometry_primitive_test(
     test_rectangle
 )
 
@@ -74,7 +88,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_primitive_test_output(
+configure_geometry_primitive_test(
     test_circle
 )
 
@@ -99,7 +113,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_primitive_test_output(
+configure_geometry_primitive_test(
     test_box
 )
 
@@ -124,7 +138,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_primitive_test_output(
+configure_geometry_primitive_test(
     test_sphere
 )
 
@@ -149,6 +163,6 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_primitive_test_output(
+configure_geometry_primitive_test(
     test_cylinder
 )
