@@ -80,8 +80,7 @@ BoundingBox makeReferenceBounds(
 //=============================================================================
 
 void testConstruction(
-    const std::string& stlFile,
-    const std::string& validationMode)
+    const std::string& stlFile)
 {
     using namespace ntic::lbm;
 
@@ -100,7 +99,7 @@ void testConstruction(
 
     stl::validate(
         data,
-        validationMode,
+        "full",
         topology);
 
 
@@ -126,6 +125,9 @@ void testConstruction(
 
     const std::size_t facetGeometryCount =
         topology.facetGeometry.size();
+
+    const std::size_t adjacencyCount =
+        topology.adjacency.size();
 
     const std::size_t edgeCount =
         topology.edges.size();
@@ -179,6 +181,11 @@ void testConstruction(
         geometry.topology.facetGeometry.size() ==
             facetGeometryCount,
         "Facet geometry count changed during STL geometry construction.");
+
+    require(
+        geometry.topology.adjacency.size() ==
+            adjacencyCount,
+        "Adjacency count changed during STL geometry construction.");
 
     require(
         geometry.topology.edges.size() ==
@@ -277,23 +284,24 @@ void testEmptyGeometry()
         "Empty STL geometry construction did not throw.");
 }
 
-} // namespace
-
 
 //=============================================================================
 // Main
 //=============================================================================
 
+} // namespace
+
+
 int main(
     const int argc,
     char* argv[])
 {
-    if(argc != 3)
+    if(argc != 2)
     {
         std::cerr
             << "Usage: "
             << argv[0]
-            << " <stl_file> <validation_mode>"
+            << " <stl_file>"
             << std::endl;
 
         return 1;
@@ -305,13 +313,9 @@ int main(
         const std::string stlFile =
             argv[1];
 
-        const std::string validationMode =
-            argv[2];
-
 
         testConstruction(
-            stlFile,
-            validationMode);
+            stlFile);
 
 
         testEmptyGeometry();
