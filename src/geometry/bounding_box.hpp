@@ -1,29 +1,13 @@
 #pragma once
 
-#include <array>
+#include "point.hpp"
+
 #include <algorithm>
-#include <cstddef>
 #include <limits>
 
-#include "point.hpp"
 
 namespace ntic::lbm::geometry
 {
-//=============================================================================
-// BoundingBox
-//=============================================================================
-//
-// Axis-aligned bounding box used by geometry objects.
-//
-// The bounding box is represented by its minimum and maximum coordinates:
-//
-//     min = (xmin, ymin, zmin)
-//     max = (xmax, ymax, zmax)
-//
-// A three-dimensional representation is used consistently throughout the
-// geometry module.
-//
-//=============================================================================
 
 struct BoundingBox
 {
@@ -42,23 +26,27 @@ struct BoundingBox
 
     double width() const noexcept
     {
-        return max[0] - min[0];
+        return
+            max[0] - min[0];
     }
 
 
     double height() const noexcept
     {
-        return max[1] - min[1];
+        return
+            max[1] - min[1];
     }
 
 
     double depth() const noexcept
     {
-        return max[2] - min[2];
+        return
+            max[2] - min[2];
     }
 
 
-    bool contains(const Point& point) const noexcept
+    bool contains(
+        const Point& point) const noexcept
     {
         return
             point[0] >= min[0] &&
@@ -70,6 +58,22 @@ struct BoundingBox
             point[2] >= min[2] &&
             point[2] <= max[2];
     }
+
+
+    bool strictlyContains(
+        const Point& point) const noexcept
+    {
+        return
+            point[0] > min[0] &&
+            point[0] < max[0] &&
+
+            point[1] > min[1] &&
+            point[1] < max[1] &&
+
+            point[2] > min[2] &&
+            point[2] < max[2];
+    }
+
 
     bool contains(
         const BoundingBox& box) const noexcept
@@ -85,16 +89,40 @@ struct BoundingBox
             box.max[2] <= max[2];
     }
 
-    void expand(const Point& point) noexcept
-    {
-        for(std::size_t d = 0; d < 3; ++d)
-        {
-            min[d] =
-                std::min(min[d], point[d]);
 
-            max[d] =
-                std::max(max[d], point[d]);
-        }
+    void expand(
+        const Point& point) noexcept
+    {
+        min[0] =
+            std::min(
+                min[0],
+                point[0]);
+
+        min[1] =
+            std::min(
+                min[1],
+                point[1]);
+
+        min[2] =
+            std::min(
+                min[2],
+                point[2]);
+
+
+        max[0] =
+            std::max(
+                max[0],
+                point[0]);
+
+        max[1] =
+            std::max(
+                max[1],
+                point[1]);
+
+        max[2] =
+            std::max(
+                max[2],
+                point[2]);
     }
 };
 
