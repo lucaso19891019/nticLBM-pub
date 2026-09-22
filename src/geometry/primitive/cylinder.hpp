@@ -4,6 +4,10 @@
 #include "axis.hpp"
 #include "bounding_box.hpp"
 
+#include "flow_type.hpp"
+
+#include <stdexcept>
+
 namespace ntic::lbm::geometry
 {
 //=============================================================================
@@ -33,43 +37,122 @@ struct Cylinder
     Axis axis;
 
 
-    bool contains(const Point& point) const noexcept
+    bool contains(
+        const Point& point,
+        const FlowType flowType,
+        const BoundingBox* openBox = nullptr) const
     {
-        const double dx =
-            point[0] - center[0];
+        double axialDistance =
+            0.0;
 
-        const double dy =
-            point[1] - center[1];
-
-        const double dz =
-            point[2] - center[2];
-
-        const double halfLength =
-            0.5 * length;
+        double radialDistanceSquared =
+            0.0;
 
 
         switch(axis)
         {
             case Axis::X:
-                return
-                    dx >= -halfLength &&
-                    dx <=  halfLength &&
-                    dy * dy + dz * dz <= radius * radius;
+            {
+                axialDistance =
+                    point[0] - center[0];
+
+                const double dy =
+                    point[1] - center[1];
+
+                const double dz =
+                    point[2] - center[2];
+
+                radialDistanceSquared =
+                    dy * dy +
+                    dz * dz;
+
+                break;
+            }
+
 
             case Axis::Y:
-                return
-                    dy >= -halfLength &&
-                    dy <=  halfLength &&
-                    dx * dx + dz * dz <= radius * radius;
+            {
+                axialDistance =
+                    point[1] - center[1];
+
+                const double dx =
+                    point[0] - center[0];
+
+                const double dz =
+                    point[2] - center[2];
+
+                radialDistanceSquared =
+                    dx * dx +
+                    dz * dz;
+
+                break;
+            }
+
 
             case Axis::Z:
-                return
-                    dz >= -halfLength &&
-                    dz <=  halfLength &&
-                    dx * dx + dy * dy <= radius * radius;
+            {
+                axialDistance =
+                    point[2] - center[2];
+
+                const double dx =
+                    point[0] - center[0];
+
+                const double dy =
+                    point[1] - center[1];
+
+                radialDistanceSquared =
+                    dx * dx +
+                    dy * dy;
+
+                break;
+            }
         }
 
-        return false;
+
+        const double halfLength =
+            0.5 * length;
+
+        const double radiusSquared =
+            radius * radius;
+
+
+        const bool strictlyInside =
+            std::abs(axialDistance) <
+                halfLength &&
+            radialDistanceSquared <
+                radiusSquared;
+
+
+        if(flowType ==
+        FlowType::Internal)
+        {
+            return
+                strictlyInside;
+        }
+
+
+        if(openBox == nullptr)
+        {
+            throw std::invalid_argument(
+                "External flow requires an open box.");
+        }
+
+
+        const bool strictlyOutside =
+            std::abs(axialDistance) >
+                halfLength ||
+
+            (
+                std::abs(axialDistance) <
+                    halfLength &&
+                radialDistanceSquared >
+                    radiusSquared
+            );
+
+
+        return
+            openBox->strictlyContains(point) &&
+            strictlyOutside;
     }
 
 
