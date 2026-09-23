@@ -16,10 +16,14 @@ namespace
 //=============================================================================
 
 BoundingBox makeSTLBounds(
-    const STLGeometry& geometry)
+    const stl::FacetTopology& topology)
 {
+    const auto& vertices =
+        topology.geometry.vertices;
+
+
     const std::size_t vertexCount =
-        geometry.topology.geometry.vertices.size();
+        vertices.size();
 
 
     BoundingBox bounds;
@@ -41,7 +45,7 @@ BoundingBox makeSTLBounds(
             ++index)
         {
             localBounds.expand(
-                geometry.topology.geometry.vertices[
+                vertices[
                     static_cast<std::size_t>(
                         index)]);
 
@@ -74,8 +78,12 @@ BoundingBox makeSTLBounds(
 // STL geometry construction
 //=============================================================================
 
-STLGeometry constructSTLGeometry(
-    stl::FacetTopology topology)
+STLGeometry::STLGeometry(
+    stl::FacetTopology inputTopology,
+    const FlowType flowType)
+    :
+    topology(
+        std::move(inputTopology))
 {
     if(topology.geometry.vertices.empty())
     {
@@ -84,18 +92,16 @@ STLGeometry constructSTLGeometry(
     }
 
 
-    STLGeometry geometry;
-
-    geometry.topology =
-        std::move(topology);
-
-
-    geometry.bounds =
+    bounds =
         makeSTLBounds(
-            geometry);
+            topology);
 
 
-    return geometry;
+    analyzeContainment();
+
+
+    interpretFlow(
+        flowType);
 }
 
 } // namespace ntic::lbm::geometry
