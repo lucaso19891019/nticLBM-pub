@@ -9,18 +9,14 @@
 namespace ntic::lbm::geometry
 {
 
-namespace
-{
-
 //=============================================================================
 // Containment availability
 //=============================================================================
 
-void validateContainmentAvailable(
-    const STLGeometry& geometry)
+void STLGeometry::validateContainmentAvailable() const
 {
     const std::size_t componentCount =
-        geometry.topology.components.size();
+        topology.components.size();
 
 
     if(componentCount == 0)
@@ -30,7 +26,7 @@ void validateContainmentAvailable(
     }
 
 
-    if(geometry.containment.size() !=
+    if(containment.size() !=
        componentCount)
     {
         throw std::runtime_error(
@@ -44,8 +40,7 @@ void validateContainmentAvailable(
 // Root count
 //=============================================================================
 
-std::size_t countRoots(
-    const STLGeometry& geometry)
+std::size_t STLGeometry::countRoots() const
 {
     const std::size_t noParent =
         std::numeric_limits<std::size_t>::max();
@@ -56,7 +51,7 @@ std::size_t countRoots(
 
 
     for(const STLComponentContainment& component :
-        geometry.containment)
+        containment)
     {
         if(component.parent ==
            noParent)
@@ -74,9 +69,8 @@ std::size_t countRoots(
 // Flow structure validation
 //=============================================================================
 
-void validateFlowStructure(
-    const FlowType flowType,
-    const std::size_t rootCount)
+void STLGeometry::validateFlowStructure(
+    const std::size_t rootCount) const
 {
     if(flowType ==
        FlowType::Internal)
@@ -117,11 +111,10 @@ void validateFlowStructure(
 // Internal flow semantics
 //=============================================================================
 
-void assignInternalFlow(
-    STLGeometry& geometry)
+void STLGeometry::assignInternalFlow()
 {
     const std::size_t componentCount =
-        geometry.containment.size();
+        containment.size();
 
 
     for(std::size_t componentID = 0;
@@ -129,27 +122,27 @@ void assignInternalFlow(
         ++componentID)
     {
         const std::size_t level =
-            geometry.containment[
+            containment[
                 componentID].level;
 
 
-        STLComponentFlow& flow =
-            geometry.flow[
+        STLComponentFlow& componentFlow =
+            flow[
                 componentID];
 
 
-        flow.active =
+        componentFlow.active =
             true;
 
 
         if(level == 0)
         {
-            flow.fluidSide =
+            componentFlow.fluidSide =
                 FluidSide::Inside;
         }
         else if(level == 1)
         {
-            flow.fluidSide =
+            componentFlow.fluidSide =
                 FluidSide::Outside;
         }
         else
@@ -166,11 +159,10 @@ void assignInternalFlow(
 // External flow semantics
 //=============================================================================
 
-void assignExternalFlow(
-    STLGeometry& geometry)
+void STLGeometry::assignExternalFlow()
 {
     const std::size_t componentCount =
-        geometry.containment.size();
+        containment.size();
 
 
     for(std::size_t componentID = 0;
@@ -178,26 +170,26 @@ void assignExternalFlow(
         ++componentID)
     {
         const std::size_t level =
-            geometry.containment[
+            containment[
                 componentID].level;
 
 
-        STLComponentFlow& flow =
-            geometry.flow[
+        STLComponentFlow& componentFlow =
+            flow[
                 componentID];
 
 
         if(level == 0)
         {
-            flow.active =
+            componentFlow.active =
                 true;
 
-            flow.fluidSide =
+            componentFlow.fluidSide =
                 FluidSide::Outside;
         }
         else if(level == 1)
         {
-            flow.active =
+            componentFlow.active =
                 false;
         }
         else
@@ -214,15 +206,12 @@ void assignExternalFlow(
 // Flow semantics
 //=============================================================================
 
-void assignFlowSemantics(
-    STLGeometry& geometry,
-    const FlowType flowType)
+void STLGeometry::assignFlowSemantics()
 {
     if(flowType ==
        FlowType::Internal)
     {
-        assignInternalFlow(
-            geometry);
+        assignInternalFlow();
 
         return;
     }
@@ -231,8 +220,7 @@ void assignFlowSemantics(
     if(flowType ==
        FlowType::External)
     {
-        assignExternalFlow(
-            geometry);
+        assignExternalFlow();
 
         return;
     }
@@ -247,12 +235,11 @@ void assignFlowSemantics(
 // Component orientation
 //=============================================================================
 
-bool componentIsOutward(
-    const STLGeometry& geometry,
-    const std::size_t componentID)
+bool STLGeometry::componentIsOutward(
+    const std::size_t componentID) const
 {
     const double signedVolume =
-        geometry.topology.components[
+        topology.components[
             componentID].signedVolume;
 
 
@@ -273,13 +260,9 @@ bool componentIsOutward(
 // Flip component orientation
 //=============================================================================
 
-void flipComponent(
-    STLGeometry& geometry,
+void STLGeometry::flipComponent(
     const std::size_t componentID)
 {
-    auto& topology =
-        geometry.topology;
-
     auto& component =
         topology.components[
             componentID];
@@ -337,23 +320,22 @@ void flipComponent(
 // Orientation normalization
 //=============================================================================
 
-void normalizeOrientation(
-    STLGeometry& geometry)
+void STLGeometry::normalizeOrientation()
 {
     const std::size_t componentCount =
-        geometry.topology.components.size();
+        topology.components.size();
 
 
     for(std::size_t componentID = 0;
         componentID < componentCount;
         ++componentID)
     {
-        const STLComponentFlow& flow =
-            geometry.flow[
+        const STLComponentFlow& componentFlow =
+            flow[
                 componentID];
 
 
-        if(!flow.active)
+        if(!componentFlow.active)
         {
             continue;
         }
@@ -361,12 +343,11 @@ void normalizeOrientation(
 
         const bool currentlyOutward =
             componentIsOutward(
-                geometry,
                 componentID);
 
 
         const bool targetOutward =
-            flow.fluidSide ==
+            componentFlow.fluidSide ==
                 FluidSide::Outside;
 
 
@@ -374,33 +355,26 @@ void normalizeOrientation(
            targetOutward)
         {
             flipComponent(
-                geometry,
                 componentID);
         }
     }
 }
-
-} // namespace
 
 
 //=============================================================================
 // STL flow interpretation
 //=============================================================================
 
-void STLGeometry::interpretFlow(
-    const FlowType flowType)
+void STLGeometry::interpretFlow()
 {
-    validateContainmentAvailable(
-        *this);
+    validateContainmentAvailable();
 
 
     const std::size_t rootCount =
-        countRoots(
-            *this);
+        countRoots();
 
 
     validateFlowStructure(
-        flowType,
         rootCount);
 
 
@@ -410,13 +384,10 @@ void STLGeometry::interpretFlow(
         topology.components.size());
 
 
-    assignFlowSemantics(
-        *this,
-        flowType);
+    assignFlowSemantics();
 
 
-    normalizeOrientation(
-        *this);
+    normalizeOrientation();
 }
 
 } // namespace ntic::lbm::geometry
