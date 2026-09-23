@@ -1,11 +1,8 @@
 #include "bounding_box.hpp"
 #include "flow_type.hpp"
 #include "point.hpp"
-#include "stl_containment.hpp"
-#include "stl_flow.hpp"
 #include "stl_geometry.hpp"
 #include "stl_reader.hpp"
-#include "stl_translation.hpp"
 #include "stl_validator.hpp"
 
 #include <algorithm>
@@ -166,6 +163,8 @@ struct TranslationSnapshot
 
     std::vector<ntic::lbm::geometry::STLComponentFlow>
         flow;
+
+    FlowType flowType;
 };
 
 
@@ -309,6 +308,9 @@ TranslationSnapshot captureSnapshot(
 
     snapshot.flow =
         geometry.flow;
+
+    snapshot.flowType =
+        geometry.flowType;
 
 
     return snapshot;
@@ -615,43 +617,12 @@ void checkInvariantData(
                     componentID].fluidSide,
             "Flow data changed during translation.");
     }
-}
 
 
-//=============================================================================
-// General translation
-//=============================================================================
-
-void testGeneral(
-    STLGeometry& geometry)
-{
-    const Point displacement =
-    {
-        3.25,
-        -7.50,
-        11.75
-    };
-
-
-    const TranslationSnapshot before =
-        captureSnapshot(
-            geometry);
-
-
-    ntic::lbm::geometry::translate(
-        geometry,
-        displacement);
-
-
-    checkTranslatedData(
-        geometry,
-        before,
-        displacement);
-
-
-    checkInvariantData(
-        geometry,
-        before);
+    require(
+        geometry.flowType ==
+            before.flowType,
+        "Flow type changed during translation.");
 }
 
 
@@ -662,9 +633,10 @@ void testGeneral(
 void testInternal(
     STLGeometry& geometry)
 {
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::Internal);
+    require(
+        geometry.flowType ==
+            FlowType::Internal,
+        "Internal translation requires internal STL geometry.");
 
 
     const Point targetPoint =
@@ -686,9 +658,8 @@ void testInternal(
             before.bounds.min);
 
 
-    ntic::lbm::geometry::translateInternal(
-        geometry,
-        targetPoint);
+    geometry.translate(
+        &targetPoint);
 
 
     checkTranslatedData(
@@ -718,9 +689,10 @@ void testInternal(
 void testExternal(
     STLGeometry& geometry)
 {
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::External);
+    require(
+        geometry.flowType ==
+            FlowType::External,
+        "External translation requires external STL geometry.");
 
 
     const Point padding =
@@ -789,9 +761,9 @@ void testExternal(
     };
 
 
-    ntic::lbm::geometry::translateExternal(
-        geometry,
-        openBox);
+    geometry.translate(
+        nullptr,
+        &openBox);
 
 
     checkTranslatedData(
@@ -866,7 +838,13 @@ void testExternal(
 void testRepeated(
     STLGeometry& geometry)
 {
-    const Point displacement0 =
+    require(
+        geometry.flowType ==
+            FlowType::Internal,
+        "Repeated translation test requires internal STL geometry.");
+
+
+    const Point targetPoint0 =
     {
         1.25,
         -2.50,
@@ -874,24 +852,11 @@ void testRepeated(
     };
 
 
-    const Point displacement1 =
+    const Point targetPoint1 =
     {
         -4.50,
         5.25,
         -6.00
-    };
-
-
-    const Point totalDisplacement =
-    {
-        displacement0[0] +
-            displacement1[0],
-
-        displacement0[1] +
-            displacement1[1],
-
-        displacement0[2] +
-            displacement1[2]
     };
 
 
@@ -900,14 +865,18 @@ void testRepeated(
             geometry);
 
 
-    ntic::lbm::geometry::translate(
-        geometry,
-        displacement0);
+    const Point totalDisplacement =
+        subtract(
+            targetPoint1,
+            before.bounds.min);
 
 
-    ntic::lbm::geometry::translate(
-        geometry,
-        displacement1);
+    geometry.translate(
+        &targetPoint0);
+
+
+    geometry.translate(
+        &targetPoint1);
 
 
     checkTranslatedData(
@@ -919,6 +888,14 @@ void testRepeated(
     checkInvariantData(
         geometry,
         before);
+
+
+    require(
+        samePoint(
+            geometry.bounds.min,
+            targetPoint1),
+        "Repeated internal translation did not place "
+        "geometry.bounds.min at the final target point.");
 }
 
 
@@ -930,14 +907,6 @@ void runTest(
     STLGeometry& geometry,
     const std::string& testCase)
 {
-    if(testCase ==
-       "general")
-    {
-        testGeneral(
-            geometry);
-
-        return;
-    }
 
 
     if(testCase ==
@@ -1021,13 +990,21 @@ int main(
             topology);
 
 
-        STLGeometry geometry =
-            ntic::lbm::geometry::constructSTLGeometry(
-                std::move(topology));
+        FlowType flowType =
+            FlowType::Internal;
 
 
-        ntic::lbm::geometry::analyzeSTLContainment(
-            geometry);
+        if(testCase ==
+           "external")
+        {
+            flowType =
+                FlowType::External;
+        }
+
+
+        STLGeometry geometry(
+            std::move(topology),
+            flowType);
 
 
         runTest(
