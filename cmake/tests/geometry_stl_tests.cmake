@@ -115,3 +115,38 @@ target_link_libraries(
 set_geometry_stl_test_output(
     test_stl_flow
 )
+
+#====================================================
+# test_stl_translation
+#====================================================
+
+add_executable(test_stl_translation
+    tests/geometry_tests/stl_tests/test_stl_translation.cpp
+
+    src/geometry/stl/stl_geometry.cpp
+    src/geometry/stl/stl_containment.cpp
+    src/geometry/stl/stl_flow.cpp
+    src/geometry/stl/stl_translation.cpp
+
+    src/input/stl/stl_reader.cpp
+    src/input/stl/stl_validator.cpp
+)
+
+target_include_directories(
+    test_stl_translation
+    PRIVATE
+    src/geometry
+    src/geometry/stl
+    src/input/stl
+    src/common
+)
+
+target_link_libraries(
+    test_stl_translation
+    PRIVATE
+    OpenMP::OpenMP_CXX
+)
+
+set_geometry_stl_test_output(
+    test_stl_translation
+)
