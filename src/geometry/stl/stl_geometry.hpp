@@ -1,6 +1,8 @@
 #pragma once
 
 #include "bounding_box.hpp"
+#include "flow_type.hpp"
+#include "point.hpp"
 #include "stl_topology.hpp"
 
 #include <cstddef>
@@ -64,15 +66,27 @@ struct STLGeometry
     std::vector<STLComponentContainment> containment;
 
     std::vector<STLComponentFlow> flow;
+
+
+    STLGeometry(
+        stl::FacetTopology topology,
+        FlowType flowType);
+
+
+    void analyzeContainment();
+
+
+    void interpretFlow(
+        FlowType flowType);
+
+
+    void translate(
+        const Point& displacement);
+
+
+    [[nodiscard]]
+    bool contains(
+        const Point& point) const;
 };
-
-
-//=============================================================================
-// STL geometry construction
-//=============================================================================
-
-[[nodiscard]]
-STLGeometry constructSTLGeometry(
-    stl::FacetTopology topology);
 
 } // namespace ntic::lbm::geometry
