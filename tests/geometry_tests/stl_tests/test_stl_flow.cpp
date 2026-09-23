@@ -1,6 +1,4 @@
 #include "flow_type.hpp"
-#include "stl_containment.hpp"
-#include "stl_flow.hpp"
 #include "stl_geometry.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"
@@ -544,78 +542,18 @@ void testInternalRoot(
     STLGeometry& geometry)
 {
     require(
+        geometry.flowType ==
+            FlowType::Internal,
+        "internal_root requires internal flow type.");
+
+
+    require(
         geometry.topology.components.size() == 1,
         "internal_root requires exactly one component.");
 
 
-    const OrientationSnapshot orientationBefore =
-        captureOrientation(
-            geometry);
-
-    const TopologySnapshot topologyBefore =
-        captureTopology(
-            geometry);
-
-
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::Internal);
-
-
     checkInternalSemantics(
         geometry);
-
-
-    checkTopologyUnchanged(
-        geometry,
-        topologyBefore);
-
-
-    const bool wasOutward =
-        orientationBefore.signedVolumes[0] >
-            0.0;
-
-
-    checkComponentOrientationChange(
-        geometry,
-        orientationBefore,
-        0,
-        wasOutward);
-
-
-    const OrientationSnapshot afterFirst =
-        captureOrientation(
-            geometry);
-
-
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::Internal);
-
-
-    checkInternalSemantics(
-        geometry);
-
-
-    checkComponentOrientationChange(
-        geometry,
-        afterFirst,
-        0,
-        false);
-}
-
-
-//=============================================================================
-// Internal nested
-//=============================================================================
-
-void testInternalNested(
-    STLGeometry& geometry)
-{
-    require(
-        countRoots(
-            geometry) == 1,
-        "internal_nested requires exactly one root.");
 
 
     const OrientationSnapshot before =
@@ -627,9 +565,58 @@ void testInternalNested(
             geometry);
 
 
-    ntic::lbm::geometry::interpretSTLFlow(
+    geometry.interpretFlow();
+
+
+    checkInternalSemantics(
+        geometry);
+
+
+    checkTopologyUnchanged(
         geometry,
-        FlowType::Internal);
+        topologyBefore);
+
+
+    checkComponentOrientationChange(
+        geometry,
+        before,
+        0,
+        false);
+}
+
+//=============================================================================
+// Internal nested
+//=============================================================================
+
+void testInternalNested(
+    STLGeometry& geometry)
+{
+    require(
+        geometry.flowType ==
+            FlowType::Internal,
+        "internal_nested requires internal flow type.");
+
+
+    require(
+        countRoots(
+            geometry) == 1,
+        "internal_nested requires exactly one root.");
+
+
+    checkInternalSemantics(
+        geometry);
+
+
+    const OrientationSnapshot before =
+        captureOrientation(
+            geometry);
+
+    const TopologySnapshot topologyBefore =
+        captureTopology(
+            geometry);
+
+
+    geometry.interpretFlow();
 
 
     checkInternalSemantics(
@@ -646,51 +633,33 @@ void testInternalNested(
             geometry.topology.components.size();
         ++componentID)
     {
-        const std::size_t level =
-            geometry.containment[
-                componentID].level;
-
-
-        const bool targetOutward =
-            level == 1;
-
-
-        const bool wasOutward =
-            before.signedVolumes[
-                componentID] > 0.0;
-
-
         checkComponentOrientationChange(
             geometry,
             before,
             componentID,
-            wasOutward != targetOutward);
+            false);
     }
 }
-
 
 //=============================================================================
 // Internal multiple roots
 //=============================================================================
 
 void testInternalMultipleRoots(
-    STLGeometry& geometry)
+    ntic::lbm::stl::FacetTopology topology)
 {
-    require(
-        countRoots(
-            geometry) > 1,
-        "internal_multiple_roots requires multiple roots.");
-
-
     bool threw =
         false;
 
 
     try
     {
-        ntic::lbm::geometry::interpretSTLFlow(
-            geometry,
+        STLGeometry geometry(
+            std::move(topology),
             FlowType::Internal);
+
+        static_cast<void>(
+            geometry);
     }
     catch(const std::runtime_error&)
     {
@@ -704,7 +673,6 @@ void testInternalMultipleRoots(
         "Internal flow accepted multiple root components.");
 }
 
-
 //=============================================================================
 // External roots
 //=============================================================================
@@ -713,9 +681,19 @@ void testExternalRoots(
     STLGeometry& geometry)
 {
     require(
+        geometry.flowType ==
+            FlowType::External,
+        "external_roots requires external flow type.");
+
+
+    require(
         countRoots(
             geometry) >= 1,
         "external_roots requires at least one root.");
+
+
+    checkExternalSemantics(
+        geometry);
 
 
     const OrientationSnapshot before =
@@ -727,9 +705,7 @@ void testExternalRoots(
             geometry);
 
 
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::External);
+    geometry.interpretFlow();
 
 
     checkExternalSemantics(
@@ -746,30 +722,13 @@ void testExternalRoots(
             geometry.topology.components.size();
         ++componentID)
     {
-        const std::size_t level =
-            geometry.containment[
-                componentID].level;
-
-
-        if(level != 0)
-        {
-            continue;
-        }
-
-
-        const bool wasOutward =
-            before.signedVolumes[
-                componentID] > 0.0;
-
-
         checkComponentOrientationChange(
             geometry,
             before,
             componentID,
-            !wasOutward);
+            false);
     }
 }
-
 
 //=============================================================================
 // External nested
@@ -778,6 +737,12 @@ void testExternalRoots(
 void testExternalNested(
     STLGeometry& geometry)
 {
+    require(
+        geometry.flowType ==
+            FlowType::External,
+        "external_nested requires external flow type.");
+
+
     bool hasChild =
         false;
 
@@ -800,6 +765,10 @@ void testExternalNested(
         "external_nested requires at least one child component.");
 
 
+    checkExternalSemantics(
+        geometry);
+
+
     const OrientationSnapshot before =
         captureOrientation(
             geometry);
@@ -809,9 +778,7 @@ void testExternalNested(
             geometry);
 
 
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::External);
+    geometry.interpretFlow();
 
 
     checkExternalSemantics(
@@ -828,35 +795,13 @@ void testExternalNested(
             geometry.topology.components.size();
         ++componentID)
     {
-        const std::size_t level =
-            geometry.containment[
-                componentID].level;
-
-
-        const bool wasOutward =
-            before.signedVolumes[
-                componentID] > 0.0;
-
-
-        if(level == 0)
-        {
-            checkComponentOrientationChange(
-                geometry,
-                before,
-                componentID,
-                !wasOutward);
-        }
-        else
-        {
-            checkComponentOrientationChange(
-                geometry,
-                before,
-                componentID,
-                false);
-        }
+        checkComponentOrientationChange(
+            geometry,
+            before,
+            componentID,
+            false);
     }
 }
-
 
 //=============================================================================
 // Internal to external
@@ -866,14 +811,15 @@ void testInternalToExternal(
     STLGeometry& geometry)
 {
     require(
+        geometry.flowType ==
+            FlowType::Internal,
+        "internal_to_external must start as internal.");
+
+
+    require(
         countRoots(
             geometry) == 1,
         "internal_to_external requires exactly one root.");
-
-
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::Internal);
 
 
     checkInternalSemantics(
@@ -889,9 +835,11 @@ void testInternalToExternal(
             geometry);
 
 
-    ntic::lbm::geometry::interpretSTLFlow(
-        geometry,
-        FlowType::External);
+    geometry.flowType =
+        FlowType::External;
+
+
+    geometry.interpretFlow();
 
 
     checkExternalSemantics(
@@ -932,7 +880,6 @@ void testInternalToExternal(
     }
 }
 
-
 //=============================================================================
 // Test dispatch
 //=============================================================================
@@ -960,15 +907,6 @@ void runTest(
         return;
     }
 
-
-    if(testCase ==
-       "internal_multiple_roots")
-    {
-        testInternalMultipleRoots(
-            geometry);
-
-        return;
-    }
 
 
     if(testCase ==
@@ -1052,18 +990,37 @@ int main(
             topology);
 
 
-        STLGeometry geometry =
-            ntic::lbm::geometry::constructSTLGeometry(
+        if(testCase ==
+           "internal_multiple_roots")
+        {
+            testInternalMultipleRoots(
                 std::move(topology));
+        }
+        else
+        {
+            FlowType flowType =
+                FlowType::Internal;
 
 
-        ntic::lbm::geometry::analyzeSTLContainment(
-            geometry);
+            if(testCase ==
+                   "external_roots" ||
+               testCase ==
+                   "external_nested")
+            {
+                flowType =
+                    FlowType::External;
+            }
 
 
-        runTest(
-            geometry,
-            testCase);
+            STLGeometry geometry(
+                std::move(topology),
+                flowType);
+
+
+            runTest(
+                geometry,
+                testCase);
+        }
 
 
         std::cout
