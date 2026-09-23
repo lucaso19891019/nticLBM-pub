@@ -164,134 +164,6 @@ double triangleSolidAngle(
 
 
 //=============================================================================
-// Point in closed component
-//=============================================================================
-
-bool pointInComponent(
-    const STLGeometry& geometry,
-    const std::size_t componentID,
-    const Point& point)
-{
-    const auto& topology =
-        geometry.topology;
-
-    const auto& component =
-        topology.components[
-            componentID];
-
-
-    double solidAngle =
-        0.0;
-
-
-#pragma omp parallel for schedule(static) reduction(+:solidAngle)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                component.facets.size());
-        ++index)
-    {
-        const std::size_t facetID =
-            component.facets[
-                static_cast<std::size_t>(
-                    index)];
-
-
-        const auto& vertexIDs =
-            topology.geometry.facetVertexIDs[
-                facetID];
-
-
-        const Point& vertex0 =
-            topology.geometry.vertices[
-                vertexIDs[0]];
-
-        const Point& vertex1 =
-            topology.geometry.vertices[
-                vertexIDs[1]];
-
-        const Point& vertex2 =
-            topology.geometry.vertices[
-                vertexIDs[2]];
-
-
-        solidAngle +=
-            triangleSolidAngle(
-                point,
-                vertex0,
-                vertex1,
-                vertex2);
-    }
-
-
-    constexpr double PI =
-        3.141592653589793238462643383279502884;
-
-
-    return
-        std::abs(
-            solidAngle) >
-        2.0 * PI;
-}
-
-
-//=============================================================================
-// Component test point
-//=============================================================================
-
-Point componentTestPoint(
-    const STLGeometry& geometry,
-    const std::size_t componentID)
-{
-    const auto& topology =
-        geometry.topology;
-
-    const auto& component =
-        topology.components[
-            componentID];
-
-
-    if(component.facets.empty())
-    {
-        throw std::runtime_error(
-            "STL component contains no facets.");
-    }
-
-
-    const std::size_t facetID =
-        component.facets.front();
-
-
-    return
-        topology.facetGeometry[
-            facetID].centroid;
-}
-
-
-//=============================================================================
-// Component in component
-//=============================================================================
-
-bool componentInComponent(
-    const STLGeometry& geometry,
-    const std::size_t innerComponentID,
-    const std::size_t outerComponentID)
-{
-    const Point testPoint =
-        componentTestPoint(
-            geometry,
-            innerComponentID);
-
-
-    return
-        pointInComponent(
-            geometry,
-            outerComponentID,
-            testPoint);
-}
-
-
-//=============================================================================
 // Direct parent
 //=============================================================================
 
@@ -440,6 +312,123 @@ void assignRootAndLevel(
 
 
 //=============================================================================
+// Point in closed component
+//=============================================================================
+
+bool STLGeometry::pointInComponent(
+    const std::size_t componentID,
+    const Point& point) const
+{
+    const auto& component =
+        topology.components[
+            componentID];
+
+
+    double solidAngle =
+        0.0;
+
+
+#pragma omp parallel for schedule(static) reduction(+:solidAngle)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                component.facets.size());
+        ++index)
+    {
+        const std::size_t facetID =
+            component.facets[
+                static_cast<std::size_t>(
+                    index)];
+
+
+        const auto& vertexIDs =
+            topology.geometry.facetVertexIDs[
+                facetID];
+
+
+        const Point& vertex0 =
+            topology.geometry.vertices[
+                vertexIDs[0]];
+
+        const Point& vertex1 =
+            topology.geometry.vertices[
+                vertexIDs[1]];
+
+        const Point& vertex2 =
+            topology.geometry.vertices[
+                vertexIDs[2]];
+
+
+        solidAngle +=
+            triangleSolidAngle(
+                point,
+                vertex0,
+                vertex1,
+                vertex2);
+    }
+
+
+    constexpr double PI =
+        3.141592653589793238462643383279502884;
+
+
+    return
+        std::abs(
+            solidAngle) >
+        2.0 * PI;
+}
+
+
+//=============================================================================
+// Component test point
+//=============================================================================
+
+Point STLGeometry::componentTestPoint(
+    const std::size_t componentID) const
+{
+    const auto& component =
+        topology.components[
+            componentID];
+
+
+    if(component.facets.empty())
+    {
+        throw std::runtime_error(
+            "STL component contains no facets.");
+    }
+
+
+    const std::size_t facetID =
+        component.facets.front();
+
+
+    return
+        topology.facetGeometry[
+            facetID].centroid;
+}
+
+
+//=============================================================================
+// Component in component
+//=============================================================================
+
+bool STLGeometry::componentInComponent(
+    const std::size_t innerComponentID,
+    const std::size_t outerComponentID) const
+{
+    const Point testPoint =
+        componentTestPoint(
+            innerComponentID);
+
+
+    return
+        pointInComponent(
+            outerComponentID,
+            testPoint);
+}
+
+
+//=============================================================================
 // STL component containment analysis
 //=============================================================================
 
@@ -507,7 +496,6 @@ void STLGeometry::analyzeContainment()
 
 
             if(componentInComponent(
-                   *this,
                    innerComponentID,
                    outerComponentID))
             {
