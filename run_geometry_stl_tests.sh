@@ -79,3 +79,23 @@ $GEOMETRY_APP_DIR/test_stl_flow \
 $GEOMETRY_APP_DIR/test_stl_flow \
     internal_to_external \
     $STL_DIR/nested.stl
+
+#=============================================================================
+# 4. STL translation tests
+#=============================================================================
+
+$GEOMETRY_APP_DIR/test_stl_translation \
+    general \
+    $STL_DIR/nested.stl
+
+$GEOMETRY_APP_DIR/test_stl_translation \
+    internal \
+    $STL_DIR/nested.stl
+
+$GEOMETRY_APP_DIR/test_stl_translation \
+    external \
+    $STL_DIR/two_nested_roots.stl
+
+$GEOMETRY_APP_DIR/test_stl_translation \
+    repeated \
+    $STL_DIR/two_children.stl
