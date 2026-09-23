@@ -31,6 +31,27 @@ struct STLComponentContainment
 
 
 //=============================================================================
+// STL component flow
+//=============================================================================
+
+enum class FluidSide
+{
+    Inside,
+    Outside
+};
+
+
+struct STLComponentFlow
+{
+    bool active =
+        false;
+
+    FluidSide fluidSide =
+        FluidSide::Outside;
+};
+
+
+//=============================================================================
 // STLGeometry
 //=============================================================================
 
@@ -41,6 +62,8 @@ struct STLGeometry
     BoundingBox bounds;
 
     std::vector<STLComponentContainment> containment;
+
+    std::vector<STLComponentFlow> flow;
 };
 
 
