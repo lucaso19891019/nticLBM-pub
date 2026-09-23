@@ -1,4 +1,4 @@
-#include "stl_containment.hpp"
+#include "stl_geometry.hpp"
 
 #include <array>
 #include <cmath>
@@ -443,11 +443,10 @@ void assignRootAndLevel(
 // STL component containment analysis
 //=============================================================================
 
-void analyzeSTLContainment(
-    STLGeometry& geometry)
+void STLGeometry::analyzeContainment()
 {
     const std::size_t componentCount =
-        geometry.topology.components.size();
+        topology.components.size();
 
 
     if(componentCount == 0)
@@ -457,9 +456,9 @@ void analyzeSTLContainment(
     }
 
 
-    geometry.containment.clear();
+    containment.clear();
 
-    geometry.containment.resize(
+    containment.resize(
         componentCount);
 
 
@@ -479,7 +478,7 @@ void analyzeSTLContainment(
         ++outerComponentID)
     {
         const auto& outerBounds =
-            geometry.topology.components[
+            topology.components[
                 outerComponentID].bounds;
 
 
@@ -495,7 +494,7 @@ void analyzeSTLContainment(
 
 
             const auto& innerBounds =
-                geometry.topology.components[
+                topology.components[
                     innerComponentID].bounds;
 
 
@@ -508,7 +507,7 @@ void analyzeSTLContainment(
 
 
             if(componentInComponent(
-                   geometry,
+                   *this,
                    innerComponentID,
                    outerComponentID))
             {
@@ -529,7 +528,7 @@ void analyzeSTLContainment(
         componentID < componentCount;
         ++componentID)
     {
-        geometry.containment[
+        containment[
             componentID].parent =
             findDirectParent(
                 contains,
@@ -550,14 +549,14 @@ void analyzeSTLContainment(
         ++componentID)
     {
         const std::size_t parent =
-            geometry.containment[
+            containment[
                 componentID].parent;
 
 
         if(parent !=
            noParent)
         {
-            geometry.containment[
+            containment[
                 parent].children.push_back(
                     componentID);
         }
@@ -573,7 +572,7 @@ void analyzeSTLContainment(
         ++componentID)
     {
         assignRootAndLevel(
-            geometry.containment,
+            containment,
             componentID);
     }
 
@@ -586,7 +585,7 @@ void analyzeSTLContainment(
         componentID < componentCount;
         ++componentID)
     {
-        if(geometry.containment[
+        if(containment[
                componentID].level >= 2)
         {
             throw std::runtime_error(
