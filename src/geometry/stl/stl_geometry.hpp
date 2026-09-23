@@ -78,8 +78,7 @@ struct STLGeometry
     void analyzeContainment();
 
 
-    void interpretFlow(
-        FlowType flowType);
+    void interpretFlow();
 
 
     void translate(
