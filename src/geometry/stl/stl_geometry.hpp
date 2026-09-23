@@ -67,6 +67,8 @@ struct STLGeometry
 
     std::vector<STLComponentFlow> flow;
 
+    FlowType flowType;
+
 
     STLGeometry(
         stl::FacetTopology topology,
@@ -81,7 +83,8 @@ struct STLGeometry
 
 
     void translate(
-        const Point& displacement);
+        const Point* targetPoint = nullptr,
+        BoundingBox* openBox = nullptr);
 
 
     [[nodiscard]]
