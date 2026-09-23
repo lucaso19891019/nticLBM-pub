@@ -47,3 +47,35 @@ $GEOMETRY_APP_DIR/test_stl_containment \
 $GEOMETRY_APP_DIR/test_stl_containment \
     three_levels \
     $STL_DIR/three_levels.stl
+
+#=============================================================================
+# 3. STL flow interpreter
+#=============================================================================
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    internal_root \
+    $STL_DIR/single_root.stl
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    internal_nested \
+    $STL_DIR/nested.stl
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    internal_nested \
+    $STL_DIR/two_children.stl
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    internal_multiple_roots \
+    $STL_DIR/two_roots.stl
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    external_roots \
+    $STL_DIR/two_roots.stl
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    external_nested \
+    $STL_DIR/two_nested_roots.stl
+
+$GEOMETRY_APP_DIR/test_stl_flow \
+    internal_to_external \
+    $STL_DIR/nested.stl
