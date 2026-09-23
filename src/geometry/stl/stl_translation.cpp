@@ -1,6 +1,7 @@
-#include "stl_translation.hpp"
+#include "stl_geometry.hpp"
 
 #include <cstddef>
+#include <stdexcept>
 
 
 namespace ntic::lbm::geometry
@@ -170,14 +171,12 @@ void translateComponentBounds(
     }
 }
 
-} // namespace
-
 
 //=============================================================================
-// STL translation
+// Translate STL geometry
 //=============================================================================
 
-void translate(
+void translateGeometry(
     STLGeometry& geometry,
     const Point& displacement)
 {
@@ -201,58 +200,85 @@ void translate(
         displacement);
 }
 
+} // namespace
+
 
 //=============================================================================
-// Internal STL translation
+// STL translation
 //=============================================================================
 
-void translateInternal(
-    STLGeometry& geometry,
-    const Point& targetPoint)
+void STLGeometry::translate(
+    const Point* targetPoint,
+    BoundingBox* openBox)
 {
-    const Point displacement =
+    if(flowType ==
+       FlowType::Internal)
     {
-        targetPoint[0] -
-            geometry.bounds.min[0],
-
-        targetPoint[1] -
-            geometry.bounds.min[1],
-
-        targetPoint[2] -
-            geometry.bounds.min[2]
-    };
+        if(targetPoint ==
+           nullptr)
+        {
+            throw std::runtime_error(
+                "Internal STL translation requires a target point.");
+        }
 
 
-    translate(
-        geometry,
-        displacement);
-}
+        const Point displacement =
+        {{
+            (*targetPoint)[0] -
+                bounds.min[0],
+
+            (*targetPoint)[1] -
+                bounds.min[1],
+
+            (*targetPoint)[2] -
+                bounds.min[2]
+        }};
 
 
-//=============================================================================
-// External STL translation
-//=============================================================================
+        translateGeometry(
+            *this,
+            displacement);
 
-void translateExternal(
-    STLGeometry& geometry,
-    BoundingBox& openBox)
-{
-    const Point displacement =
+
+        return;
+    }
+
+
+    if(flowType ==
+       FlowType::External)
     {
-        -openBox.min[0],
-        -openBox.min[1],
-        -openBox.min[2]
-    };
+        if(openBox ==
+           nullptr)
+        {
+            throw std::runtime_error(
+                "External STL translation requires an open box.");
+        }
 
 
-    translate(
-        geometry,
-        displacement);
+        const Point displacement =
+        {{
+            -openBox->min[0],
+            -openBox->min[1],
+            -openBox->min[2]
+        }};
 
 
-    translateBoundingBox(
-        openBox,
-        displacement);
+        translateGeometry(
+            *this,
+            displacement);
+
+
+        translateBoundingBox(
+            *openBox,
+            displacement);
+
+
+        return;
+    }
+
+
+    throw std::runtime_error(
+        "Unsupported STL flow type.");
 }
 
 } // namespace ntic::lbm::geometry
