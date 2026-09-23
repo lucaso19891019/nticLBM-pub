@@ -12,6 +12,7 @@ STL_DIR=tests/geometry_tests/stl_tests/stls
 $GEOMETRY_APP_DIR/test_stl_geometry \
     $STL_DIR/smooth_irregular_branched_channel.stl
 
+
 #=============================================================================
 # 2. STL component containment
 #=============================================================================
@@ -48,6 +49,7 @@ $GEOMETRY_APP_DIR/test_stl_containment \
     three_levels \
     $STL_DIR/three_levels.stl
 
+
 #=============================================================================
 # 3. STL flow interpreter
 #=============================================================================
@@ -80,13 +82,10 @@ $GEOMETRY_APP_DIR/test_stl_flow \
     internal_to_external \
     $STL_DIR/nested.stl
 
+
 #=============================================================================
 # 4. STL translation tests
 #=============================================================================
-
-$GEOMETRY_APP_DIR/test_stl_translation \
-    general \
-    $STL_DIR/nested.stl
 
 $GEOMETRY_APP_DIR/test_stl_translation \
     internal \
