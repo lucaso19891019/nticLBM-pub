@@ -1,4 +1,4 @@
-#include "stl_flow.hpp"
+#include "stl_geometry.hpp"
 
 #include <cstddef>
 #include <limits>
@@ -387,17 +387,16 @@ void normalizeOrientation(
 // STL flow interpretation
 //=============================================================================
 
-void interpretSTLFlow(
-    STLGeometry& geometry,
+void STLGeometry::interpretFlow(
     const FlowType flowType)
 {
     validateContainmentAvailable(
-        geometry);
+        *this);
 
 
     const std::size_t rootCount =
         countRoots(
-            geometry);
+            *this);
 
 
     validateFlowStructure(
@@ -405,19 +404,19 @@ void interpretSTLFlow(
         rootCount);
 
 
-    geometry.flow.clear();
+    flow.clear();
 
-    geometry.flow.resize(
-        geometry.topology.components.size());
+    flow.resize(
+        topology.components.size());
 
 
     assignFlowSemantics(
-        geometry,
+        *this,
         flowType);
 
 
     normalizeOrientation(
-        geometry);
+        *this);
 }
 
 } // namespace ntic::lbm::geometry
