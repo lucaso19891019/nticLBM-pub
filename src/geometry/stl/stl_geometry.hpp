@@ -75,16 +75,81 @@ struct STLGeometry
         FlowType flowType);
 
 
+    //-------------------------------------------------------------------------
+    // Containment
+    //-------------------------------------------------------------------------
+
     void analyzeContainment();
 
 
+    [[nodiscard]]
+    bool pointInComponent(
+        std::size_t componentID,
+        const Point& point) const;
+
+
+    [[nodiscard]]
+    Point componentTestPoint(
+        std::size_t componentID) const;
+
+
+    [[nodiscard]]
+    bool componentInComponent(
+        std::size_t innerComponentID,
+        std::size_t outerComponentID) const;
+
+
+    //-------------------------------------------------------------------------
+    // Flow
+    //-------------------------------------------------------------------------
+
     void interpretFlow();
 
+
+    void validateContainmentAvailable() const;
+
+
+    [[nodiscard]]
+    std::size_t countRoots() const;
+
+
+    void validateFlowStructure(
+        std::size_t rootCount) const;
+
+
+    void assignInternalFlow();
+
+
+    void assignExternalFlow();
+
+
+    void assignFlowSemantics();
+
+
+    [[nodiscard]]
+    bool componentIsOutward(
+        std::size_t componentID) const;
+
+
+    void flipComponent(
+        std::size_t componentID);
+
+
+    void normalizeOrientation();
+
+
+    //-------------------------------------------------------------------------
+    // Translation
+    //-------------------------------------------------------------------------
 
     void translate(
         const Point* targetPoint = nullptr,
         BoundingBox* openBox = nullptr);
 
+
+    //-------------------------------------------------------------------------
+    // Point containment
+    //-------------------------------------------------------------------------
 
     [[nodiscard]]
     bool contains(
