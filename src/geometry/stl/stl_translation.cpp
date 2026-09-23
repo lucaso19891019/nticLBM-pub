@@ -46,17 +46,74 @@ void translateBoundingBox(
         displacement);
 }
 
+} // namespace
+
 
 //=============================================================================
-// Translate canonical vertices
+// STL translation
 //=============================================================================
 
-void translateVertices(
-    STLGeometry& geometry,
-    const Point& displacement)
+void STLGeometry::translate(
+    const Point* targetPoint,
+    BoundingBox* openBox)
 {
+    Point displacement;
+
+
+    if(flowType ==
+       FlowType::Internal)
+    {
+        if(targetPoint ==
+           nullptr)
+        {
+            throw std::runtime_error(
+                "Internal STL translation requires a target point.");
+        }
+
+
+        displacement =
+        {{
+            (*targetPoint)[0] -
+                bounds.min[0],
+
+            (*targetPoint)[1] -
+                bounds.min[1],
+
+            (*targetPoint)[2] -
+                bounds.min[2]
+        }};
+    }
+    else if(flowType ==
+            FlowType::External)
+    {
+        if(openBox ==
+           nullptr)
+        {
+            throw std::runtime_error(
+                "External STL translation requires an open box.");
+        }
+
+
+        displacement =
+        {{
+            -openBox->min[0],
+            -openBox->min[1],
+            -openBox->min[2]
+        }};
+    }
+    else
+    {
+        throw std::runtime_error(
+            "Unsupported STL flow type.");
+    }
+
+
+    //-------------------------------------------------------------------------
+    // Canonical vertices
+    //-------------------------------------------------------------------------
+
     auto& vertices =
-        geometry.topology.geometry.vertices;
+        topology.geometry.vertices;
 
 
     const std::size_t vertexCount =
@@ -76,19 +133,14 @@ void translateVertices(
                     index)],
             displacement);
     }
-}
 
 
-//=============================================================================
-// Translate facet centroids
-//=============================================================================
+    //-------------------------------------------------------------------------
+    // Facet centroids
+    //-------------------------------------------------------------------------
 
-void translateFacetCentroids(
-    STLGeometry& geometry,
-    const Point& displacement)
-{
     auto& facetGeometry =
-        geometry.topology.facetGeometry;
+        topology.facetGeometry;
 
 
     const std::size_t facetCount =
@@ -108,19 +160,14 @@ void translateFacetCentroids(
                     index)].centroid,
             displacement);
     }
-}
 
 
-//=============================================================================
-// Translate component bounds
-//=============================================================================
+    //-------------------------------------------------------------------------
+    // Component bounds
+    //-------------------------------------------------------------------------
 
-void translateComponentBounds(
-    STLGeometry& geometry,
-    const Point& displacement)
-{
     auto& components =
-        geometry.topology.components;
+        topology.components;
 
 
     const std::size_t componentCount =
@@ -134,151 +181,63 @@ void translateComponentBounds(
                 componentCount);
         ++index)
     {
-        auto& bounds =
+        auto& componentBounds =
             components[
                 static_cast<std::size_t>(
                     index)].bounds;
 
 
-        bounds.min[0] +=
+        componentBounds.min[0] +=
             displacement[0];
 
-        bounds.min[1] +=
+        componentBounds.min[1] +=
             displacement[1];
 
-        bounds.min[2] +=
+        componentBounds.min[2] +=
             displacement[2];
 
 
-        bounds.max[0] +=
+        componentBounds.max[0] +=
             displacement[0];
 
-        bounds.max[1] +=
+        componentBounds.max[1] +=
             displacement[1];
 
-        bounds.max[2] +=
+        componentBounds.max[2] +=
             displacement[2];
 
 
-        bounds.center[0] +=
+        componentBounds.center[0] +=
             displacement[0];
 
-        bounds.center[1] +=
+        componentBounds.center[1] +=
             displacement[1];
 
-        bounds.center[2] +=
+        componentBounds.center[2] +=
             displacement[2];
     }
-}
 
 
-//=============================================================================
-// Translate STL geometry
-//=============================================================================
-
-void translateGeometry(
-    STLGeometry& geometry,
-    const Point& displacement)
-{
-    translateVertices(
-        geometry,
-        displacement);
-
-
-    translateFacetCentroids(
-        geometry,
-        displacement);
-
-
-    translateComponentBounds(
-        geometry,
-        displacement);
-
+    //-------------------------------------------------------------------------
+    // Global bounds
+    //-------------------------------------------------------------------------
 
     translateBoundingBox(
-        geometry.bounds,
+        bounds,
         displacement);
-}
-
-} // namespace
 
 
-//=============================================================================
-// STL translation
-//=============================================================================
-
-void STLGeometry::translate(
-    const Point* targetPoint,
-    BoundingBox* openBox)
-{
-    if(flowType ==
-       FlowType::Internal)
-    {
-        if(targetPoint ==
-           nullptr)
-        {
-            throw std::runtime_error(
-                "Internal STL translation requires a target point.");
-        }
-
-
-        const Point displacement =
-        {{
-            (*targetPoint)[0] -
-                bounds.min[0],
-
-            (*targetPoint)[1] -
-                bounds.min[1],
-
-            (*targetPoint)[2] -
-                bounds.min[2]
-        }};
-
-
-        translateGeometry(
-            *this,
-            displacement);
-
-
-        return;
-    }
-
+    //-------------------------------------------------------------------------
+    // External open box
+    //-------------------------------------------------------------------------
 
     if(flowType ==
        FlowType::External)
     {
-        if(openBox ==
-           nullptr)
-        {
-            throw std::runtime_error(
-                "External STL translation requires an open box.");
-        }
-
-
-        const Point displacement =
-        {{
-            -openBox->min[0],
-            -openBox->min[1],
-            -openBox->min[2]
-        }};
-
-
-        translateGeometry(
-            *this,
-            displacement);
-
-
         translateBoundingBox(
             *openBox,
             displacement);
-
-
-        return;
     }
-
-
-    throw std::runtime_error(
-        "Unsupported STL flow type.");
 }
 
 } // namespace ntic::lbm::geometry
