@@ -1,4 +1,4 @@
-#include "stl_containment.hpp"
+#include "flow_type.hpp"
 #include "stl_geometry.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"
@@ -15,6 +15,7 @@
 namespace
 {
 
+using ntic::lbm::geometry::FlowType;
 using ntic::lbm::geometry::STLGeometry;
 using ntic::lbm::geometry::STLComponentContainment;
 
@@ -444,7 +445,7 @@ void testTwoNestedRoots(
 //=============================================================================
 
 void testThreeLevels(
-    STLGeometry& geometry)
+    ntic::lbm::stl::FacetTopology topology)
 {
     bool caughtExpectedException =
         false;
@@ -452,7 +453,11 @@ void testThreeLevels(
 
     try
     {
-        ntic::lbm::geometry::analyzeSTLContainment(
+        STLGeometry geometry(
+            std::move(topology),
+            FlowType::Internal);
+
+        static_cast<void>(
             geometry);
     }
     catch(const std::runtime_error&)
@@ -476,10 +481,6 @@ void runSuccessfulCase(
     STLGeometry& geometry,
     const std::string& caseName)
 {
-    ntic::lbm::geometry::analyzeSTLContainment(
-        geometry);
-
-
     if(caseName ==
        "single_root")
     {
@@ -576,19 +577,37 @@ int main(
             topology);
 
 
-        STLGeometry geometry =
-            ntic::lbm::geometry::constructSTLGeometry(
-                std::move(topology));
-
-
         if(caseName ==
            "three_levels")
         {
             testThreeLevels(
-                geometry);
+                std::move(topology));
         }
         else
         {
+            FlowType flowType =
+                FlowType::Internal;
+
+
+            if(caseName ==
+                   "two_roots" ||
+               caseName ==
+                   "aabb_overlap" ||
+               caseName ==
+                   "pseudo_containment" ||
+               caseName ==
+                   "two_nested_roots")
+            {
+                flowType =
+                    FlowType::External;
+            }
+
+
+            STLGeometry geometry(
+                std::move(topology),
+                flowType);
+
+
             runSuccessfulCase(
                 geometry,
                 caseName);
