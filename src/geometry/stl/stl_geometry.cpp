@@ -102,8 +102,7 @@ STLGeometry::STLGeometry(
     analyzeContainment();
 
 
-    interpretFlow(
-        flowType);
+    interpretFlow();
 }
 
 } // namespace ntic::lbm::geometry
