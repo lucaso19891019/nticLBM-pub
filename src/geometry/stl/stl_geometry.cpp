@@ -80,10 +80,12 @@ BoundingBox makeSTLBounds(
 
 STLGeometry::STLGeometry(
     stl::FacetTopology inputTopology,
-    const FlowType flowType)
+    const FlowType inputFlowType)
     :
     topology(
-        std::move(inputTopology))
+        std::move(inputTopology)),
+    flowType(
+        inputFlowType)
 {
     if(topology.geometry.vertices.empty())
     {
