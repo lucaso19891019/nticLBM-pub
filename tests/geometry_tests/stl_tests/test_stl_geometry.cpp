@@ -1,3 +1,4 @@
+#include "flow_type.hpp"
 #include "stl_geometry.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"
@@ -14,6 +15,7 @@ namespace
 {
 
 using ntic::lbm::geometry::BoundingBox;
+using ntic::lbm::geometry::FlowType;
 using ntic::lbm::geometry::Point;
 using ntic::lbm::geometry::STLGeometry;
 
@@ -158,9 +160,9 @@ void testConstruction(
     // Transfer ownership to Geometry
     //-------------------------------------------------------------------------
 
-    STLGeometry geometry =
-        geometry::constructSTLGeometry(
-            std::move(topology));
+    STLGeometry geometry(
+        std::move(topology),
+        FlowType::Internal);
 
 
     //-------------------------------------------------------------------------
@@ -265,9 +267,9 @@ void testEmptyGeometry()
 
     try
     {
-        STLGeometry geometry =
-            ntic::lbm::geometry::constructSTLGeometry(
-                std::move(topology));
+        STLGeometry geometry(
+            std::move(topology),
+            FlowType::Internal);
 
         static_cast<void>(
             geometry);
