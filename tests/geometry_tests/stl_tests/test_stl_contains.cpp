@@ -43,31 +43,38 @@ double cellTypeScalar(
 
 
 BoundingBox makeVisualizationBox(
-    const BoundingBox& bounds,
-    const double spacing)
+    const BoundingBox& bounds)
 {
-    const double padding =
-        2.0 *
-        spacing;
+    const double paddingX =
+        0.1 *
+        bounds.width();
+
+    const double paddingY =
+        0.1 *
+        bounds.height();
+
+    const double paddingZ =
+        0.1 *
+        bounds.depth();
 
 
     return
     {
         {
             bounds.min[0] -
-                padding,
+                paddingX,
             bounds.min[1] -
-                padding,
+                paddingY,
             bounds.min[2] -
-                padding
+                paddingZ
         },
         {
             bounds.max[0] +
-                padding,
+                paddingX,
             bounds.max[1] +
-                padding,
+                paddingY,
             bounds.max[2] +
-                padding
+                paddingZ
         }
     };
 }
@@ -268,6 +275,32 @@ int main()
             << internalGeometry.bounds.depth()
             << "\n\n";
 
+        const BoundingBox visualizationBox =
+            makeVisualizationBox(
+                internalGeometry.bounds);
+
+
+        std::cout
+            << "Open box:\n"
+            << "  min    = ("
+            << visualizationBox.min[0] << ", "
+            << visualizationBox.min[1] << ", "
+            << visualizationBox.min[2] << ")\n"
+            << "  max    = ("
+            << visualizationBox.max[0] << ", "
+            << visualizationBox.max[1] << ", "
+            << visualizationBox.max[2] << ")\n"
+            << "  width  = "
+            << visualizationBox.width()
+            << "\n"
+            << "  height = "
+            << visualizationBox.height()
+            << "\n"
+            << "  depth  = "
+            << visualizationBox.depth()
+            << "\n\n";
+
+
         double spacing =
             0.0;
 
@@ -295,12 +328,6 @@ int main()
         //---------------------------------------------------------------------
         // Visualization grid
         //---------------------------------------------------------------------
-
-        const BoundingBox visualizationBox =
-            makeVisualizationBox(
-                internalGeometry.bounds,
-                spacing);
-
 
         const std::size_t nx =
             static_cast<std::size_t>(
@@ -332,7 +359,20 @@ int main()
 
 
         std::cout
-            << "\nCell values:\n"
+            << "\nGrid dimensions:\n"
+            << "  nx = "
+            << nx
+            << "\n"
+            << "  ny = "
+            << ny
+            << "\n"
+            << "  nz = "
+            << nz
+            << "\n\n";
+
+
+        std::cout
+            << "Cell values:\n"
             << "  0.0 = dry\n"
             << "  0.5 = boundary\n"
             << "  1.0 = interior\n\n";
@@ -433,19 +473,6 @@ int main()
         //---------------------------------------------------------------------
         // Done
         //---------------------------------------------------------------------
-
-        std::cout
-            << "Grid dimensions:\n"
-            << "  nx = "
-            << nx
-            << "\n"
-            << "  ny = "
-            << ny
-            << "\n"
-            << "  nz = "
-            << nz
-            << "\n\n";
-
 
         std::cout
             << "VTK output written to:\n"
