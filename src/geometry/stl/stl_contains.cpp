@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <stdexcept>
 
+#include <omp.h>
+
 
 namespace ntic::lbm::geometry
 {
@@ -165,7 +167,8 @@ bool pointInComponent(
         0.0;
 
 
-#pragma omp parallel for reduction(+:solidAngle) schedule(static)
+#pragma omp parallel for reduction(+:solidAngle) schedule(static) \
+    if(!omp_in_parallel())
     for(std::int64_t localFacetID = 0;
         localFacetID <
             static_cast<std::int64_t>(
@@ -243,11 +246,33 @@ bool centerIsWet(
         }
 
 
+        const auto& component =
+            geometry.topology.components[
+                componentID];
+
+
+        const bool outsideBounds =
+            point[0] <
+                component.bounds.min[0] ||
+            point[0] >
+                component.bounds.max[0] ||
+            point[1] <
+                component.bounds.min[1] ||
+            point[1] >
+                component.bounds.max[1] ||
+            point[2] <
+                component.bounds.min[2] ||
+            point[2] >
+                component.bounds.max[2];
+
+
         const bool inside =
-            pointInComponent(
-                geometry,
-                componentID,
-                point);
+            outsideBounds
+                ? false
+                : pointInComponent(
+                    geometry,
+                    componentID,
+                    point);
 
 
         if(componentFlow.fluidSide ==
