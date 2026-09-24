@@ -3,7 +3,6 @@
 #include "bounding_box.hpp"
 #include "point.hpp"
 
-#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -14,12 +13,17 @@
 namespace ntic::lbm::geometry::test
 {
 
-template <typename FluidFunction>
-void writeVTK2DGeometry(
+//=============================================================================
+// 2D scalar field
+//=============================================================================
+
+inline void writeVTK2DScalar(
     const std::filesystem::path& path,
-    const BoundingBox& domainBounds,
+    const std::size_t nx,
+    const std::size_t ny,
+    const Point& origin,
     const double spacing,
-    FluidFunction isFluid)
+    const std::vector<double>& scalar)
 {
     if(spacing <= 0.0)
     {
@@ -28,71 +32,16 @@ void writeVTK2DGeometry(
     }
 
 
-    const std::size_t nx =
-        static_cast<std::size_t>(
-            std::floor(
-                domainBounds.width() /
-                spacing)) +
-        1;
-
-    const std::size_t ny =
-        static_cast<std::size_t>(
-            std::floor(
-                domainBounds.height() /
-                spacing)) +
-        1;
-
-
     const std::size_t pointCount =
         nx * ny;
 
 
-    std::vector<int> fluid(
-        pointCount,
-        0);
-
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                pointCount);
-        ++index)
+    if(scalar.size() !=
+       pointCount)
     {
-        const std::size_t pointIndex =
-            static_cast<std::size_t>(
-                index);
-
-
-        const std::size_t i =
-            pointIndex % nx;
-
-        const std::size_t j =
-            pointIndex / nx;
-
-
-        const double x =
-            domainBounds.min[0] +
-            static_cast<double>(i) *
-            spacing;
-
-        const double y =
-            domainBounds.min[1] +
-            static_cast<double>(j) *
-            spacing;
-
-
-        const Point point{
-            x,
-            y,
-            0.0
-        };
-
-
-        fluid[pointIndex] =
-            isFluid(point)
-                ? 1
-                : 0;
+        throw std::invalid_argument(
+            "2D scalar size does not match "
+            "the VTK grid dimensions.");
     }
 
 
@@ -108,26 +57,29 @@ void writeVTK2DGeometry(
 
     output
         << "# vtk DataFile Version 3.0\n"
-        << "nticLBM 2D geometry test\n"
+        << "nticLBM 2D scalar field\n"
         << "ASCII\n"
         << "DATASET STRUCTURED_POINTS\n"
         << "DIMENSIONS "
         << nx << " "
-        << ny << " 1\n"
+        << ny << " "
+        << 1 << "\n"
         << "ORIGIN "
-        << domainBounds.min[0] << " "
-        << domainBounds.min[1] << " 0\n"
+        << origin[0] << " "
+        << origin[1] << " "
+        << origin[2] << "\n"
         << "SPACING "
         << spacing << " "
-        << spacing << " 1\n"
+        << spacing << " "
+        << 1.0 << "\n"
         << "POINT_DATA "
         << pointCount << "\n"
-        << "SCALARS fluid int 1\n"
+        << "SCALARS scalar double 1\n"
         << "LOOKUP_TABLE default\n";
 
 
-    for(const int value :
-        fluid)
+    for(const double value :
+        scalar)
     {
         output
             << value
@@ -135,6 +87,10 @@ void writeVTK2DGeometry(
     }
 }
 
+
+//=============================================================================
+// 2D bounding box
+//=============================================================================
 
 inline void writeVTK2DBoundingBox(
     const std::filesystem::path& path,
@@ -158,19 +114,22 @@ inline void writeVTK2DBoundingBox(
         << "POINTS 4 double\n"
 
         << box.min[0] << " "
-        << box.min[1] << " 0\n"
+        << box.min[1] << " "
+        << box.min[2] << "\n"
 
         << box.max[0] << " "
-        << box.min[1] << " 0\n"
+        << box.min[1] << " "
+        << box.min[2] << "\n"
 
         << box.max[0] << " "
-        << box.max[1] << " 0\n"
+        << box.max[1] << " "
+        << box.min[2] << "\n"
 
         << box.min[0] << " "
-        << box.max[1] << " 0\n"
+        << box.max[1] << " "
+        << box.min[2] << "\n"
 
         << "LINES 4 12\n"
-
         << "2 0 1\n"
         << "2 1 2\n"
         << "2 2 3\n"
