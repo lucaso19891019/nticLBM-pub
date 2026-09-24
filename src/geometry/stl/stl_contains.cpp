@@ -145,7 +145,7 @@ double triangleSolidAngle(
 
 
 //=============================================================================
-// Point in closed STL component
+// Point in component
 //=============================================================================
 
 bool pointInComponent(
@@ -165,7 +165,7 @@ bool pointInComponent(
         0.0;
 
 
-    #pragma omp parallel for reduction(+:solidAngle) schedule(static)
+#pragma omp parallel for reduction(+:solidAngle) schedule(static)
     for(std::int64_t localFacetID = 0;
         localFacetID <
             static_cast<std::int64_t>(
@@ -217,7 +217,7 @@ bool pointInComponent(
 
 
 //=============================================================================
-// Wet-side test at cell center
+// Wet-side test
 //=============================================================================
 
 bool centerIsWet(
@@ -273,10 +273,81 @@ bool centerIsWet(
 
 
 //=============================================================================
-// Projection overlap
+// Separating-axis tests
 //=============================================================================
 
-bool separatedOnAxis(
+bool separatedOnAxisClosed(
+    const Point& vertex0,
+    const Point& vertex1,
+    const Point& vertex2,
+    const Point& axis,
+    const double halfGridSpacing)
+{
+    const double axisLengthSquared =
+        dot(
+            axis,
+            axis);
+
+
+    if(axisLengthSquared ==
+       0.0)
+    {
+        return false;
+    }
+
+
+    const double projection0 =
+        dot(
+            vertex0,
+            axis);
+
+    const double projection1 =
+        dot(
+            vertex1,
+            axis);
+
+    const double projection2 =
+        dot(
+            vertex2,
+            axis);
+
+
+    const double triangleMin =
+        std::min(
+            projection0,
+            std::min(
+                projection1,
+                projection2));
+
+    const double triangleMax =
+        std::max(
+            projection0,
+            std::max(
+                projection1,
+                projection2));
+
+
+    const double boxRadius =
+        halfGridSpacing *
+        (
+            std::abs(
+                axis[0]) +
+            std::abs(
+                axis[1]) +
+            std::abs(
+                axis[2])
+        );
+
+
+    return
+        triangleMax <
+            -boxRadius ||
+        triangleMin >
+            boxRadius;
+}
+
+
+bool separatedOnAxisOpen(
     const Point& vertex0,
     const Point& vertex1,
     const Point& vertex2,
@@ -348,10 +419,10 @@ bool separatedOnAxis(
 
 
 //=============================================================================
-// Triangle intersection with open cell interior
+// Triangle / closed-cell intersection
 //=============================================================================
 
-bool triangleIntersectsCellInterior(
+bool triangleIntersectsCell(
     const Point& point,
     const double gridSpacing,
     const Point& triangleVertex0,
@@ -362,10 +433,6 @@ bool triangleIntersectsCellInterior(
         0.5 *
         gridSpacing;
 
-
-    //---------------------------------------------------------------------
-    // Translate the cell center to the origin.
-    //---------------------------------------------------------------------
 
     const Point vertex0 =
         subtract(
@@ -383,12 +450,199 @@ bool triangleIntersectsCellInterior(
             point);
 
 
-    //---------------------------------------------------------------------
-    // Cell axes.
-    //
-    // Strict overlap is required because touching only a cell face,
-    // edge, or vertex does not enter the open cell interior.
-    //---------------------------------------------------------------------
+    const double triangleMinX =
+        std::min(
+            vertex0[0],
+            std::min(
+                vertex1[0],
+                vertex2[0]));
+
+    const double triangleMaxX =
+        std::max(
+            vertex0[0],
+            std::max(
+                vertex1[0],
+                vertex2[0]));
+
+
+    if(triangleMaxX <
+           -halfGridSpacing ||
+       triangleMinX >
+           halfGridSpacing)
+    {
+        return false;
+    }
+
+
+    const double triangleMinY =
+        std::min(
+            vertex0[1],
+            std::min(
+                vertex1[1],
+                vertex2[1]));
+
+    const double triangleMaxY =
+        std::max(
+            vertex0[1],
+            std::max(
+                vertex1[1],
+                vertex2[1]));
+
+
+    if(triangleMaxY <
+           -halfGridSpacing ||
+       triangleMinY >
+           halfGridSpacing)
+    {
+        return false;
+    }
+
+
+    const double triangleMinZ =
+        std::min(
+            vertex0[2],
+            std::min(
+                vertex1[2],
+                vertex2[2]));
+
+    const double triangleMaxZ =
+        std::max(
+            vertex0[2],
+            std::max(
+                vertex1[2],
+                vertex2[2]));
+
+
+    if(triangleMaxZ <
+           -halfGridSpacing ||
+       triangleMinZ >
+           halfGridSpacing)
+    {
+        return false;
+    }
+
+
+    const Point edge0 =
+        subtract(
+            vertex1,
+            vertex0);
+
+    const Point edge1 =
+        subtract(
+            vertex2,
+            vertex1);
+
+    const Point edge2 =
+        subtract(
+            vertex0,
+            vertex2);
+
+
+    const Point triangleNormal =
+        cross(
+            edge0,
+            edge1);
+
+
+    if(separatedOnAxisClosed(
+           vertex0,
+           vertex1,
+           vertex2,
+           triangleNormal,
+           halfGridSpacing))
+    {
+        return false;
+    }
+
+
+    const std::array<Point,3> edges =
+    {{
+        edge0,
+        edge1,
+        edge2
+    }};
+
+
+    const std::array<Point,3> cellAxes =
+    {{
+        {
+            1.0,
+            0.0,
+            0.0
+        },
+        {
+            0.0,
+            1.0,
+            0.0
+        },
+        {
+            0.0,
+            0.0,
+            1.0
+        }
+    }};
+
+
+    for(const Point& edge :
+        edges)
+    {
+        for(const Point& cellAxis :
+            cellAxes)
+        {
+            const Point axis =
+                cross(
+                    edge,
+                    cellAxis);
+
+
+            if(separatedOnAxisClosed(
+                   vertex0,
+                   vertex1,
+                   vertex2,
+                   axis,
+                   halfGridSpacing))
+            {
+                return false;
+            }
+        }
+    }
+
+
+    return true;
+}
+
+
+//=============================================================================
+// Triangle / open-cell-interior intersection
+//=============================================================================
+
+bool triangleIntersectsCellInterior(
+    const Point& point,
+    const double gridSpacing,
+    const Point& triangleVertex0,
+    const Point& triangleVertex1,
+    const Point& triangleVertex2)
+{
+    const double halfGridSpacing =
+        0.5 *
+        gridSpacing;
+
+
+    const Point vertex0 =
+        subtract(
+            triangleVertex0,
+            point);
+
+    const Point vertex1 =
+        subtract(
+            triangleVertex1,
+            point);
+
+    const Point vertex2 =
+        subtract(
+            triangleVertex2,
+            point);
+
 
     const double triangleMinX =
         std::min(
@@ -462,10 +716,6 @@ bool triangleIntersectsCellInterior(
     }
 
 
-    //---------------------------------------------------------------------
-    // Triangle edges.
-    //---------------------------------------------------------------------
-
     const Point edge0 =
         subtract(
             vertex1,
@@ -482,17 +732,13 @@ bool triangleIntersectsCellInterior(
             vertex2);
 
 
-    //---------------------------------------------------------------------
-    // Triangle normal.
-    //---------------------------------------------------------------------
-
     const Point triangleNormal =
         cross(
             edge0,
             edge1);
 
 
-    if(separatedOnAxis(
+    if(separatedOnAxisOpen(
            vertex0,
            vertex1,
            vertex2,
@@ -502,10 +748,6 @@ bool triangleIntersectsCellInterior(
         return false;
     }
 
-
-    //---------------------------------------------------------------------
-    // Edge x cell-axis separating axes.
-    //---------------------------------------------------------------------
 
     const std::array<Point,3> edges =
     {{
@@ -547,7 +789,7 @@ bool triangleIntersectsCellInterior(
                     cellAxis);
 
 
-            if(separatedOnAxis(
+            if(separatedOnAxisOpen(
                    vertex0,
                    vertex1,
                    vertex2,
@@ -565,10 +807,10 @@ bool triangleIntersectsCellInterior(
 
 
 //=============================================================================
-// Active STL surface intersection with cell interior
+// Active surface / closed-cell intersection
 //=============================================================================
 
-bool activeSurfaceIntersectsCellInterior(
+bool activeSurfaceIntersectsCell(
     const STLGeometry& geometry,
     const Point& point,
     const double gridSpacing)
@@ -576,12 +818,14 @@ bool activeSurfaceIntersectsCellInterior(
     const auto& topology =
         geometry.topology;
 
-    const std::size_t componentCount =
-        topology.components.size();
+    const double halfGridSpacing =
+        0.5 *
+        gridSpacing;
 
 
     for(std::size_t componentID = 0;
-        componentID < componentCount;
+        componentID <
+            topology.components.size();
         ++componentID)
     {
         if(!geometry.flow[
@@ -596,14 +840,100 @@ bool activeSurfaceIntersectsCellInterior(
                 componentID];
 
 
-        const double halfGridSpacing =
-            0.5 *
-            gridSpacing;
+        if(component.bounds.max[0] <
+               point[0] -
+                   halfGridSpacing ||
+           component.bounds.min[0] >
+               point[0] +
+                   halfGridSpacing ||
+           component.bounds.max[1] <
+               point[1] -
+                   halfGridSpacing ||
+           component.bounds.min[1] >
+               point[1] +
+                   halfGridSpacing ||
+           component.bounds.max[2] <
+               point[2] -
+                   halfGridSpacing ||
+           component.bounds.min[2] >
+               point[2] +
+                   halfGridSpacing)
+        {
+            continue;
+        }
 
 
-        //-----------------------------------------------------------------
-        // Fast component AABB rejection.
-        //-----------------------------------------------------------------
+        for(const std::size_t facetID :
+            component.facets)
+        {
+            const auto& vertexIDs =
+                topology.geometry.facetVertexIDs[
+                    facetID];
+
+
+            const Point& vertex0 =
+                topology.geometry.vertices[
+                    vertexIDs[0]];
+
+            const Point& vertex1 =
+                topology.geometry.vertices[
+                    vertexIDs[1]];
+
+            const Point& vertex2 =
+                topology.geometry.vertices[
+                    vertexIDs[2]];
+
+
+            if(triangleIntersectsCell(
+                   point,
+                   gridSpacing,
+                   vertex0,
+                   vertex1,
+                   vertex2))
+            {
+                return true;
+            }
+        }
+    }
+
+
+    return false;
+}
+
+
+//=============================================================================
+// Active surface / open-cell-interior intersection
+//=============================================================================
+
+bool activeSurfaceIntersectsCellInterior(
+    const STLGeometry& geometry,
+    const Point& point,
+    const double gridSpacing)
+{
+    const auto& topology =
+        geometry.topology;
+
+    const double halfGridSpacing =
+        0.5 *
+        gridSpacing;
+
+
+    for(std::size_t componentID = 0;
+        componentID <
+            topology.components.size();
+        ++componentID)
+    {
+        if(!geometry.flow[
+                componentID].active)
+        {
+            continue;
+        }
+
+
+        const auto& component =
+            topology.components[
+                componentID];
+
 
         if(component.bounds.max[0] <=
                point[0] -
@@ -669,10 +999,10 @@ bool activeSurfaceIntersectsCellInterior(
 
 
 //=============================================================================
-// STL computational-domain containment
+// STL computational-domain cell classification
 //=============================================================================
 
-bool STLGeometry::contains(
+CellType STLGeometry::contains(
     const Point& point,
     const double gridSpacing) const
 {
@@ -685,12 +1015,8 @@ bool STLGeometry::contains(
     }
 
 
-    const std::size_t componentCount =
-        topology.components.size();
-
-
     if(flow.size() !=
-       componentCount)
+       topology.components.size())
     {
         throw std::runtime_error(
             "STLGeometry::contains requires "
@@ -698,37 +1024,41 @@ bool STLGeometry::contains(
     }
 
 
-    //-------------------------------------------------------------------------
-    // Wet-point principle:
-    //
-    // A cell whose center is already on the computational side belongs to
-    // the computational domain. This also covers a wet cell for which the
-    // STL surface merely touches a cell face, edge, or vertex.
-    //-------------------------------------------------------------------------
+    const bool wet =
+        centerIsWet(
+            *this,
+            point);
 
-    if(centerIsWet(
-           *this,
-           point))
+
+    if(wet)
     {
-        return true;
+        if(activeSurfaceIntersectsCell(
+               *this,
+               point,
+               gridSpacing))
+        {
+            return
+                CellType::Boundary;
+        }
+
+
+        return
+            CellType::Interior;
     }
 
 
-    //-------------------------------------------------------------------------
-    // The center is on the dry side.
-    //
-    // Such a cell belongs to the computational domain only when an active
-    // STL surface actually enters the open interior of the cell.
-    //
-    // Pure contact with a cell face, edge, or vertex does not make a dry
-    // cell a boundary cell.
-    //-------------------------------------------------------------------------
+    if(activeSurfaceIntersectsCellInterior(
+           *this,
+           point,
+           gridSpacing))
+    {
+        return
+            CellType::Boundary;
+    }
+
 
     return
-        activeSurfaceIntersectsCellInterior(
-            *this,
-            point,
-            gridSpacing);
+        CellType::Dry;
 }
 
 } // namespace ntic::lbm::geometry
