@@ -194,6 +194,29 @@ int main()
             "../tests/geometry_tests/stl_tests/stls/"
             "smooth_irregular_branched_channel.stl";
 
+        //---------------------------------------------------------------------
+        // STL geometry scale
+        //---------------------------------------------------------------------
+
+        std::cout
+            << "STL bounding box:\n"
+            << "  min    = ("
+            << internalGeometry.bounds.min[0] << ", "
+            << internalGeometry.bounds.min[1] << ", "
+            << internalGeometry.bounds.min[2] << ")\n"
+            << "  max    = ("
+            << internalGeometry.bounds.max[0] << ", "
+            << internalGeometry.bounds.max[1] << ", "
+            << internalGeometry.bounds.max[2] << ")\n"
+            << "  width  = "
+            << internalGeometry.bounds.width()
+            << "\n"
+            << "  height = "
+            << internalGeometry.bounds.height()
+            << "\n"
+            << "  depth  = "
+            << internalGeometry.bounds.depth()
+            << "\n\n";
 
         double spacing =
             0.0;
