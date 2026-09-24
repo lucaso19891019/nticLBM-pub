@@ -195,55 +195,6 @@ int main()
             "smooth_irregular_branched_channel.stl";
 
         //---------------------------------------------------------------------
-        // STL geometry scale
-        //---------------------------------------------------------------------
-
-        std::cout
-            << "STL bounding box:\n"
-            << "  min    = ("
-            << internalGeometry.bounds.min[0] << ", "
-            << internalGeometry.bounds.min[1] << ", "
-            << internalGeometry.bounds.min[2] << ")\n"
-            << "  max    = ("
-            << internalGeometry.bounds.max[0] << ", "
-            << internalGeometry.bounds.max[1] << ", "
-            << internalGeometry.bounds.max[2] << ")\n"
-            << "  width  = "
-            << internalGeometry.bounds.width()
-            << "\n"
-            << "  height = "
-            << internalGeometry.bounds.height()
-            << "\n"
-            << "  depth  = "
-            << internalGeometry.bounds.depth()
-            << "\n\n";
-
-        double spacing =
-            0.0;
-
-
-        std::cout
-            << "Enter grid spacing: ";
-
-        std::cin
-            >> spacing;
-
-
-        if(!std::cin)
-        {
-            throw std::runtime_error(
-                "Failed to read grid spacing.");
-        }
-
-
-        if(spacing <= 0.0)
-        {
-            throw std::runtime_error(
-                "Grid spacing must be positive.");
-        }
-
-
-        //---------------------------------------------------------------------
         // Internal geometry
         //---------------------------------------------------------------------
 
@@ -290,6 +241,53 @@ int main()
                 externalTopology),
             FlowType::External);
 
+        //---------------------------------------------------------------------
+        // STL geometry scale
+        //---------------------------------------------------------------------
+
+        std::cout
+            << "STL bounding box:\n"
+            << "  min    = ("
+            << internalGeometry.bounds.min[0] << ", "
+            << internalGeometry.bounds.min[1] << ", "
+            << internalGeometry.bounds.min[2] << ")\n"
+            << "  max    = ("
+            << internalGeometry.bounds.max[0] << ", "
+            << internalGeometry.bounds.max[1] << ", "
+            << internalGeometry.bounds.max[2] << ")\n"
+            << "  width  = "
+            << internalGeometry.bounds.width()
+            << "\n"
+            << "  height = "
+            << internalGeometry.bounds.height()
+            << "\n"
+            << "  depth  = "
+            << internalGeometry.bounds.depth()
+            << "\n\n";
+
+        double spacing =
+            0.0;
+
+
+        std::cout
+            << "Enter grid spacing: ";
+
+        std::cin
+            >> spacing;
+
+
+        if(!std::cin)
+        {
+            throw std::runtime_error(
+                "Failed to read grid spacing.");
+        }
+
+
+        if(spacing <= 0.0)
+        {
+            throw std::runtime_error(
+                "Grid spacing must be positive.");
+        }
 
         //---------------------------------------------------------------------
         // Visualization grid
