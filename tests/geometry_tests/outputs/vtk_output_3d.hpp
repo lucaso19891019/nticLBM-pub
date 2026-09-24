@@ -3,7 +3,6 @@
 #include "bounding_box.hpp"
 #include "point.hpp"
 
-#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -14,12 +13,18 @@
 namespace ntic::lbm::geometry::test
 {
 
-template <typename FluidFunction>
-void writeVTK3DGeometry(
+//=============================================================================
+// 3D scalar field
+//=============================================================================
+
+inline void writeVTK3DScalar(
     const std::filesystem::path& path,
-    const BoundingBox& domainBounds,
+    const std::size_t nx,
+    const std::size_t ny,
+    const std::size_t nz,
+    const Point& origin,
     const double spacing,
-    FluidFunction isFluid)
+    const std::vector<double>& scalar)
 {
     if(spacing <= 0.0)
     {
@@ -28,97 +33,16 @@ void writeVTK3DGeometry(
     }
 
 
-    const std::size_t nx =
-        static_cast<std::size_t>(
-            std::floor(
-                domainBounds.width() /
-                spacing)) +
-        1;
-
-    const std::size_t ny =
-        static_cast<std::size_t>(
-            std::floor(
-                domainBounds.height() /
-                spacing)) +
-        1;
-
-    const std::size_t nz =
-        static_cast<std::size_t>(
-            std::floor(
-                domainBounds.depth() /
-                spacing)) +
-        1;
-
-
     const std::size_t pointCount =
         nx * ny * nz;
 
 
-    std::vector<int> fluid(
-        pointCount,
-        0);
-
-
-    const std::size_t xySize =
-        nx * ny;
-
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                pointCount);
-        ++index)
+    if(scalar.size() !=
+       pointCount)
     {
-        const std::size_t pointIndex =
-            static_cast<std::size_t>(
-                index);
-
-
-        const std::size_t k =
-            pointIndex /
-            xySize;
-
-        const std::size_t remainder =
-            pointIndex %
-            xySize;
-
-        const std::size_t j =
-            remainder /
-            nx;
-
-        const std::size_t i =
-            remainder %
-            nx;
-
-
-        const double x =
-            domainBounds.min[0] +
-            static_cast<double>(i) *
-            spacing;
-
-        const double y =
-            domainBounds.min[1] +
-            static_cast<double>(j) *
-            spacing;
-
-        const double z =
-            domainBounds.min[2] +
-            static_cast<double>(k) *
-            spacing;
-
-
-        const Point point{
-            x,
-            y,
-            z
-        };
-
-
-        fluid[pointIndex] =
-            isFluid(point)
-                ? 1
-                : 0;
+        throw std::invalid_argument(
+            "3D scalar size does not match "
+            "the VTK grid dimensions.");
     }
 
 
@@ -134,7 +58,7 @@ void writeVTK3DGeometry(
 
     output
         << "# vtk DataFile Version 3.0\n"
-        << "nticLBM 3D geometry test\n"
+        << "nticLBM 3D scalar field\n"
         << "ASCII\n"
         << "DATASET STRUCTURED_POINTS\n"
         << "DIMENSIONS "
@@ -142,21 +66,21 @@ void writeVTK3DGeometry(
         << ny << " "
         << nz << "\n"
         << "ORIGIN "
-        << domainBounds.min[0] << " "
-        << domainBounds.min[1] << " "
-        << domainBounds.min[2] << "\n"
+        << origin[0] << " "
+        << origin[1] << " "
+        << origin[2] << "\n"
         << "SPACING "
         << spacing << " "
         << spacing << " "
         << spacing << "\n"
         << "POINT_DATA "
         << pointCount << "\n"
-        << "SCALARS fluid int 1\n"
+        << "SCALARS scalar double 1\n"
         << "LOOKUP_TABLE default\n";
 
 
-    for(const int value :
-        fluid)
+    for(const double value :
+        scalar)
     {
         output
             << value
@@ -164,6 +88,10 @@ void writeVTK3DGeometry(
     }
 }
 
+
+//=============================================================================
+// 3D bounding box
+//=============================================================================
 
 inline void writeVTK3DBoundingBox(
     const std::filesystem::path& path,
