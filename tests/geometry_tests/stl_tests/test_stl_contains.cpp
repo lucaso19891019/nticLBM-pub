@@ -191,7 +191,10 @@ int main()
 
 
         const std::filesystem::path stlFile =
-            "../tests/geometry_tests/stl_tests/stls/"
+            std::filesystem::path(
+                GEOMETRY_TEST_SOURCE_DIR) /
+            "stl_tests" /
+            "stls" /
             "smooth_irregular_branched_channel.stl";
 
         //---------------------------------------------------------------------
