@@ -31,6 +31,16 @@ struct STLComponentContainment
         0;
 };
 
+//=============================================================================
+// Cell type
+//=============================================================================
+
+enum class CellType
+{
+    Dry,
+    Boundary,
+    Interior
+};
 
 //=============================================================================
 // STL component flow
@@ -152,8 +162,9 @@ struct STLGeometry
     //-------------------------------------------------------------------------
 
     [[nodiscard]]
-    bool contains(
-        const Point& point) const;
+    CellType contains(
+        const Point& point,
+        double gridSpacing) const;
 };
 
 } // namespace ntic::lbm::geometry
