@@ -202,6 +202,7 @@ target_compile_definitions(
     test_stl_contains
     PRIVATE
     GEOMETRY_TEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/geometry"
+    GEOMETRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}/tests/geometry_tests"
 )
 
 set_geometry_stl_test_output(
