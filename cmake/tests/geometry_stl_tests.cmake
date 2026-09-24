@@ -28,6 +28,7 @@ add_executable(test_stl_geometry
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
+    src/geometry/stl/stl_contains.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -64,6 +65,7 @@ add_executable(test_stl_containment
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
+    src/geometry/stl/stl_contains.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -100,6 +102,7 @@ add_executable(test_stl_flow
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
+    src/geometry/stl/stl_contains.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -136,6 +139,7 @@ add_executable(test_stl_translation
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
+    src/geometry/stl/stl_contains.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -158,4 +162,48 @@ target_link_libraries(
 
 set_geometry_stl_test_output(
     test_stl_translation
+)
+
+
+#====================================================
+# test_stl_contains
+#====================================================
+
+add_executable(test_stl_contains
+    tests/geometry_tests/stl_tests/test_stl_contains.cpp
+
+    src/geometry/stl/stl_geometry.cpp
+    src/geometry/stl/stl_containment.cpp
+    src/geometry/stl/stl_flow.cpp
+    src/geometry/stl/stl_translation.cpp
+    src/geometry/stl/stl_contains.cpp
+
+    src/input/stl/stl_reader.cpp
+    src/input/stl/stl_validator.cpp
+)
+
+target_include_directories(
+    test_stl_contains
+    PRIVATE
+    src/geometry
+    src/geometry/stl
+    src/input/stl
+    src/common
+    tests/geometry_tests/outputs
+)
+
+target_link_libraries(
+    test_stl_contains
+    PRIVATE
+    OpenMP::OpenMP_CXX
+)
+
+target_compile_definitions(
+    test_stl_contains
+    PRIVATE
+    GEOMETRY_TEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/geometry"
+)
+
+set_geometry_stl_test_output(
+    test_stl_contains
 )
