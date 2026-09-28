@@ -186,11 +186,11 @@ configure_geometry_stl_test(
 
 
 #====================================================
-# test_stl_contains
+# test_stl_area_analysis
 #====================================================
 
-add_executable(test_stl_contains
-    tests/geometry_tests/stl_tests/test_stl_contains.cpp
+add_executable(test_stl_area_analysis
+    tests/geometry_tests/stl_tests/test_stl_area_analysis.cpp
 
     src/geometry/stl/stl_geometry.cpp
     src/geometry/stl/stl_containment.cpp
@@ -203,17 +203,17 @@ add_executable(test_stl_contains
 )
 
 target_include_directories(
-    test_stl_contains
+    test_stl_area_analysis
     PRIVATE
     ${GEOMETRY_STL_INCLUDE_DIRS}
 )
 
 target_link_libraries(
-    test_stl_contains
+    test_stl_area_analysis
     PRIVATE
     OpenMP::OpenMP_CXX
 )
 
 configure_geometry_stl_test(
-    test_stl_contains
+    test_stl_area_analysis
 )
