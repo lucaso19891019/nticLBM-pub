@@ -155,14 +155,6 @@ void writeGeometry(
                 spacing));
 
 
-    const Point origin =
-    {
-        domainBounds.min[0] + 0.5 * spacing,
-        domainBounds.min[1] + 0.5 * spacing,
-        domainBounds.min[2] + 0.5 * spacing
-    };
-
-
     std::cout
         << (geometry.flowType == FlowType::Internal
                 ? "Internal"
@@ -181,13 +173,13 @@ void writeGeometry(
             cellTypes);
 
 
-    writeVTK3DScalar(
+    writeVTK3DCellScalar(
         directory /
             "geometry.vtk",
         nx,
         ny,
         nz,
-        origin,
+        domainBounds.min,
         spacing,
         scalar);
 
