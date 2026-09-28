@@ -1,5 +1,5 @@
 #====================================================
-# Geometry STL test output
+# Geometry STL paths
 #====================================================
 
 set(GEOMETRY_STL_TEST_OUTPUT_DIR
@@ -10,15 +10,43 @@ set(GEOMETRY_TEST_OUTPUT_DIR
     "${CMAKE_SOURCE_DIR}/tests/geometry_tests/outputs"
 )
 
+set(GEOMETRY_TEST_SOURCE_DIR
+    "${CMAKE_SOURCE_DIR}/tests/geometry_tests"
+)
 
-function(set_geometry_stl_test_output TARGET_NAME)
+
+#====================================================
+# Geometry STL test configuration
+#====================================================
+
+function(configure_geometry_stl_test TARGET_NAME)
     set_target_properties(
         ${TARGET_NAME}
         PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY
             "${GEOMETRY_STL_TEST_OUTPUT_DIR}"
     )
+
+    target_compile_definitions(
+        ${TARGET_NAME}
+        PRIVATE
+        "GEOMETRY_TEST_OUTPUT_DIR=\"${GEOMETRY_TEST_OUTPUT_DIR}\""
+        "GEOMETRY_TEST_SOURCE_DIR=\"${GEOMETRY_TEST_SOURCE_DIR}\""
+    )
 endfunction()
+
+
+#====================================================
+# Common include directories
+#====================================================
+
+set(GEOMETRY_STL_INCLUDE_DIRS
+    src/geometry
+    src/geometry/stl
+    src/input/stl
+    src/common
+    tests/geometry_tests/outputs
+)
 
 
 #====================================================
@@ -41,10 +69,7 @@ add_executable(test_stl_geometry
 target_include_directories(
     test_stl_geometry
     PRIVATE
-    src/geometry
-    src/geometry/stl
-    src/input/stl
-    src/common
+    ${GEOMETRY_STL_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -53,7 +78,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_stl_test_output(
+configure_geometry_stl_test(
     test_stl_geometry
 )
 
@@ -78,10 +103,7 @@ add_executable(test_stl_containment
 target_include_directories(
     test_stl_containment
     PRIVATE
-    src/geometry
-    src/geometry/stl
-    src/input/stl
-    src/common
+    ${GEOMETRY_STL_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -90,7 +112,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_stl_test_output(
+configure_geometry_stl_test(
     test_stl_containment
 )
 
@@ -115,10 +137,7 @@ add_executable(test_stl_flow
 target_include_directories(
     test_stl_flow
     PRIVATE
-    src/geometry
-    src/geometry/stl
-    src/input/stl
-    src/common
+    ${GEOMETRY_STL_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -127,7 +146,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_stl_test_output(
+configure_geometry_stl_test(
     test_stl_flow
 )
 
@@ -152,10 +171,7 @@ add_executable(test_stl_translation
 target_include_directories(
     test_stl_translation
     PRIVATE
-    src/geometry
-    src/geometry/stl
-    src/input/stl
-    src/common
+    ${GEOMETRY_STL_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -164,7 +180,7 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-set_geometry_stl_test_output(
+configure_geometry_stl_test(
     test_stl_translation
 )
 
@@ -189,11 +205,7 @@ add_executable(test_stl_contains
 target_include_directories(
     test_stl_contains
     PRIVATE
-    src/geometry
-    src/geometry/stl
-    src/input/stl
-    src/common
-    tests/geometry_tests/outputs
+    ${GEOMETRY_STL_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -202,13 +214,6 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-target_compile_definitions(
-    test_stl_contains
-    PRIVATE
-    GEOMETRY_TEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/geometry"
-    GEOMETRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}/tests/geometry_tests"
-)
-
-set_geometry_test_output(
+configure_geometry_stl_test(
     test_stl_contains
 )
