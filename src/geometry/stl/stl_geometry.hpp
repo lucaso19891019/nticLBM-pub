@@ -38,7 +38,6 @@ struct STLComponentContainment
 enum class CellType
 {
     Dry,
-    BoundaryCandidate,
     Boundary,
     Interior
 };
