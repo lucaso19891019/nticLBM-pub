@@ -11,13 +11,12 @@ set(GEOMETRY_TEST_OUTPUT_DIR
 )
 
 
-
-function(set_geometry_test_output TARGET_NAME)
+function(set_geometry_stl_test_output TARGET_NAME)
     set_target_properties(
         ${TARGET_NAME}
         PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY
-            "${GEOMETRY_TEST_OUTPUT_DIR}"
+            "${GEOMETRY_STL_TEST_OUTPUT_DIR}"
     )
 endfunction()
 
