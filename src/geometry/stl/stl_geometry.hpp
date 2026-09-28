@@ -73,6 +73,8 @@ struct STLGeometry
 
     BoundingBox bounds;
 
+    BoundingBox openBox;
+
     std::vector<STLComponentContainment> containment;
 
     std::vector<STLComponentFlow> flow;
@@ -82,7 +84,8 @@ struct STLGeometry
 
     STLGeometry(
         stl::FacetTopology topology,
-        FlowType flowType);
+        FlowType flowType = FlowType::Internal,
+        const BoundingBox* openBox = nullptr);
 
 
     //-------------------------------------------------------------------------
@@ -153,18 +156,19 @@ struct STLGeometry
     //-------------------------------------------------------------------------
 
     void translate(
-        const Point* targetPoint = nullptr,
-        BoundingBox* openBox = nullptr);
+        const Point* targetPoint = nullptr);
 
 
     //-------------------------------------------------------------------------
-    // Point containment
+    // Interior area analysis
     //-------------------------------------------------------------------------
 
-    [[nodiscard]]
-    CellType contains(
-        const Point& point,
-        double gridSpacing) const;
+    void interiorAreaAnalysis(
+        double gridSpacing,
+        std::vector<CellType>& cellTypes,
+        std::vector<double>& boundaryX,
+        std::vector<double>& boundaryY,
+        std::vector<double>& boundaryZ) const;
 };
 
 } // namespace ntic::lbm::geometry
