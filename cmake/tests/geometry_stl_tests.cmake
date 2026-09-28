@@ -6,13 +6,18 @@ set(GEOMETRY_STL_TEST_OUTPUT_DIR
     "${CMAKE_BINARY_DIR}/geometry/stl"
 )
 
+set(GEOMETRY_TEST_OUTPUT_DIR
+    "${CMAKE_SOURCE_DIR}/tests/geometry_tests/outputs"
+)
 
-function(set_geometry_stl_test_output TARGET_NAME)
+
+
+function(set_geometry_test_output TARGET_NAME)
     set_target_properties(
         ${TARGET_NAME}
         PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY
-            "${GEOMETRY_STL_TEST_OUTPUT_DIR}"
+            "${GEOMETRY_TEST_OUTPUT_DIR}"
     )
 endfunction()
 
@@ -205,6 +210,6 @@ target_compile_definitions(
     GEOMETRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}/tests/geometry_tests"
 )
 
-set_geometry_stl_test_output(
+set_geometry_test_output(
     test_stl_contains
 )
