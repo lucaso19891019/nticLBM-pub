@@ -21,7 +21,7 @@ inline void writeVTK2DScalar(
     const std::filesystem::path& path,
     const std::size_t nx,
     const std::size_t ny,
-    const Point& origin,
+    const Point2D& origin,
     const double spacing,
     const std::vector<double>& scalar)
 {
@@ -67,7 +67,7 @@ inline void writeVTK2DScalar(
         << "ORIGIN "
         << origin[0] << " "
         << origin[1] << " "
-        << origin[2] << "\n"
+        << 0.0 << "\n"
         << "SPACING "
         << spacing << " "
         << spacing << " "
@@ -94,7 +94,7 @@ inline void writeVTK2DScalar(
 
 inline void writeVTK2DBoundingBox(
     const std::filesystem::path& path,
-    const BoundingBox& box)
+    const BoundingBox2D& box)
 {
     std::ofstream output(path);
 
@@ -115,19 +115,19 @@ inline void writeVTK2DBoundingBox(
 
         << box.min[0] << " "
         << box.min[1] << " "
-        << box.min[2] << "\n"
+        << 0.0 << "\n"
 
         << box.max[0] << " "
         << box.min[1] << " "
-        << box.min[2] << "\n"
+        << 0.0 << "\n"
 
         << box.max[0] << " "
         << box.max[1] << " "
-        << box.min[2] << "\n"
+        << 0.0 << "\n"
 
         << box.min[0] << " "
         << box.max[1] << " "
-        << box.min[2] << "\n"
+        << 0.0 << "\n"
 
         << "LINES 4 12\n"
         << "2 0 1\n"
