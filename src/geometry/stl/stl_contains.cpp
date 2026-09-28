@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
+#include <vector>
 
 #include <omp.h>
 
@@ -832,101 +833,6 @@ bool triangleIntersectsCellInterior(
 
 
 //=============================================================================
-// Active surface / closed-cell intersection
-//=============================================================================
-
-bool activeSurfaceIntersectsCell(
-    const STLGeometry& geometry,
-    const Point& point,
-    const double gridSpacing)
-{
-    const auto& topology =
-        geometry.topology;
-
-    const double halfGridSpacing =
-        0.5 *
-        gridSpacing;
-
-
-    for(std::size_t componentID = 0;
-        componentID <
-            topology.components.size();
-        ++componentID)
-    {
-        if(!geometry.flow[
-                componentID].active)
-        {
-            continue;
-        }
-
-
-        const auto& component =
-            topology.components[
-                componentID];
-
-
-        if(component.bounds.max[0] <
-               point[0] -
-                   halfGridSpacing ||
-           component.bounds.min[0] >
-               point[0] +
-                   halfGridSpacing ||
-           component.bounds.max[1] <
-               point[1] -
-                   halfGridSpacing ||
-           component.bounds.min[1] >
-               point[1] +
-                   halfGridSpacing ||
-           component.bounds.max[2] <
-               point[2] -
-                   halfGridSpacing ||
-           component.bounds.min[2] >
-               point[2] +
-                   halfGridSpacing)
-        {
-            continue;
-        }
-
-
-        for(const std::size_t facetID :
-            component.facets)
-        {
-            const auto& vertexIDs =
-                topology.geometry.facetVertexIDs[
-                    facetID];
-
-
-            const Point& vertex0 =
-                topology.geometry.vertices[
-                    vertexIDs[0]];
-
-            const Point& vertex1 =
-                topology.geometry.vertices[
-                    vertexIDs[1]];
-
-            const Point& vertex2 =
-                topology.geometry.vertices[
-                    vertexIDs[2]];
-
-
-            if(triangleIntersectsCell(
-                   point,
-                   gridSpacing,
-                   vertex0,
-                   vertex1,
-                   vertex2))
-            {
-                return true;
-            }
-        }
-    }
-
-
-    return false;
-}
-
-
-//=============================================================================
 // Active surface / open-cell-interior intersection
 //=============================================================================
 
@@ -1024,19 +930,20 @@ bool activeSurfaceIntersectsCellInterior(
 
 
 //=============================================================================
-// STL computational-domain cell classification
+// Interior area analysis
 //=============================================================================
 
-CellType STLGeometry::contains(
-    const Point& point,
-    const double gridSpacing) const
+void STLGeometry::interiorAreaAnalysis(
+    const double gridSpacing,
+    std::vector<CellType>& cellTypes,
+    std::vector<double>& boundaryX,
+    std::vector<double>& boundaryY,
+    std::vector<double>& boundaryZ) const
 {
-    if(gridSpacing <=
-       0.0)
+    if(gridSpacing <= 0.0)
     {
         throw std::runtime_error(
-            "STLGeometry::contains requires "
-            "positive grid spacing.");
+            "Grid spacing must be positive.");
     }
 
 
@@ -1044,46 +951,401 @@ CellType STLGeometry::contains(
        topology.components.size())
     {
         throw std::runtime_error(
-            "STLGeometry::contains requires "
-            "interpreted flow data.");
+            "STL flow interpretation is not available.");
     }
 
 
-    const bool wet =
-        centerIsWet(
-            *this,
-            point);
+    const BoundingBox& domainBounds =
+        flowType == FlowType::Internal
+            ? bounds
+            : openBox;
 
 
-    if(wet)
+    const std::size_t nx =
+        static_cast<std::size_t>(
+            std::ceil(
+                domainBounds.width() /
+                gridSpacing));
+
+    const std::size_t ny =
+        static_cast<std::size_t>(
+            std::ceil(
+                domainBounds.height() /
+                gridSpacing));
+
+    const std::size_t nz =
+        static_cast<std::size_t>(
+            std::ceil(
+                domainBounds.depth() /
+                gridSpacing));
+
+
+    if(nx == 0 ||
+       ny == 0 ||
+       nz == 0)
     {
-        if(activeSurfaceIntersectsCell(
-               *this,
-               point,
-               gridSpacing))
+        throw std::runtime_error(
+            "STL analysis domain contains no grid cells.");
+    }
+
+
+    const std::size_t xySize =
+        nx * ny;
+
+    const std::size_t cellCount =
+        xySize * nz;
+
+
+    cellTypes.assign(
+        cellCount,
+        CellType::Dry);
+
+    boundaryX.clear();
+    boundaryY.clear();
+    boundaryZ.clear();
+
+
+    //--------------------------------------------------------------------------
+    // Loop 1: classify cell centers as dry or wet.
+    //--------------------------------------------------------------------------
+
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                cellCount);
+        ++index)
+    {
+        const std::size_t cellID =
+            static_cast<std::size_t>(
+                index);
+
+        const std::size_t k =
+            cellID /
+            xySize;
+
+        const std::size_t remainder =
+            cellID %
+            xySize;
+
+        const std::size_t j =
+            remainder /
+            nx;
+
+        const std::size_t i =
+            remainder %
+            nx;
+
+
+        const Point point =
         {
-            return
-                CellType::Boundary;
+            domainBounds.min[0] +
+                (static_cast<double>(i) + 0.5) *
+                gridSpacing,
+            domainBounds.min[1] +
+                (static_cast<double>(j) + 0.5) *
+                gridSpacing,
+            domainBounds.min[2] +
+                (static_cast<double>(k) + 0.5) *
+                gridSpacing
+        };
+
+
+        cellTypes[cellID] =
+            centerIsWet(
+                *this,
+                point)
+                ? CellType::Interior
+                : CellType::Dry;
+    }
+
+
+    //--------------------------------------------------------------------------
+    // Loop 2: identify the one-cell interface band from the 26-neighborhood.
+    //--------------------------------------------------------------------------
+
+    const std::vector<CellType> centerTypes =
+        cellTypes;
+
+
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                cellCount);
+        ++index)
+    {
+        const std::size_t cellID =
+            static_cast<std::size_t>(
+                index);
+
+        const std::size_t k =
+            cellID /
+            xySize;
+
+        const std::size_t remainder =
+            cellID %
+            xySize;
+
+        const std::size_t j =
+            remainder /
+            nx;
+
+        const std::size_t i =
+            remainder %
+            nx;
+
+
+        const bool centerWet =
+            centerTypes[cellID] ==
+                CellType::Interior;
+
+        bool oppositeNeighbor =
+            false;
+
+
+        for(int dk = -1;
+            dk <= 1 && !oppositeNeighbor;
+            ++dk)
+        {
+            for(int dj = -1;
+                dj <= 1 && !oppositeNeighbor;
+                ++dj)
+            {
+                for(int di = -1;
+                    di <= 1;
+                    ++di)
+                {
+                    if(di == 0 &&
+                       dj == 0 &&
+                       dk == 0)
+                    {
+                        continue;
+                    }
+
+
+                    const std::ptrdiff_t ni =
+                        static_cast<std::ptrdiff_t>(i) +
+                        di;
+
+                    const std::ptrdiff_t nj =
+                        static_cast<std::ptrdiff_t>(j) +
+                        dj;
+
+                    const std::ptrdiff_t nk =
+                        static_cast<std::ptrdiff_t>(k) +
+                        dk;
+
+
+                    if(ni < 0 ||
+                       nj < 0 ||
+                       nk < 0 ||
+                       ni >= static_cast<std::ptrdiff_t>(nx) ||
+                       nj >= static_cast<std::ptrdiff_t>(ny) ||
+                       nk >= static_cast<std::ptrdiff_t>(nz))
+                    {
+                        if(centerWet &&
+                           flowType == FlowType::Internal)
+                        {
+                            oppositeNeighbor =
+                                true;
+                        }
+
+                        continue;
+                    }
+
+
+                    const std::size_t neighborID =
+                        static_cast<std::size_t>(ni) +
+                        nx *
+                        (
+                            static_cast<std::size_t>(nj) +
+                            ny *
+                            static_cast<std::size_t>(nk)
+                        );
+
+                    const bool neighborWet =
+                        centerTypes[neighborID] ==
+                            CellType::Interior;
+
+
+                    if(neighborWet !=
+                       centerWet)
+                    {
+                        oppositeNeighbor =
+                            true;
+
+                        break;
+                    }
+                }
+            }
         }
 
 
-        return
-            CellType::Interior;
+        if(!oppositeNeighbor)
+        {
+            continue;
+        }
+
+
+        cellTypes[cellID] =
+            centerWet
+                ? CellType::Boundary
+                : CellType::BoundaryCandidate;
     }
 
 
-    if(activeSurfaceIntersectsCellInterior(
-           *this,
-           point,
-           gridSpacing))
+    //--------------------------------------------------------------------------
+    // Loop 3: resolve only dry-side boundary candidates with the strict
+    // triangle-cell-interior test.
+    //--------------------------------------------------------------------------
+/*
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                cellCount);
+        ++index)
     {
-        return
-            CellType::Boundary;
+        const std::size_t cellID =
+            static_cast<std::size_t>(
+                index);
+
+
+        if(cellTypes[cellID] !=
+           CellType::BoundaryCandidate)
+        {
+            continue;
+        }
+
+
+        const std::size_t k =
+            cellID /
+            xySize;
+
+        const std::size_t remainder =
+            cellID %
+            xySize;
+
+        const std::size_t j =
+            remainder /
+            nx;
+
+        const std::size_t i =
+            remainder %
+            nx;
+
+
+        const Point point =
+        {
+            domainBounds.min[0] +
+                (static_cast<double>(i) + 0.5) *
+                gridSpacing,
+            domainBounds.min[1] +
+                (static_cast<double>(j) + 0.5) *
+                gridSpacing,
+            domainBounds.min[2] +
+                (static_cast<double>(k) + 0.5) *
+                gridSpacing
+        };
+
+
+        cellTypes[cellID] =
+            activeSurfaceIntersectsCellInterior(
+                *this,
+                point,
+                gridSpacing)
+                ? CellType::Boundary
+                : CellType::Dry;
+    }
+*/
+
+    //--------------------------------------------------------------------------
+    // Loop 4: compact final boundary-cell coordinates into SoA vectors.
+    //--------------------------------------------------------------------------
+
+    boundaryX.resize(
+        cellCount);
+
+    boundaryY.resize(
+        cellCount);
+
+    boundaryZ.resize(
+        cellCount);
+
+
+    std::size_t boundaryCount =
+        0;
+
+
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                cellCount);
+        ++index)
+    {
+        const std::size_t cellID =
+            static_cast<std::size_t>(
+                index);
+
+
+        if(cellTypes[cellID] !=
+           CellType::Boundary)
+        {
+            continue;
+        }
+
+
+        const std::size_t k =
+            cellID /
+            xySize;
+
+        const std::size_t remainder =
+            cellID %
+            xySize;
+
+        const std::size_t j =
+            remainder /
+            nx;
+
+        const std::size_t i =
+            remainder %
+            nx;
+
+
+        std::size_t slot =
+            0;
+
+#pragma omp atomic capture
+        slot = boundaryCount++;
+
+
+        boundaryX[slot] =
+            domainBounds.min[0] +
+            (static_cast<double>(i) + 0.5) *
+            gridSpacing;
+
+        boundaryY[slot] =
+            domainBounds.min[1] +
+            (static_cast<double>(j) + 0.5) *
+            gridSpacing;
+
+        boundaryZ[slot] =
+            domainBounds.min[2] +
+            (static_cast<double>(k) + 0.5) *
+            gridSpacing;
     }
 
 
-    return
-        CellType::Dry;
+    boundaryX.resize(
+        boundaryCount);
+
+    boundaryY.resize(
+        boundaryCount);
+
+    boundaryZ.resize(
+        boundaryCount);
 }
 
 } // namespace ntic::lbm::geometry

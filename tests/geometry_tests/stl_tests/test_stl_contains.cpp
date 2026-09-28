@@ -30,6 +30,11 @@ double cellTypeScalar(
         return 0.0;
     }
 
+    if(cellType ==
+       CellType::BoundaryCandidate)
+    {
+        return 0.25;
+    }
 
     if(cellType ==
        CellType::Boundary)
@@ -37,54 +42,105 @@ double cellTypeScalar(
         return 0.5;
     }
 
+    if(cellType ==
+       CellType::Interior)
+    {
+        return 1.0;
+    }
 
-    return 1.0;
+    throw std::runtime_error(
+        "Invalid STL cell type.");
 }
 
 
-BoundingBox makeVisualizationBox(
+BoundingBox makeOpenBox(
     const BoundingBox& bounds)
 {
     const double paddingX =
-        0.1 *
-        bounds.width();
+        0.1 * bounds.width();
 
     const double paddingY =
-        0.1 *
-        bounds.height();
+        0.1 * bounds.height();
 
     const double paddingZ =
-        0.1 *
-        bounds.depth();
+        0.1 * bounds.depth();
 
 
-    return
+    BoundingBox openBox;
+
+    openBox.min =
     {
-        {
-            bounds.min[0] -
-                paddingX,
-            bounds.min[1] -
-                paddingY,
-            bounds.min[2] -
-                paddingZ
-        },
-        {
-            bounds.max[0] +
-                paddingX,
-            bounds.max[1] +
-                paddingY,
-            bounds.max[2] +
-                paddingZ
-        }
+        bounds.min[0] - paddingX,
+        bounds.min[1] - paddingY,
+        bounds.min[2] - paddingZ
     };
+
+    openBox.max =
+    {
+        bounds.max[0] + paddingX,
+        bounds.max[1] + paddingY,
+        bounds.max[2] + paddingZ
+    };
+
+
+    return openBox;
 }
 
 
-std::vector<double> buildScalar(
-    const STLGeometry& geometry,
-    const BoundingBox& domainBounds,
-    const double spacing)
+std::vector<double> makeScalar(
+    const std::vector<CellType>& cellTypes)
 {
+    std::vector<double> scalar(
+        cellTypes.size());
+
+
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                cellTypes.size());
+        ++index)
+    {
+        const std::size_t cellID =
+            static_cast<std::size_t>(
+                index);
+
+        scalar[cellID] =
+            cellTypeScalar(
+                cellTypes[cellID]);
+    }
+
+
+    return scalar;
+}
+
+
+void writeGeometry(
+    const STLGeometry& geometry,
+    const double spacing,
+    const std::filesystem::path& directory)
+{
+    std::vector<CellType> cellTypes;
+
+    std::vector<double> boundaryX;
+    std::vector<double> boundaryY;
+    std::vector<double> boundaryZ;
+
+
+    geometry.interiorAreaAnalysis(
+        spacing,
+        cellTypes,
+        boundaryX,
+        boundaryY,
+        boundaryZ);
+
+
+    const BoundingBox& domainBounds =
+        geometry.flowType == FlowType::Internal
+            ? geometry.bounds
+            : geometry.openBox;
+
+
     const std::size_t nx =
         static_cast<std::size_t>(
             std::ceil(
@@ -104,84 +160,57 @@ std::vector<double> buildScalar(
                 spacing));
 
 
-    const std::size_t pointCount =
-        nx * ny * nz;
-
-    const std::size_t xySize =
-        nx * ny;
-
-
-    std::vector<double> scalar(
-        pointCount,
-        0.0);
-
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                pointCount);
-        ++index)
+    const Point origin =
     {
-        const std::size_t pointIndex =
-            static_cast<std::size_t>(
-                index);
+        domainBounds.min[0] + 0.5 * spacing,
+        domainBounds.min[1] + 0.5 * spacing,
+        domainBounds.min[2] + 0.5 * spacing
+    };
 
 
-        const std::size_t k =
-            pointIndex /
-            xySize;
-
-        const std::size_t remainder =
-            pointIndex %
-            xySize;
-
-        const std::size_t j =
-            remainder /
-            nx;
-
-        const std::size_t i =
-            remainder %
-            nx;
+    std::cout
+        << (geometry.flowType == FlowType::Internal
+                ? "Internal"
+                : "External")
+        << " grid dimensions:\n"
+        << "  nx = " << nx << "\n"
+        << "  ny = " << ny << "\n"
+        << "  nz = " << nz << "\n"
+        << "  boundary cells = "
+        << boundaryX.size()
+        << "\n\n";
 
 
-        const Point point{
-            domainBounds.min[0] +
-                (
-                    static_cast<double>(i) +
-                    0.5
-                ) *
-                spacing,
-
-            domainBounds.min[1] +
-                (
-                    static_cast<double>(j) +
-                    0.5
-                ) *
-                spacing,
-
-            domainBounds.min[2] +
-                (
-                    static_cast<double>(k) +
-                    0.5
-                ) *
-                spacing
-        };
+    const std::vector<double> scalar =
+        makeScalar(
+            cellTypes);
 
 
-        const CellType cellType =
-            geometry.contains(
-                point,
-                spacing);
+    writeVTK3DScalar(
+        directory /
+            "geometry.vtk",
+        nx,
+        ny,
+        nz,
+        origin,
+        spacing,
+        scalar);
 
 
-        scalar[pointIndex] =
-            cellTypeScalar(
-                cellType);
+    writeVTK3DBoundingBox(
+        directory /
+            "bounding_box.vtk",
+        geometry.bounds);
+
+
+    if(geometry.flowType ==
+       FlowType::External)
+    {
+        writeVTK3DBoundingBox(
+            directory /
+                "open_box.vtk",
+            geometry.openBox);
     }
-
-
-    return scalar;
 }
 
 } // namespace
@@ -193,7 +222,7 @@ int main()
     {
         std::cout
             << "========================================\n"
-            << "STL Contains Test\n"
+            << "STL Interior Area Analysis Test\n"
             << "========================================\n\n";
 
 
@@ -204,17 +233,12 @@ int main()
             "stls" /
             "smooth_irregular_branched_channel.stl";
 
-        //---------------------------------------------------------------------
-        // Internal geometry
-        //---------------------------------------------------------------------
 
         ntic::lbm::stl::STLData internalData =
             ntic::lbm::stl::read(
                 stlFile.string());
 
-
         ntic::lbm::stl::FacetTopology internalTopology;
-
 
         ntic::lbm::stl::validate(
             internalData,
@@ -224,21 +248,19 @@ int main()
 
         STLGeometry internalGeometry(
             std::move(
-                internalTopology),
-            FlowType::Internal);
+                internalTopology));
 
 
-        //---------------------------------------------------------------------
-        // External geometry
-        //---------------------------------------------------------------------
+        const BoundingBox openBox =
+            makeOpenBox(
+                internalGeometry.bounds);
+
 
         ntic::lbm::stl::STLData externalData =
             ntic::lbm::stl::read(
                 stlFile.string());
 
-
         ntic::lbm::stl::FacetTopology externalTopology;
-
 
         ntic::lbm::stl::validate(
             externalData,
@@ -249,11 +271,9 @@ int main()
         STLGeometry externalGeometry(
             std::move(
                 externalTopology),
-            FlowType::External);
+            FlowType::External,
+            &openBox);
 
-        //---------------------------------------------------------------------
-        // STL geometry scale
-        //---------------------------------------------------------------------
 
         std::cout
             << "STL bounding box:\n"
@@ -273,37 +293,20 @@ int main()
             << "\n"
             << "  depth  = "
             << internalGeometry.bounds.depth()
-            << "\n\n";
-
-        const BoundingBox visualizationBox =
-            makeVisualizationBox(
-                internalGeometry.bounds);
-
-
-        std::cout
-            << "Open box:\n"
+            << "\n\n"
+            << "External open box:\n"
             << "  min    = ("
-            << visualizationBox.min[0] << ", "
-            << visualizationBox.min[1] << ", "
-            << visualizationBox.min[2] << ")\n"
+            << openBox.min[0] << ", "
+            << openBox.min[1] << ", "
+            << openBox.min[2] << ")\n"
             << "  max    = ("
-            << visualizationBox.max[0] << ", "
-            << visualizationBox.max[1] << ", "
-            << visualizationBox.max[2] << ")\n"
-            << "  width  = "
-            << visualizationBox.width()
-            << "\n"
-            << "  height = "
-            << visualizationBox.height()
-            << "\n"
-            << "  depth  = "
-            << visualizationBox.depth()
-            << "\n\n";
+            << openBox.max[0] << ", "
+            << openBox.max[1] << ", "
+            << openBox.max[2] << ")\n\n";
 
 
         double spacing =
             0.0;
-
 
         std::cout
             << "Enter grid spacing: ";
@@ -318,75 +321,17 @@ int main()
                 "Failed to read grid spacing.");
         }
 
-
         if(spacing <= 0.0)
         {
             throw std::runtime_error(
                 "Grid spacing must be positive.");
         }
 
-        //---------------------------------------------------------------------
-        // Visualization grid
-        //---------------------------------------------------------------------
-
-        const std::size_t nx =
-            static_cast<std::size_t>(
-                std::ceil(
-                    visualizationBox.width() /
-                    spacing));
-
-        const std::size_t ny =
-            static_cast<std::size_t>(
-                std::ceil(
-                    visualizationBox.height() /
-                    spacing));
-
-        const std::size_t nz =
-            static_cast<std::size_t>(
-                std::ceil(
-                    visualizationBox.depth() /
-                    spacing));
-
-
-        const Point origin{
-            visualizationBox.min[0] +
-                0.5 * spacing,
-            visualizationBox.min[1] +
-                0.5 * spacing,
-            visualizationBox.min[2] +
-                0.5 * spacing
-        };
-
-
-        std::cout
-            << "\nGrid dimensions:\n"
-            << "  nx = "
-            << nx
-            << "\n"
-            << "  ny = "
-            << ny
-            << "\n"
-            << "  nz = "
-            << nz
-            << "\n\n";
-
-
-        std::cout
-            << "Cell values:\n"
-            << "  0.0 = dry\n"
-            << "  0.5 = boundary\n"
-            << "  1.0 = interior\n\n";
-
-
-        //---------------------------------------------------------------------
-        // Output directories
-        //---------------------------------------------------------------------
 
         const std::filesystem::path outputDirectory =
             std::filesystem::path(
                 GEOMETRY_TEST_OUTPUT_DIR) /
             "test_stl_contains_vtks";
-
 
         recreateOutputDirectory(
             outputDirectory);
@@ -400,7 +345,6 @@ int main()
             outputDirectory /
             "external_vtks";
 
-
         std::filesystem::create_directories(
             internalDirectory);
 
@@ -408,71 +352,16 @@ int main()
             externalDirectory);
 
 
-        //---------------------------------------------------------------------
-        // Internal
-        //---------------------------------------------------------------------
-
-        const std::vector<double> internalScalar =
-            buildScalar(
-                internalGeometry,
-                visualizationBox,
-                spacing);
-
-
-        writeVTK3DScalar(
-            internalDirectory /
-                "geometry.vtk",
-            nx,
-            ny,
-            nz,
-            origin,
+        writeGeometry(
+            internalGeometry,
             spacing,
-            internalScalar);
+            internalDirectory);
 
-
-        writeVTK3DBoundingBox(
-            internalDirectory /
-                "bounding_box.vtk",
-            internalGeometry.bounds);
-
-
-        //---------------------------------------------------------------------
-        // External
-        //---------------------------------------------------------------------
-
-        const std::vector<double> externalScalar =
-            buildScalar(
-                externalGeometry,
-                visualizationBox,
-                spacing);
-
-
-        writeVTK3DScalar(
-            externalDirectory /
-                "geometry.vtk",
-            nx,
-            ny,
-            nz,
-            origin,
+        writeGeometry(
+            externalGeometry,
             spacing,
-            externalScalar);
+            externalDirectory);
 
-
-        writeVTK3DBoundingBox(
-            externalDirectory /
-                "bounding_box.vtk",
-            externalGeometry.bounds);
-
-
-        writeVTK3DBoundingBox(
-            externalDirectory /
-                "visualization_box.vtk",
-            visualizationBox);
-
-
-        //---------------------------------------------------------------------
-        // Done
-        //---------------------------------------------------------------------
 
         std::cout
             << "VTK output written to:\n"
@@ -488,7 +377,6 @@ int main()
             << "Error: "
             << exception.what()
             << "\n";
-
 
         return 1;
     }

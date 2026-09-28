@@ -17,10 +17,44 @@
 namespace
 {
 
+using ntic::lbm::geometry::BoundingBox;
+using ntic::lbm::geometry::Point;
+
 using ntic::lbm::geometry::FlowType;
 using ntic::lbm::geometry::FluidSide;
 using ntic::lbm::geometry::STLGeometry;
 
+
+
+
+BoundingBox makeOpenBox(
+    const ntic::lbm::stl::FacetTopology& topology)
+{
+    BoundingBox openBox;
+
+
+    for(const Point& point :
+        topology.geometry.vertices)
+    {
+        openBox.expand(
+            point);
+    }
+
+
+    const double padding =
+        1.0;
+
+    openBox.min[0] -= padding;
+    openBox.min[1] -= padding;
+    openBox.min[2] -= padding;
+
+    openBox.max[0] += padding;
+    openBox.max[1] += padding;
+    openBox.max[2] += padding;
+
+
+    return openBox;
+}
 
 //=============================================================================
 // Test helpers
@@ -1012,9 +1046,28 @@ int main(
             }
 
 
+            BoundingBox openBox;
+
+            const BoundingBox* openBoxPointer =
+                nullptr;
+
+
+            if(flowType ==
+               FlowType::External)
+            {
+                openBox =
+                    makeOpenBox(
+                        topology);
+
+                openBoxPointer =
+                    &openBox;
+            }
+
+
             STLGeometry geometry(
                 std::move(topology),
-                flowType);
+                flowType,
+                openBoxPointer);
 
 
             runTest(

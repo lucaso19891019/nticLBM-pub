@@ -102,6 +102,41 @@ Point subtract(
 }
 
 
+BoundingBox makeOpenBox(
+    const ntic::lbm::stl::FacetTopology& topology)
+{
+    BoundingBox openBox;
+
+
+    for(const Point& point :
+        topology.geometry.vertices)
+    {
+        openBox.expand(
+            point);
+    }
+
+
+    const Point padding =
+    {
+        5.0,
+        7.0,
+        9.0
+    };
+
+
+    openBox.min[0] -= padding[0];
+    openBox.min[1] -= padding[1];
+    openBox.min[2] -= padding[2];
+
+    openBox.max[0] += padding[0];
+    openBox.max[1] += padding[1];
+    openBox.max[2] += padding[2];
+
+
+    return openBox;
+}
+
+
 //=============================================================================
 // Snapshot
 //=============================================================================
@@ -695,75 +730,36 @@ void testExternal(
         "External translation requires external STL geometry.");
 
 
-    const Point padding =
-    {
-        5.0,
-        7.0,
-        9.0
-    };
-
-
-    BoundingBox openBox;
-
-
-    openBox.min =
-    {
-        geometry.bounds.min[0] -
-            padding[0],
-
-        geometry.bounds.min[1] -
-            padding[1],
-
-        geometry.bounds.min[2] -
-            padding[2]
-    };
-
-
-    openBox.max =
-    {
-        geometry.bounds.max[0] +
-            padding[0],
-
-        geometry.bounds.max[1] +
-            padding[1],
-
-        geometry.bounds.max[2] +
-            padding[2]
-    };
-
-
     const TranslationSnapshot before =
         captureSnapshot(
             geometry);
 
 
     const BoundingBox openBoxBefore =
-        openBox;
+        geometry.openBox;
 
 
     const Point relativeMinBefore =
         subtract(
             geometry.bounds.min,
-            openBox.min);
+            geometry.openBox.min);
 
 
     const Point relativeMaxBefore =
         subtract(
             geometry.bounds.max,
-            openBox.min);
+            geometry.openBox.min);
 
 
     const Point displacement =
     {
-        -openBox.min[0],
-        -openBox.min[1],
-        -openBox.min[2]
+        -geometry.openBox.min[0],
+        -geometry.openBox.min[1],
+        -geometry.openBox.min[2]
     };
 
 
-    geometry.translate(
-        nullptr,
-        &openBox);
+    geometry.translate();
 
 
     checkTranslatedData(
@@ -787,15 +783,15 @@ void testExternal(
 
     require(
         samePoint(
-            openBox.min,
+            geometry.openBox.min,
             origin),
         "External translation did not place "
-        "openBox.min at the origin.");
+        "geometry.openBox.min at the origin.");
 
 
     require(
         samePoint(
-            openBox.max,
+            geometry.openBox.max,
             add(
                 openBoxBefore.max,
                 displacement)),
@@ -805,13 +801,13 @@ void testExternal(
     const Point relativeMinAfter =
         subtract(
             geometry.bounds.min,
-            openBox.min);
+            geometry.openBox.min);
 
 
     const Point relativeMaxAfter =
         subtract(
             geometry.bounds.max,
-            openBox.min);
+            geometry.openBox.min);
 
 
     require(
@@ -1002,9 +998,28 @@ int main(
         }
 
 
+        BoundingBox openBox;
+
+        const BoundingBox* openBoxPointer =
+            nullptr;
+
+
+        if(flowType ==
+           FlowType::External)
+        {
+            openBox =
+                makeOpenBox(
+                    topology);
+
+            openBoxPointer =
+                &openBox;
+        }
+
+
         STLGeometry geometry(
             std::move(topology),
-            flowType);
+            flowType,
+            openBoxPointer);
 
 
         runTest(

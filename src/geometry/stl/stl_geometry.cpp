@@ -1,6 +1,7 @@
 #include "stl_geometry.hpp"
 
 #include <cstddef>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -16,14 +17,10 @@ namespace
 //=============================================================================
 
 BoundingBox makeSTLBounds(
-    const stl::FacetTopology& topology)
+    const STLGeometry& geometry)
 {
-    const auto& vertices =
-        topology.geometry.vertices;
-
-
     const std::size_t vertexCount =
-        vertices.size();
+        geometry.topology.geometry.vertices.size();
 
 
     BoundingBox bounds;
@@ -45,7 +42,7 @@ BoundingBox makeSTLBounds(
             ++index)
         {
             localBounds.expand(
-                vertices[
+                geometry.topology.geometry.vertices[
                     static_cast<std::size_t>(
                         index)]);
 
@@ -71,6 +68,124 @@ BoundingBox makeSTLBounds(
     return bounds;
 }
 
+
+//=============================================================================
+// Open-box validation
+//=============================================================================
+
+void validateOpenBox(
+    const BoundingBox& openBox,
+    const BoundingBox& bounds)
+{
+    if(openBox.max[0] <= openBox.min[0] ||
+       openBox.max[1] <= openBox.min[1] ||
+       openBox.max[2] <= openBox.min[2])
+    {
+        throw std::runtime_error(
+            "External STL open box must have positive dimensions.");
+    }
+
+
+    if(openBox.min[0] > bounds.min[0] ||
+       openBox.min[1] > bounds.min[1] ||
+       openBox.min[2] > bounds.min[2] ||
+       openBox.max[0] < bounds.max[0] ||
+       openBox.max[1] < bounds.max[1] ||
+       openBox.max[2] < bounds.max[2])
+    {
+        throw std::runtime_error(
+            "External STL open box must contain the complete STL bounding box.");
+    }
+}
+
+
+//=============================================================================
+// Interactive open-box input
+//=============================================================================
+
+BoundingBox readOpenBox(
+    const BoundingBox& bounds)
+{
+    std::cout
+        << "External flow requires an open box.\n\n"
+        << "STL tight bounding box:\n"
+        << "  min    = ("
+        << bounds.min[0] << ", "
+        << bounds.min[1] << ", "
+        << bounds.min[2] << ")\n"
+        << "  max    = ("
+        << bounds.max[0] << ", "
+        << bounds.max[1] << ", "
+        << bounds.max[2] << ")\n"
+        << "  width  = "
+        << bounds.width()
+        << "\n"
+        << "  height = "
+        << bounds.height()
+        << "\n"
+        << "  depth  = "
+        << bounds.depth()
+        << "\n\n";
+
+
+    Point origin;
+
+    Point size;
+
+
+    std::cout
+        << "Enter open-box origin (x y z): ";
+
+    std::cin
+        >> origin[0]
+        >> origin[1]
+        >> origin[2];
+
+
+    if(!std::cin)
+    {
+        throw std::runtime_error(
+            "Failed to read external open-box origin.");
+    }
+
+
+    std::cout
+        << "Enter open-box size (width height depth): ";
+
+    std::cin
+        >> size[0]
+        >> size[1]
+        >> size[2];
+
+
+    if(!std::cin)
+    {
+        throw std::runtime_error(
+            "Failed to read external open-box size.");
+    }
+
+
+    BoundingBox openBox;
+
+    openBox.min =
+        origin;
+
+    openBox.max =
+    {
+        origin[0] + size[0],
+        origin[1] + size[1],
+        origin[2] + size[2]
+    };
+
+
+    validateOpenBox(
+        openBox,
+        bounds);
+
+
+    return openBox;
+}
+
 } // namespace
 
 
@@ -80,12 +195,13 @@ BoundingBox makeSTLBounds(
 
 STLGeometry::STLGeometry(
     stl::FacetTopology inputTopology,
-    const FlowType inputFlowType)
-    :
-    topology(
-        std::move(inputTopology)),
-    flowType(
-        inputFlowType)
+    const FlowType inputFlowType,
+    const BoundingBox* inputOpenBox)
+    : topology(
+          std::move(
+              inputTopology)),
+      flowType(
+          inputFlowType)
 {
     if(topology.geometry.vertices.empty())
     {
@@ -96,11 +212,31 @@ STLGeometry::STLGeometry(
 
     bounds =
         makeSTLBounds(
-            topology);
+            *this);
+
+
+    if(flowType ==
+       FlowType::External)
+    {
+        if(inputOpenBox != nullptr)
+        {
+            validateOpenBox(
+                *inputOpenBox,
+                bounds);
+
+            openBox =
+                *inputOpenBox;
+        }
+        else
+        {
+            openBox =
+                readOpenBox(
+                    bounds);
+        }
+    }
 
 
     analyzeContainment();
-
 
     interpretFlow();
 }

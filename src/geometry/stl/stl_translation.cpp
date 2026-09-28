@@ -10,28 +10,15 @@ namespace ntic::lbm::geometry
 namespace
 {
 
-//=============================================================================
-// Translate point
-//=============================================================================
-
 void translatePoint(
     Point& point,
     const Point& displacement)
 {
-    point[0] +=
-        displacement[0];
-
-    point[1] +=
-        displacement[1];
-
-    point[2] +=
-        displacement[2];
+    point[0] += displacement[0];
+    point[1] += displacement[1];
+    point[2] += displacement[2];
 }
 
-
-//=============================================================================
-// Translate bounding box
-//=============================================================================
 
 void translateBoundingBox(
     BoundingBox& bounds,
@@ -46,85 +33,20 @@ void translateBoundingBox(
         displacement);
 }
 
-} // namespace
 
-
-//=============================================================================
-// STL translation
-//=============================================================================
-
-void STLGeometry::translate(
-    const Point* targetPoint,
-    BoundingBox* openBox)
+void translateVertices(
+    STLGeometry& geometry,
+    const Point& displacement)
 {
-    Point displacement;
-
-
-    if(flowType ==
-       FlowType::Internal)
-    {
-        if(targetPoint ==
-           nullptr)
-        {
-            throw std::runtime_error(
-                "Internal STL translation requires a target point.");
-        }
-
-
-        displacement =
-        {{
-            (*targetPoint)[0] -
-                bounds.min[0],
-
-            (*targetPoint)[1] -
-                bounds.min[1],
-
-            (*targetPoint)[2] -
-                bounds.min[2]
-        }};
-    }
-    else if(flowType ==
-            FlowType::External)
-    {
-        if(openBox ==
-           nullptr)
-        {
-            throw std::runtime_error(
-                "External STL translation requires an open box.");
-        }
-
-
-        displacement =
-        {{
-            -openBox->min[0],
-            -openBox->min[1],
-            -openBox->min[2]
-        }};
-    }
-    else
-    {
-        throw std::runtime_error(
-            "Unsupported STL flow type.");
-    }
-
-
-    //-------------------------------------------------------------------------
-    // Canonical vertices
-    //-------------------------------------------------------------------------
-
     auto& vertices =
-        topology.geometry.vertices;
-
-
-    const std::size_t vertexCount =
-        vertices.size();
+        geometry.topology.geometry.vertices;
 
 
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index = 0;
         index <
             static_cast<std::ptrdiff_t>(
-                vertexCount);
+                vertices.size());
         ++index)
     {
         translatePoint(
@@ -133,25 +55,22 @@ void STLGeometry::translate(
                     index)],
             displacement);
     }
+}
 
 
-    //-------------------------------------------------------------------------
-    // Facet centroids
-    //-------------------------------------------------------------------------
-
+void translateFacetCentroids(
+    STLGeometry& geometry,
+    const Point& displacement)
+{
     auto& facetGeometry =
-        topology.facetGeometry;
-
-
-    const std::size_t facetCount =
-        facetGeometry.size();
+        geometry.topology.facetGeometry;
 
 
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index = 0;
         index <
             static_cast<std::ptrdiff_t>(
-                facetCount);
+                facetGeometry.size());
         ++index)
     {
         translatePoint(
@@ -160,84 +79,134 @@ void STLGeometry::translate(
                     index)].centroid,
             displacement);
     }
+}
 
 
-    //-------------------------------------------------------------------------
-    // Component bounds
-    //-------------------------------------------------------------------------
-
+void translateComponentBounds(
+    STLGeometry& geometry,
+    const Point& displacement)
+{
     auto& components =
-        topology.components;
-
-
-    const std::size_t componentCount =
-        components.size();
+        geometry.topology.components;
 
 
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index = 0;
         index <
             static_cast<std::ptrdiff_t>(
-                componentCount);
+                components.size());
         ++index)
     {
-        auto& componentBounds =
+        auto& bounds =
             components[
                 static_cast<std::size_t>(
                     index)].bounds;
 
 
-        componentBounds.min[0] +=
-            displacement[0];
+        bounds.min[0] += displacement[0];
+        bounds.min[1] += displacement[1];
+        bounds.min[2] += displacement[2];
 
-        componentBounds.min[1] +=
-            displacement[1];
+        bounds.max[0] += displacement[0];
+        bounds.max[1] += displacement[1];
+        bounds.max[2] += displacement[2];
 
-        componentBounds.min[2] +=
-            displacement[2];
-
-
-        componentBounds.max[0] +=
-            displacement[0];
-
-        componentBounds.max[1] +=
-            displacement[1];
-
-        componentBounds.max[2] +=
-            displacement[2];
-
-
-        componentBounds.center[0] +=
-            displacement[0];
-
-        componentBounds.center[1] +=
-            displacement[1];
-
-        componentBounds.center[2] +=
-            displacement[2];
+        bounds.center[0] += displacement[0];
+        bounds.center[1] += displacement[1];
+        bounds.center[2] += displacement[2];
     }
+}
 
 
-    //-------------------------------------------------------------------------
-    // Global bounds
-    //-------------------------------------------------------------------------
-
-    translateBoundingBox(
-        bounds,
+void translateGeometry(
+    STLGeometry& geometry,
+    const Point& displacement)
+{
+    translateVertices(
+        geometry,
         displacement);
 
+    translateFacetCentroids(
+        geometry,
+        displacement);
 
-    //-------------------------------------------------------------------------
-    // External open box
-    //-------------------------------------------------------------------------
+    translateComponentBounds(
+        geometry,
+        displacement);
+
+    translateBoundingBox(
+        geometry.bounds,
+        displacement);
+}
+
+} // namespace
+
+
+//=============================================================================
+// STL translation
+//=============================================================================
+
+void STLGeometry::translate(
+    const Point* targetPoint)
+{
+    if(flowType ==
+       FlowType::Internal)
+    {
+        if(targetPoint == nullptr)
+        {
+            throw std::runtime_error(
+                "Internal STL translation requires a target point.");
+        }
+
+
+        const Point displacement =
+        {
+            (*targetPoint)[0] - bounds.min[0],
+            (*targetPoint)[1] - bounds.min[1],
+            (*targetPoint)[2] - bounds.min[2]
+        };
+
+
+        translateGeometry(
+            *this,
+            displacement);
+
+        return;
+    }
+
 
     if(flowType ==
        FlowType::External)
     {
-        translateBoundingBox(
-            *openBox,
+        if(targetPoint != nullptr)
+        {
+            throw std::runtime_error(
+                "External STL translation does not accept a target point.");
+        }
+
+
+        const Point displacement =
+        {
+            -openBox.min[0],
+            -openBox.min[1],
+            -openBox.min[2]
+        };
+
+
+        translateGeometry(
+            *this,
             displacement);
+
+        translateBoundingBox(
+            openBox,
+            displacement);
+
+        return;
     }
+
+
+    throw std::runtime_error(
+        "Unsupported STL flow type for translation.");
 }
 
 } // namespace ntic::lbm::geometry
