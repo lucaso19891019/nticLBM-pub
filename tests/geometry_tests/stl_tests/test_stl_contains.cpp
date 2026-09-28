@@ -326,7 +326,7 @@ int main()
         const std::filesystem::path outputDirectory =
             std::filesystem::path(
                 GEOMETRY_TEST_OUTPUT_DIR) /
-            "test_stl_contains_vtks";
+            "test_stl_vtks";
 
         recreateOutputDirectory(
             outputDirectory);
