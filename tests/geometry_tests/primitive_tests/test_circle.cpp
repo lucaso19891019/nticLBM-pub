@@ -90,20 +90,12 @@ void writeAnalysis(
         buildScalar(
             cellTypes);
 
-    const Point2D firstCellCenter{
-        domainBounds.min[0] +
-            0.5 * spacing,
-
-        domainBounds.min[1] +
-            0.5 * spacing
-    };
-
-    writeVTK2DScalar(
+    writeVTK2DCellScalar(
         directory /
             "geometry.vtk",
         nx,
         ny,
-        firstCellCenter,
+        domainBounds.min,
         spacing,
         scalar);
 
