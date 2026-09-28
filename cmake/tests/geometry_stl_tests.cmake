@@ -60,7 +60,7 @@ add_executable(test_stl_geometry
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
-    src/geometry/stl/stl_contains.cpp
+    src/geometry/stl/stl_area_analysis.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -94,7 +94,7 @@ add_executable(test_stl_containment
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
-    src/geometry/stl/stl_contains.cpp
+    src/geometry/stl/stl_area_analysis.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -128,7 +128,7 @@ add_executable(test_stl_flow
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
-    src/geometry/stl/stl_contains.cpp
+    src/geometry/stl/stl_area_analysis.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -162,7 +162,7 @@ add_executable(test_stl_translation
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
-    src/geometry/stl/stl_contains.cpp
+    src/geometry/stl/stl_area_analysis.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
@@ -196,7 +196,7 @@ add_executable(test_stl_area_analysis
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp
     src/geometry/stl/stl_translation.cpp
-    src/geometry/stl/stl_contains.cpp
+    src/geometry/stl/stl_area_analysis.cpp
 
     src/input/stl/stl_reader.cpp
     src/input/stl/stl_validator.cpp
