@@ -215,13 +215,23 @@ struct Rectangle
             }
 
             const Point2D cellMin{
-                center[0] - halfSpacing,
-                center[1] - halfSpacing
+                domain.min[0] +
+                    static_cast<double>(i) *
+                    gridSpacing,
+
+                domain.min[1] +
+                    static_cast<double>(j) *
+                    gridSpacing
             };
 
             const Point2D cellMax{
-                center[0] + halfSpacing,
-                center[1] + halfSpacing
+                domain.min[0] +
+                    (static_cast<double>(i) + 1.0) *
+                    gridSpacing,
+
+                domain.min[1] +
+                    (static_cast<double>(j) + 1.0) *
+                    gridSpacing
             };
 
             const SurfaceRelation relation =

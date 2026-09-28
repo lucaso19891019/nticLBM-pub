@@ -250,15 +250,31 @@ struct Cylinder
             }
 
             const Point cellMin{
-                cellCenter[0] - halfSpacing,
-                cellCenter[1] - halfSpacing,
-                cellCenter[2] - halfSpacing
+                domain.min[0] +
+                    static_cast<double>(i) *
+                    gridSpacing,
+
+                domain.min[1] +
+                    static_cast<double>(j) *
+                    gridSpacing,
+
+                domain.min[2] +
+                    static_cast<double>(k) *
+                    gridSpacing
             };
 
             const Point cellMax{
-                cellCenter[0] + halfSpacing,
-                cellCenter[1] + halfSpacing,
-                cellCenter[2] + halfSpacing
+                domain.min[0] +
+                    (static_cast<double>(i) + 1.0) *
+                    gridSpacing,
+
+                domain.min[1] +
+                    (static_cast<double>(j) + 1.0) *
+                    gridSpacing,
+
+                domain.min[2] +
+                    (static_cast<double>(k) + 1.0) *
+                    gridSpacing
             };
 
             const SurfaceRelation relation =

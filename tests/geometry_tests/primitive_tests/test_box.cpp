@@ -43,12 +43,12 @@ std::vector<double> buildScalar(
 
             case CellType::Boundary:
                 scalar[cellIndex] =
-                    1.0;
+                    0.5;
                 break;
 
             case CellType::Interior:
                 scalar[cellIndex] =
-                    2.0;
+                    1.0;
                 break;
         }
     }
