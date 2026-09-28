@@ -126,4 +126,86 @@ struct BoundingBox
     }
 };
 
+struct BoundingBox2D
+{
+    Point2D min{
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity()
+    };
+
+    Point2D max{
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity()
+    };
+
+    double width() const noexcept
+    {
+        return
+            max[0] - min[0];
+    }
+
+    double height() const noexcept
+    {
+        return
+            max[1] - min[1];
+    }
+
+    bool contains(
+        const Point2D& point) const noexcept
+    {
+        return
+            point[0] >= min[0] &&
+            point[0] <= max[0] &&
+
+            point[1] >= min[1] &&
+            point[1] <= max[1];
+    }
+
+    bool strictlyContains(
+        const Point2D& point) const noexcept
+    {
+        return
+            point[0] > min[0] &&
+            point[0] < max[0] &&
+
+            point[1] > min[1] &&
+            point[1] < max[1];
+    }
+
+    bool contains(
+        const BoundingBox2D& box) const noexcept
+    {
+        return
+            box.min[0] >= min[0] &&
+            box.max[0] <= max[0] &&
+
+            box.min[1] >= min[1] &&
+            box.max[1] <= max[1];
+    }
+
+    void expand(
+        const Point2D& point) noexcept
+    {
+        min[0] =
+            std::min(
+                min[0],
+                point[0]);
+
+        min[1] =
+            std::min(
+                min[1],
+                point[1]);
+
+        max[0] =
+            std::max(
+                max[0],
+                point[0]);
+
+        max[1] =
+            std::max(
+                max[1],
+                point[1]);
+    }
+};
+
 } // namespace ntic::lbm::geometry
