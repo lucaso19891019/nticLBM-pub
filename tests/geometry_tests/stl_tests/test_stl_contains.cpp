@@ -30,11 +30,6 @@ double cellTypeScalar(
         return 0.0;
     }
 
-    if(cellType ==
-       CellType::BoundaryCandidate)
-    {
-        return 0.25;
-    }
 
     if(cellType ==
        CellType::Boundary)

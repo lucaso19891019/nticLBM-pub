@@ -1,6 +1,7 @@
 #include "stl_geometry.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -833,97 +834,133 @@ bool triangleIntersectsCellInterior(
 
 
 //=============================================================================
-// Active surface / open-cell-interior intersection
+// Surface-cell state
 //=============================================================================
 
-bool activeSurfaceIntersectsCellInterior(
-    const STLGeometry& geometry,
-    const Point& point,
-    const double gridSpacing)
+enum class SurfaceCellState : std::uint8_t
 {
-    const auto& topology =
-        geometry.topology;
+    None = 0,
+    Touch = 1,
+    Boundary = 2
+};
 
-    const double halfGridSpacing =
-        0.5 *
+
+void upgradeSurfaceCellState(
+    std::atomic<std::uint8_t>& state,
+    const SurfaceCellState requestedState)
+{
+    const std::uint8_t requested =
+        static_cast<std::uint8_t>(
+            requestedState);
+
+    std::uint8_t current =
+        state.load(
+            std::memory_order_relaxed);
+
+
+    while(current < requested &&
+          !state.compare_exchange_weak(
+              current,
+              requested,
+              std::memory_order_relaxed,
+              std::memory_order_relaxed))
+    {
+    }
+}
+
+
+bool facetCellIndexRange(
+    const double facetMin,
+    const double facetMax,
+    const double gridMin,
+    const double gridSpacing,
+    const std::size_t cellCount,
+    std::size_t& firstCell,
+    std::size_t& lastCell)
+{
+    const double relativeMin =
+        (facetMin - gridMin) /
+        gridSpacing;
+
+    const double relativeMax =
+        (facetMax - gridMin) /
         gridSpacing;
 
 
-    for(std::size_t componentID = 0;
-        componentID <
-            topology.components.size();
-        ++componentID)
+    std::ptrdiff_t first =
+        static_cast<std::ptrdiff_t>(
+            std::ceil(
+                relativeMin)) -
+        1;
+
+    std::ptrdiff_t last =
+        static_cast<std::ptrdiff_t>(
+            std::floor(
+                relativeMax));
+
+
+    if(last < 0 ||
+       first >=
+           static_cast<std::ptrdiff_t>(
+               cellCount))
     {
-        if(!geometry.flow[
-                componentID].active)
-        {
-            continue;
-        }
-
-
-        const auto& component =
-            topology.components[
-                componentID];
-
-
-        if(component.bounds.max[0] <=
-               point[0] -
-                   halfGridSpacing ||
-           component.bounds.min[0] >=
-               point[0] +
-                   halfGridSpacing ||
-           component.bounds.max[1] <=
-               point[1] -
-                   halfGridSpacing ||
-           component.bounds.min[1] >=
-               point[1] +
-                   halfGridSpacing ||
-           component.bounds.max[2] <=
-               point[2] -
-                   halfGridSpacing ||
-           component.bounds.min[2] >=
-               point[2] +
-                   halfGridSpacing)
-        {
-            continue;
-        }
-
-
-        for(const std::size_t facetID :
-            component.facets)
-        {
-            const auto& vertexIDs =
-                topology.geometry.facetVertexIDs[
-                    facetID];
-
-
-            const Point& vertex0 =
-                topology.geometry.vertices[
-                    vertexIDs[0]];
-
-            const Point& vertex1 =
-                topology.geometry.vertices[
-                    vertexIDs[1]];
-
-            const Point& vertex2 =
-                topology.geometry.vertices[
-                    vertexIDs[2]];
-
-
-            if(triangleIntersectsCellInterior(
-                   point,
-                   gridSpacing,
-                   vertex0,
-                   vertex1,
-                   vertex2))
-            {
-                return true;
-            }
-        }
+        return false;
     }
 
 
-    return false;
+    first =
+        std::max<std::ptrdiff_t>(
+            first,
+            0);
+
+    last =
+        std::min<std::ptrdiff_t>(
+            last,
+            static_cast<std::ptrdiff_t>(
+                cellCount) -
+            1);
+
+
+    if(first > last)
+    {
+        return false;
+    }
+
+
+    firstCell =
+        static_cast<std::size_t>(
+            first);
+
+    lastCell =
+        static_cast<std::size_t>(
+            last);
+
+
+    return true;
+}
+
+
+Point cellCenter(
+    const BoundingBox& domainBounds,
+    const double gridSpacing,
+    const std::size_t i,
+    const std::size_t j,
+    const std::size_t k)
+{
+    return
+    {
+        domainBounds.min[0] +
+            (static_cast<double>(i) + 0.5) *
+            gridSpacing,
+
+        domainBounds.min[1] +
+            (static_cast<double>(j) + 0.5) *
+            gridSpacing,
+
+        domainBounds.min[2] +
+            (static_cast<double>(k) + 0.5) *
+            gridSpacing
+    };
 }
 
 } // namespace
@@ -940,7 +977,8 @@ void STLGeometry::interiorAreaAnalysis(
     std::vector<double>& boundaryY,
     std::vector<double>& boundaryZ) const
 {
-    if(gridSpacing <= 0.0)
+    if(gridSpacing <=
+       0.0)
     {
         throw std::runtime_error(
             "Grid spacing must be positive.");
@@ -1006,8 +1044,30 @@ void STLGeometry::interiorAreaAnalysis(
 
 
     //--------------------------------------------------------------------------
-    // Loop 1: classify cell centers as dry or wet.
+    // Step 1:
+    //
+    // Rasterize active STL facets directly onto the structured grid.
+    //
+    // For each facet, its exact axis-aligned bounding box is converted
+    // algebraically to the range of grid cells whose closed boxes can touch
+    // that facet. Only those cells are tested.
+    //
+    // SurfaceCellState::Touch:
+    //     at least one active facet intersects the closed cell, but no active
+    //     facet has yet been found to enter the open cell interior.
+    //
+    // SurfaceCellState::Boundary:
+    //     at least one active facet enters the open cell interior. This is a
+    //     definite final boundary cell.
+    //
+    // Multiple facets may affect the same cell. The state therefore changes
+    // monotonically:
+    //
+    //     None -> Touch -> Boundary
     //--------------------------------------------------------------------------
+
+    std::vector<std::atomic<std::uint8_t>> atomicSurfaceStates(
+        cellCount);
 
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index = 0;
@@ -1016,190 +1076,231 @@ void STLGeometry::interiorAreaAnalysis(
                 cellCount);
         ++index)
     {
-        const std::size_t cellID =
+        atomicSurfaceStates[
             static_cast<std::size_t>(
-                index);
-
-        const std::size_t k =
-            cellID /
-            xySize;
-
-        const std::size_t remainder =
-            cellID %
-            xySize;
-
-        const std::size_t j =
-            remainder /
-            nx;
-
-        const std::size_t i =
-            remainder %
-            nx;
-
-
-        const Point point =
-        {
-            domainBounds.min[0] +
-                (static_cast<double>(i) + 0.5) *
-                gridSpacing,
-            domainBounds.min[1] +
-                (static_cast<double>(j) + 0.5) *
-                gridSpacing,
-            domainBounds.min[2] +
-                (static_cast<double>(k) + 0.5) *
-                gridSpacing
-        };
-
-
-        cellTypes[cellID] =
-            centerIsWet(
-                *this,
-                point)
-                ? CellType::Interior
-                : CellType::Dry;
+                index)].store(
+                    static_cast<std::uint8_t>(
+                        SurfaceCellState::None),
+                    std::memory_order_relaxed);
     }
 
 
-    //--------------------------------------------------------------------------
-    // Loop 2: identify the one-cell interface band from the 26-neighborhood.
-    //--------------------------------------------------------------------------
-
-    const std::vector<CellType> centerTypes =
-        cellTypes;
+    const std::size_t facetCount =
+        topology.geometry.facetVertexIDs.size();
 
 
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index = 0;
         index <
             static_cast<std::ptrdiff_t>(
-                cellCount);
+                facetCount);
         ++index)
     {
-        const std::size_t cellID =
+        const std::size_t facetID =
             static_cast<std::size_t>(
                 index);
 
-        const std::size_t k =
-            cellID /
-            xySize;
-
-        const std::size_t remainder =
-            cellID %
-            xySize;
-
-        const std::size_t j =
-            remainder /
-            nx;
-
-        const std::size_t i =
-            remainder %
-            nx;
+        const std::size_t componentID =
+            topology.facetComponentIDs[
+                facetID];
 
 
-        const bool centerWet =
-            centerTypes[cellID] ==
-                CellType::Interior;
-
-        bool oppositeNeighbor =
-            false;
-
-
-        for(int dk = -1;
-            dk <= 1 && !oppositeNeighbor;
-            ++dk)
+        if(!flow[
+                componentID].active)
         {
-            for(int dj = -1;
-                dj <= 1 && !oppositeNeighbor;
-                ++dj)
+            continue;
+        }
+
+
+        const auto& vertexIDs =
+            topology.geometry.facetVertexIDs[
+                facetID];
+
+        const Point& vertex0 =
+            topology.geometry.vertices[
+                vertexIDs[0]];
+
+        const Point& vertex1 =
+            topology.geometry.vertices[
+                vertexIDs[1]];
+
+        const Point& vertex2 =
+            topology.geometry.vertices[
+                vertexIDs[2]];
+
+
+        const double facetMinX =
+            std::min(
+                vertex0[0],
+                std::min(
+                    vertex1[0],
+                    vertex2[0]));
+
+        const double facetMaxX =
+            std::max(
+                vertex0[0],
+                std::max(
+                    vertex1[0],
+                    vertex2[0]));
+
+        const double facetMinY =
+            std::min(
+                vertex0[1],
+                std::min(
+                    vertex1[1],
+                    vertex2[1]));
+
+        const double facetMaxY =
+            std::max(
+                vertex0[1],
+                std::max(
+                    vertex1[1],
+                    vertex2[1]));
+
+        const double facetMinZ =
+            std::min(
+                vertex0[2],
+                std::min(
+                    vertex1[2],
+                    vertex2[2]));
+
+        const double facetMaxZ =
+            std::max(
+                vertex0[2],
+                std::max(
+                    vertex1[2],
+                    vertex2[2]));
+
+
+        std::size_t firstI =
+            0;
+
+        std::size_t lastI =
+            0;
+
+        std::size_t firstJ =
+            0;
+
+        std::size_t lastJ =
+            0;
+
+        std::size_t firstK =
+            0;
+
+        std::size_t lastK =
+            0;
+
+
+        if(!facetCellIndexRange(
+               facetMinX,
+               facetMaxX,
+               domainBounds.min[0],
+               gridSpacing,
+               nx,
+               firstI,
+               lastI) ||
+           !facetCellIndexRange(
+               facetMinY,
+               facetMaxY,
+               domainBounds.min[1],
+               gridSpacing,
+               ny,
+               firstJ,
+               lastJ) ||
+           !facetCellIndexRange(
+               facetMinZ,
+               facetMaxZ,
+               domainBounds.min[2],
+               gridSpacing,
+               nz,
+               firstK,
+               lastK))
+        {
+            continue;
+        }
+
+
+        for(std::size_t k = firstK;
+            k <= lastK;
+            ++k)
+        {
+            for(std::size_t j = firstJ;
+                j <= lastJ;
+                ++j)
             {
-                for(int di = -1;
-                    di <= 1;
-                    ++di)
+                for(std::size_t i = firstI;
+                    i <= lastI;
+                    ++i)
                 {
-                    if(di == 0 &&
-                       dj == 0 &&
-                       dk == 0)
-                    {
-                        continue;
-                    }
-
-
-                    const std::ptrdiff_t ni =
-                        static_cast<std::ptrdiff_t>(i) +
-                        di;
-
-                    const std::ptrdiff_t nj =
-                        static_cast<std::ptrdiff_t>(j) +
-                        dj;
-
-                    const std::ptrdiff_t nk =
-                        static_cast<std::ptrdiff_t>(k) +
-                        dk;
-
-
-                    if(ni < 0 ||
-                       nj < 0 ||
-                       nk < 0 ||
-                       ni >= static_cast<std::ptrdiff_t>(nx) ||
-                       nj >= static_cast<std::ptrdiff_t>(ny) ||
-                       nk >= static_cast<std::ptrdiff_t>(nz))
-                    {
-                        if(centerWet &&
-                           flowType == FlowType::Internal)
-                        {
-                            oppositeNeighbor =
-                                true;
-                        }
-
-                        continue;
-                    }
-
-
-                    const std::size_t neighborID =
-                        static_cast<std::size_t>(ni) +
+                    const std::size_t cellID =
+                        i +
                         nx *
                         (
-                            static_cast<std::size_t>(nj) +
-                            ny *
-                            static_cast<std::size_t>(nk)
+                            j +
+                            ny * k
                         );
 
-                    const bool neighborWet =
-                        centerTypes[neighborID] ==
-                            CellType::Interior;
 
-
-                    if(neighborWet !=
-                       centerWet)
+                    if(atomicSurfaceStates[
+                           cellID].load(
+                               std::memory_order_relaxed) ==
+                       static_cast<std::uint8_t>(
+                           SurfaceCellState::Boundary))
                     {
-                        oppositeNeighbor =
-                            true;
+                        continue;
+                    }
 
-                        break;
+
+                    const Point point =
+                        cellCenter(
+                            domainBounds,
+                            gridSpacing,
+                            i,
+                            j,
+                            k);
+
+
+                    if(!triangleIntersectsCell(
+                           point,
+                           gridSpacing,
+                           vertex0,
+                           vertex1,
+                           vertex2))
+                    {
+                        continue;
+                    }
+
+
+                    if(triangleIntersectsCellInterior(
+                           point,
+                           gridSpacing,
+                           vertex0,
+                           vertex1,
+                           vertex2))
+                    {
+                        upgradeSurfaceCellState(
+                            atomicSurfaceStates[
+                                cellID],
+                            SurfaceCellState::Boundary);
+                    }
+                    else
+                    {
+                        upgradeSurfaceCellState(
+                            atomicSurfaceStates[
+                                cellID],
+                            SurfaceCellState::Touch);
                     }
                 }
             }
         }
-
-
-        if(!oppositeNeighbor)
-        {
-            continue;
-        }
-
-
-        cellTypes[cellID] =
-            centerWet
-                ? CellType::Boundary
-                : CellType::BoundaryCandidate;
     }
 
 
-    //--------------------------------------------------------------------------
-    // Loop 3: resolve only dry-side boundary candidates with the strict
-    // triangle-cell-interior test.
-    //--------------------------------------------------------------------------
-/*
+    std::vector<SurfaceCellState> surfaceStates(
+        cellCount,
+        SurfaceCellState::None);
+
+
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index = 0;
         index <
@@ -1211,57 +1312,249 @@ void STLGeometry::interiorAreaAnalysis(
             static_cast<std::size_t>(
                 index);
 
+        surfaceStates[cellID] =
+            static_cast<SurfaceCellState>(
+                atomicSurfaceStates[
+                    cellID].load(
+                        std::memory_order_relaxed));
 
-        if(cellTypes[cellID] !=
-           CellType::BoundaryCandidate)
+
+        if(surfaceStates[cellID] ==
+           SurfaceCellState::Boundary)
+        {
+            cellTypes[cellID] =
+                CellType::Boundary;
+        }
+    }
+
+
+    //--------------------------------------------------------------------------
+    // Step 2:
+    //
+    // Classify all non-Boundary cells by 6-neighbor connected regions.
+    //
+    // Touch cells participate in region analysis because the STL does not
+    // enter their open cell interior. Definite Boundary cells do not.
+    //
+    // A conservative rule is used for Touch-Touch neighbors: they are not
+    // connected directly. If an STL facet lies exactly on their shared grid
+    // face, the two cell interiors can be on opposite physical sides even
+    // though both cells are only Touch cells. Refusing direct Touch-Touch
+    // propagation can split one physical region into several numerical
+    // regions, but that does not change classification because every numerical
+    // region is independently classified by one strict centerIsWet() query.
+    //--------------------------------------------------------------------------
+
+    std::vector<std::uint8_t> visited(
+        cellCount,
+        0);
+
+    std::vector<std::size_t> queue;
+
+    queue.reserve(
+        cellCount);
+
+
+    const std::array<std::array<int,3>,6> neighborOffsets =
+    {{
+        {{-1,  0,  0}},
+        {{ 1,  0,  0}},
+        {{ 0, -1,  0}},
+        {{ 0,  1,  0}},
+        {{ 0,  0, -1}},
+        {{ 0,  0,  1}}
+    }};
+
+
+    for(std::size_t seedID = 0;
+        seedID < cellCount;
+        ++seedID)
+    {
+        if(surfaceStates[seedID] ==
+           SurfaceCellState::Boundary)
+        {
+            continue;
+        }
+
+        if(visited[seedID] !=
+           0)
         {
             continue;
         }
 
 
-        const std::size_t k =
-            cellID /
+        const std::size_t seedK =
+            seedID /
             xySize;
 
-        const std::size_t remainder =
-            cellID %
+        const std::size_t seedRemainder =
+            seedID %
             xySize;
 
-        const std::size_t j =
-            remainder /
+        const std::size_t seedJ =
+            seedRemainder /
             nx;
 
-        const std::size_t i =
-            remainder %
+        const std::size_t seedI =
+            seedRemainder %
             nx;
 
 
-        const Point point =
-        {
-            domainBounds.min[0] +
-                (static_cast<double>(i) + 0.5) *
+        const Point seedPoint =
+            cellCenter(
+                domainBounds,
                 gridSpacing,
-            domainBounds.min[1] +
-                (static_cast<double>(j) + 0.5) *
-                gridSpacing,
-            domainBounds.min[2] +
-                (static_cast<double>(k) + 0.5) *
-                gridSpacing
-        };
+                seedI,
+                seedJ,
+                seedK);
 
 
-        cellTypes[cellID] =
-            activeSurfaceIntersectsCellInterior(
+        const bool wet =
+            centerIsWet(
                 *this,
-                point,
-                gridSpacing)
+                seedPoint);
+
+        const CellType noneType =
+            wet
+                ? CellType::Interior
+                : CellType::Dry;
+
+        const CellType touchType =
+            wet
                 ? CellType::Boundary
                 : CellType::Dry;
+
+
+        queue.clear();
+
+        queue.push_back(
+            seedID);
+
+        visited[seedID] =
+            1;
+
+
+        std::size_t head =
+            0;
+
+
+        while(head <
+              queue.size())
+        {
+            const std::size_t cellID =
+                queue[
+                    head++];
+
+
+            cellTypes[cellID] =
+                surfaceStates[cellID] ==
+                    SurfaceCellState::Touch
+                    ? touchType
+                    : noneType;
+
+
+            const std::size_t k =
+                cellID /
+                xySize;
+
+            const std::size_t remainder =
+                cellID %
+                xySize;
+
+            const std::size_t j =
+                remainder /
+                nx;
+
+            const std::size_t i =
+                remainder %
+                nx;
+
+
+            for(const auto& offset :
+                neighborOffsets)
+            {
+                const std::ptrdiff_t ni =
+                    static_cast<std::ptrdiff_t>(
+                        i) +
+                    offset[0];
+
+                const std::ptrdiff_t nj =
+                    static_cast<std::ptrdiff_t>(
+                        j) +
+                    offset[1];
+
+                const std::ptrdiff_t nk =
+                    static_cast<std::ptrdiff_t>(
+                        k) +
+                    offset[2];
+
+
+                if(ni < 0 ||
+                   nj < 0 ||
+                   nk < 0 ||
+                   ni >=
+                       static_cast<std::ptrdiff_t>(
+                           nx) ||
+                   nj >=
+                       static_cast<std::ptrdiff_t>(
+                           ny) ||
+                   nk >=
+                       static_cast<std::ptrdiff_t>(
+                           nz))
+                {
+                    continue;
+                }
+
+
+                const std::size_t neighborID =
+                    static_cast<std::size_t>(
+                        ni) +
+                    nx *
+                    (
+                        static_cast<std::size_t>(
+                            nj) +
+                        ny *
+                        static_cast<std::size_t>(
+                            nk)
+                    );
+
+
+                if(visited[neighborID] !=
+                   0)
+                {
+                    continue;
+                }
+
+                if(surfaceStates[neighborID] ==
+                   SurfaceCellState::Boundary)
+                {
+                    continue;
+                }
+
+
+                if(surfaceStates[cellID] ==
+                       SurfaceCellState::Touch &&
+                   surfaceStates[neighborID] ==
+                       SurfaceCellState::Touch)
+                {
+                    continue;
+                }
+
+
+                visited[neighborID] =
+                    1;
+
+                queue.push_back(
+                    neighborID);
+            }
+        }
     }
-*/
+
 
     //--------------------------------------------------------------------------
-    // Loop 4: compact final boundary-cell coordinates into SoA vectors.
+    // Step 3:
+    //
+    // Compact final boundary-cell coordinates into SoA vectors.
     //--------------------------------------------------------------------------
 
     boundaryX.resize(
@@ -1321,20 +1614,23 @@ void STLGeometry::interiorAreaAnalysis(
         slot = boundaryCount++;
 
 
+        const Point point =
+            cellCenter(
+                domainBounds,
+                gridSpacing,
+                i,
+                j,
+                k);
+
+
         boundaryX[slot] =
-            domainBounds.min[0] +
-            (static_cast<double>(i) + 0.5) *
-            gridSpacing;
+            point[0];
 
         boundaryY[slot] =
-            domainBounds.min[1] +
-            (static_cast<double>(j) + 0.5) *
-            gridSpacing;
+            point[1];
 
         boundaryZ[slot] =
-            domainBounds.min[2] +
-            (static_cast<double>(k) + 0.5) *
-            gridSpacing;
+            point[2];
     }
 
 
