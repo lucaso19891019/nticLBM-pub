@@ -183,4 +183,76 @@ inline void writeVTK3DBoundingBox(
         << "2 3 7\n";
 }
 
+
+inline void writeVTK3DCellScalar(
+    const std::filesystem::path& path,
+    const std::size_t nx,
+    const std::size_t ny,
+    const std::size_t nz,
+    const Point& origin,
+    const double spacing,
+    const std::vector<double>& scalar)
+{
+    if(spacing <= 0.0)
+    {
+        throw std::invalid_argument(
+            "Grid spacing must be positive.");
+    }
+
+
+    const std::size_t cellCount =
+        nx * ny * nz;
+
+
+    if(scalar.size() !=
+       cellCount)
+    {
+        throw std::invalid_argument(
+            "3D scalar size does not match "
+            "the VTK cell dimensions.");
+    }
+
+
+    std::ofstream output(path);
+
+    if(!output)
+    {
+        throw std::runtime_error(
+            "Failed to open VTK output file: " +
+            path.string());
+    }
+
+
+    output
+        << "# vtk DataFile Version 3.0\n"
+        << "nticLBM 3D cell scalar field\n"
+        << "ASCII\n"
+        << "DATASET STRUCTURED_POINTS\n"
+        << "DIMENSIONS "
+        << nx + 1 << " "
+        << ny + 1 << " "
+        << nz + 1 << "\n"
+        << "ORIGIN "
+        << origin[0] << " "
+        << origin[1] << " "
+        << origin[2] << "\n"
+        << "SPACING "
+        << spacing << " "
+        << spacing << " "
+        << spacing << "\n"
+        << "CELL_DATA "
+        << cellCount << "\n"
+        << "SCALARS scalar double 1\n"
+        << "LOOKUP_TABLE default\n";
+
+
+    for(const double value :
+        scalar)
+    {
+        output
+            << value
+            << "\n";
+    }
+}
+
 } // namespace ntic::lbm::geometry::test
