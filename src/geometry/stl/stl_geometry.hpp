@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cell_type.hpp"
 #include "bounding_box.hpp"
 #include "flow_type.hpp"
 #include "point.hpp"
@@ -29,17 +30,6 @@ struct STLComponentContainment
 
     std::size_t level =
         0;
-};
-
-//=============================================================================
-// Cell type
-//=============================================================================
-
-enum class CellType
-{
-    Dry,
-    Boundary,
-    Interior
 };
 
 //=============================================================================
