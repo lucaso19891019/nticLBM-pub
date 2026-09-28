@@ -98,24 +98,13 @@ void writeAnalysis(
         buildScalar(
             cellTypes);
 
-    const Point firstCellCenter{
-        domainBounds.min[0] +
-            0.5 * spacing,
-
-        domainBounds.min[1] +
-            0.5 * spacing,
-
-        domainBounds.min[2] +
-            0.5 * spacing
-    };
-
-    writeVTK3DScalar(
+    writeVTK3DCellScalar(
         directory /
             "geometry.vtk",
         nx,
         ny,
         nz,
-        firstCellCenter,
+        domainBounds.min,
         spacing,
         scalar);
 
