@@ -52,52 +52,6 @@ struct GeometryAnalysis2D
                 "Grid spacing must be positive.");
         }
     }
-
-
-    std::size_t boundaryCount() const noexcept
-    {
-        return boundaryX.size();
-    }
-
-
-    void initializeQ()
-    {
-        if(boundaryX.size() !=
-           boundaryY.size())
-        {
-            throw std::runtime_error(
-                "2D boundary coordinate arrays "
-                "have inconsistent sizes.");
-        }
-
-
-        q.assign(
-            boundaryCount() *
-                Lattice::nStencils,
-            -1.0);
-    }
-
-
-    double& qValue(
-        const std::size_t boundaryID,
-        const std::size_t stencilID)
-    {
-        return q.at(
-            boundaryID *
-                Lattice::nStencils +
-            stencilID);
-    }
-
-
-    const double& qValue(
-        const std::size_t boundaryID,
-        const std::size_t stencilID) const
-    {
-        return q.at(
-            boundaryID *
-                Lattice::nStencils +
-            stencilID);
-    }
 };
 
 
@@ -147,54 +101,6 @@ struct GeometryAnalysis3D
             throw std::invalid_argument(
                 "Grid spacing must be positive.");
         }
-    }
-
-
-    std::size_t boundaryCount() const noexcept
-    {
-        return boundaryX.size();
-    }
-
-
-    void initializeQ()
-    {
-        if(boundaryX.size() !=
-               boundaryY.size() ||
-           boundaryX.size() !=
-               boundaryZ.size())
-        {
-            throw std::runtime_error(
-                "3D boundary coordinate arrays "
-                "have inconsistent sizes.");
-        }
-
-
-        q.assign(
-            boundaryCount() *
-                Lattice::nStencils,
-            -1.0);
-    }
-
-
-    double& qValue(
-        const std::size_t boundaryID,
-        const std::size_t stencilID)
-    {
-        return q.at(
-            boundaryID *
-                Lattice::nStencils +
-            stencilID);
-    }
-
-
-    const double& qValue(
-        const std::size_t boundaryID,
-        const std::size_t stencilID) const
-    {
-        return q.at(
-            boundaryID *
-                Lattice::nStencils +
-            stencilID);
     }
 };
 
