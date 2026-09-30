@@ -1,7 +1,8 @@
 #pragma once
 
-#include "cell_type.hpp"
 #include "bounding_box.hpp"
+#include "cell_type.hpp"
+#include "geometry_analysis.hpp"
 #include "flow_type.hpp"
 #include "point.hpp"
 #include "stl_topology.hpp"
@@ -153,9 +154,41 @@ struct STLGeometry
     // Interior area analysis
     //-------------------------------------------------------------------------
 
+    template <typename LatticeModel>
+    void analysis(
+        GeometryAnalysis3D<LatticeModel>& analysis) const
+    {
+        interiorAreaAnalysis(
+            analysis.gridSpacing,
+            analysis.domain,
+            analysis.nx,
+            analysis.ny,
+            analysis.nz,
+            analysis.scalar,
+            analysis.boundaryX,
+            analysis.boundaryY,
+            analysis.boundaryZ);
+
+        boundaryQAnalysis(
+            analysis);
+    }
+
+
+    template <typename LatticeModel>
+    void boundaryQAnalysis(
+        GeometryAnalysis3D<LatticeModel>&) const
+    {
+        // Reserved for lattice-link q analysis.
+    }
+
+
     void interiorAreaAnalysis(
         double gridSpacing,
-        std::vector<CellType>& cellTypes,
+        BoundingBox& domain,
+        std::size_t& nx,
+        std::size_t& ny,
+        std::size_t& nz,
+        std::vector<double>& scalar,
         std::vector<double>& boundaryX,
         std::vector<double>& boundaryY,
         std::vector<double>& boundaryZ) const;

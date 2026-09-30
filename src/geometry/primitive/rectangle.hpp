@@ -3,6 +3,7 @@
 #include "bounding_box.hpp"
 #include "cell_type.hpp"
 #include "flow_type.hpp"
+#include "geometry_analysis.hpp"
 #include "point.hpp"
 
 #include <algorithm>
@@ -129,9 +130,38 @@ struct Rectangle
     }
 
 
+    template <typename LatticeModel>
+    void analysis(
+        GeometryAnalysis2D<LatticeModel>& analysis) const
+    {
+        interiorAreaAnalysis(
+            analysis.gridSpacing,
+            analysis.domain,
+            analysis.nx,
+            analysis.ny,
+            analysis.scalar,
+            analysis.boundaryX,
+            analysis.boundaryY);
+
+        boundaryQAnalysis(
+            analysis);
+    }
+
+
+    template <typename LatticeModel>
+    void boundaryQAnalysis(
+        GeometryAnalysis2D<LatticeModel>&) const
+    {
+        // Reserved for lattice-link q analysis.
+    }
+
+
     void interiorAreaAnalysis(
         const double gridSpacing,
-        std::vector<CellType>& cellTypes,
+        BoundingBox2D& domain,
+        std::size_t& nx,
+        std::size_t& ny,
+        std::vector<double>& scalar,
         std::vector<double>& boundaryX,
         std::vector<double>& boundaryY) const
     {
@@ -141,18 +171,18 @@ struct Rectangle
                 "Grid spacing must be positive.");
         }
 
-        const BoundingBox2D& domain =
+        domain =
             flowType == FlowType::Internal
                 ? bounds
                 : openBox;
 
-        const std::size_t nx =
+        nx =
             static_cast<std::size_t>(
                 std::ceil(
                     domain.width() /
                     gridSpacing));
 
-        const std::size_t ny =
+        ny =
             static_cast<std::size_t>(
                 std::ceil(
                     domain.height() /
@@ -160,6 +190,8 @@ struct Rectangle
 
         const std::size_t cellCount =
             nx * ny;
+
+        std::vector<CellType> cellTypes;
 
         cellTypes.assign(
             cellCount,
@@ -215,23 +247,13 @@ struct Rectangle
             }
 
             const Point2D cellMin{
-                domain.min[0] +
-                    static_cast<double>(i) *
-                    gridSpacing,
-
-                domain.min[1] +
-                    static_cast<double>(j) *
-                    gridSpacing
+                center[0] - halfSpacing,
+                center[1] - halfSpacing
             };
 
             const Point2D cellMax{
-                domain.min[0] +
-                    (static_cast<double>(i) + 1.0) *
-                    gridSpacing,
-
-                domain.min[1] +
-                    (static_cast<double>(j) + 1.0) *
-                    gridSpacing
+                center[0] + halfSpacing,
+                center[1] + halfSpacing
             };
 
             const SurfaceRelation relation =
@@ -293,6 +315,26 @@ struct Rectangle
                 domain.min[1] +
                 (static_cast<double>(j) + 0.5) *
                 gridSpacing);
+        }
+    
+
+        scalar.resize(
+            cellCount);
+
+#pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index <
+                static_cast<std::ptrdiff_t>(
+                    cellCount);
+            ++index)
+        {
+            const std::size_t cellID =
+                static_cast<std::size_t>(
+                    index);
+
+            scalar[cellID] =
+                static_cast<double>(
+                    cellTypes[cellID]);
         }
     }
 

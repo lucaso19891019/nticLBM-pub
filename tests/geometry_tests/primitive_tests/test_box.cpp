@@ -1,4 +1,5 @@
 #include "box.hpp"
+#include "geometry_analysis.hpp"
 #include "vtk_output.hpp"
 #include "vtk_output_3d.hpp"
 
@@ -16,102 +17,49 @@ using namespace ntic::lbm::geometry::test;
 namespace
 {
 
-std::vector<double> buildScalar(
-    const std::vector<CellType>& cellTypes)
-{
-    std::vector<double> scalar(
-        cellTypes.size(),
-        0.0);
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                cellTypes.size());
-        ++index)
-    {
-        const std::size_t cellIndex =
-            static_cast<std::size_t>(
-                index);
-
-        switch(cellTypes[cellIndex])
-        {
-            case CellType::Dry:
-                scalar[cellIndex] =
-                    0.0;
-                break;
-
-            case CellType::Boundary:
-                scalar[cellIndex] =
-                    0.5;
-                break;
-
-            case CellType::Interior:
-                scalar[cellIndex] =
-                    1.0;
-                break;
-        }
-    }
-
-    return scalar;
-}
-
-
 void writeAnalysis(
-    const Box& box,
-    const BoundingBox& domainBounds,
+    const Box& geometry,
     const double spacing,
     const std::filesystem::path& directory)
 {
-    const std::size_t nx =
-        static_cast<std::size_t>(
-            std::ceil(
-                domainBounds.width() /
-                spacing));
+    GeometryAnalysis3D<void> analysis(
+        spacing);
 
-    const std::size_t ny =
-        static_cast<std::size_t>(
-            std::ceil(
-                domainBounds.height() /
-                spacing));
+    geometry.analysis(
+        analysis);
 
-    const std::size_t nz =
-        static_cast<std::size_t>(
-            std::ceil(
-                domainBounds.depth() /
-                spacing));
-
-    std::vector<CellType> cellTypes;
-
-    std::vector<double> boundaryX;
-    std::vector<double> boundaryY;
-    std::vector<double> boundaryZ;
-
-    box.interiorAreaAnalysis(
-        spacing,
-        cellTypes,
-        boundaryX,
-        boundaryY,
-        boundaryZ);
-
-    const std::vector<double> scalar =
-        buildScalar(
-            cellTypes);
+    std::cout
+        << "Analysis domain:\n"
+        << "  min = ("
+        << analysis.domain.min[0] << ", "
+        << analysis.domain.min[1] << ", "
+        << analysis.domain.min[2] << ")\n"
+        << "  max = ("
+        << analysis.domain.max[0] << ", "
+        << analysis.domain.max[1] << ", "
+        << analysis.domain.max[2] << ")\n"
+        << "Grid dimensions:\n"
+        << "  nx = "
+        << analysis.nx << '\n'
+        << "  ny = "
+        << analysis.ny << '\n'
+        << "  nz = "
+        << analysis.nz << "\n\n";
 
     writeVTK3DCellScalar(
         directory /
             "geometry.vtk",
-        nx,
-        ny,
-        nz,
-        domainBounds.min,
-        spacing,
-        scalar);
+        analysis.nx,
+        analysis.ny,
+        analysis.nz,
+        analysis.domain.min,
+        analysis.gridSpacing,
+        analysis.scalar);
 
     writeVTK3DBoundingBox(
         directory /
             "bounding_box.vtk",
-        box.boundingBox());
+        geometry.boundingBox());
 }
 
 } // namespace
@@ -225,13 +173,11 @@ int main()
 
         writeAnalysis(
             internalBox,
-            boundingBox,
             spacing,
             internalDirectory);
 
         writeAnalysis(
             externalBox,
-            openBox,
             spacing,
             externalDirectory);
 

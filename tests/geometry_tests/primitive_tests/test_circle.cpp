@@ -1,4 +1,5 @@
 #include "circle.hpp"
+#include "geometry_analysis.hpp"
 #include "vtk_output.hpp"
 #include "vtk_output_2d.hpp"
 
@@ -16,93 +17,44 @@ using namespace ntic::lbm::geometry::test;
 namespace
 {
 
-std::vector<double> buildScalar(
-    const std::vector<CellType>& cellTypes)
-{
-    std::vector<double> scalar(
-        cellTypes.size(),
-        0.0);
-
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index = 0;
-        index <
-            static_cast<std::ptrdiff_t>(
-                cellTypes.size());
-        ++index)
-    {
-        const std::size_t cellIndex =
-            static_cast<std::size_t>(
-                index);
-
-        switch(cellTypes[cellIndex])
-        {
-            case CellType::Dry:
-                scalar[cellIndex] =
-                    0.0;
-                break;
-
-            case CellType::Boundary:
-                scalar[cellIndex] =
-                    0.5;
-                break;
-
-            case CellType::Interior:
-                scalar[cellIndex] =
-                    1.0;
-                break;
-        }
-    }
-
-    return scalar;
-}
-
-
 void writeAnalysis(
-    const Circle& circle,
-    const BoundingBox2D& domainBounds,
+    const Circle& geometry,
     const double spacing,
     const std::filesystem::path& directory)
 {
-    const std::size_t nx =
-        static_cast<std::size_t>(
-            std::ceil(
-                domainBounds.width() /
-                spacing));
+    GeometryAnalysis2D<void> analysis(
+        spacing);
 
-    const std::size_t ny =
-        static_cast<std::size_t>(
-            std::ceil(
-                domainBounds.height() /
-                spacing));
+    geometry.analysis(
+        analysis);
 
-    std::vector<CellType> cellTypes;
-
-    std::vector<double> boundaryX;
-    std::vector<double> boundaryY;
-
-    circle.interiorAreaAnalysis(
-        spacing,
-        cellTypes,
-        boundaryX,
-        boundaryY);
-
-    const std::vector<double> scalar =
-        buildScalar(
-            cellTypes);
+    std::cout
+        << "Analysis domain:\n"
+        << "  min = ("
+        << analysis.domain.min[0] << ", "
+        << analysis.domain.min[1] << ")\n"
+        << "  max = ("
+        << analysis.domain.max[0] << ", "
+        << analysis.domain.max[1] << ")\n"
+        << "Grid dimensions:\n"
+        << "  nx = "
+        << analysis.nx << '\n'
+        << "  ny = "
+        << analysis.ny << "\n\n";
 
     writeVTK2DCellScalar(
         directory /
             "geometry.vtk",
-        nx,
-        ny,
-        domainBounds.min,
-        spacing,
-        scalar);
+        analysis.nx,
+        analysis.ny,
+        analysis.domain.min,
+        analysis.gridSpacing,
+        analysis.scalar);
 
     writeVTK2DBoundingBox(
         directory /
             "bounding_box.vtk",
-        circle.boundingBox());
+        geometry.boundingBox());
 }
 
 } // namespace
@@ -210,13 +162,11 @@ int main()
 
         writeAnalysis(
             internalCircle,
-            boundingBox,
             spacing,
             internalDirectory);
 
         writeAnalysis(
             externalCircle,
-            openBox,
             spacing,
             externalDirectory);
 

@@ -941,7 +941,7 @@ bool facetCellIndexRange(
 
 
 Point cellCenter(
-    const BoundingBox& domainBounds,
+    const BoundingBox& domain,
     const double gridSpacing,
     const std::size_t i,
     const std::size_t j,
@@ -949,15 +949,15 @@ Point cellCenter(
 {
     return
     {
-        domainBounds.min[0] +
+        domain.min[0] +
             (static_cast<double>(i) + 0.5) *
             gridSpacing,
 
-        domainBounds.min[1] +
+        domain.min[1] +
             (static_cast<double>(j) + 0.5) *
             gridSpacing,
 
-        domainBounds.min[2] +
+        domain.min[2] +
             (static_cast<double>(k) + 0.5) *
             gridSpacing
     };
@@ -972,7 +972,11 @@ Point cellCenter(
 
 void STLGeometry::interiorAreaAnalysis(
     const double gridSpacing,
-    std::vector<CellType>& cellTypes,
+    BoundingBox& domain,
+    std::size_t& nx,
+    std::size_t& ny,
+    std::size_t& nz,
+    std::vector<double>& scalar,
     std::vector<double>& boundaryX,
     std::vector<double>& boundaryY,
     std::vector<double>& boundaryZ) const
@@ -993,28 +997,28 @@ void STLGeometry::interiorAreaAnalysis(
     }
 
 
-    const BoundingBox& domainBounds =
+    domain =
         flowType == FlowType::Internal
             ? bounds
             : openBox;
 
 
-    const std::size_t nx =
+    nx =
         static_cast<std::size_t>(
             std::ceil(
-                domainBounds.width() /
+                domain.width() /
                 gridSpacing));
 
-    const std::size_t ny =
+    ny =
         static_cast<std::size_t>(
             std::ceil(
-                domainBounds.height() /
+                domain.height() /
                 gridSpacing));
 
-    const std::size_t nz =
+    nz =
         static_cast<std::size_t>(
             std::ceil(
-                domainBounds.depth() /
+                domain.depth() /
                 gridSpacing));
 
 
@@ -1032,6 +1036,9 @@ void STLGeometry::interiorAreaAnalysis(
 
     const std::size_t cellCount =
         xySize * nz;
+
+
+    std::vector<CellType> cellTypes;
 
 
     cellTypes.assign(
@@ -1194,7 +1201,7 @@ void STLGeometry::interiorAreaAnalysis(
         if(!facetCellIndexRange(
                facetMinX,
                facetMaxX,
-               domainBounds.min[0],
+               domain.min[0],
                gridSpacing,
                nx,
                firstI,
@@ -1202,7 +1209,7 @@ void STLGeometry::interiorAreaAnalysis(
            !facetCellIndexRange(
                facetMinY,
                facetMaxY,
-               domainBounds.min[1],
+               domain.min[1],
                gridSpacing,
                ny,
                firstJ,
@@ -1210,7 +1217,7 @@ void STLGeometry::interiorAreaAnalysis(
            !facetCellIndexRange(
                facetMinZ,
                facetMaxZ,
-               domainBounds.min[2],
+               domain.min[2],
                gridSpacing,
                nz,
                firstK,
@@ -1253,7 +1260,7 @@ void STLGeometry::interiorAreaAnalysis(
 
                     const Point point =
                         cellCenter(
-                            domainBounds,
+                            domain,
                             gridSpacing,
                             i,
                             j,
@@ -1402,7 +1409,7 @@ void STLGeometry::interiorAreaAnalysis(
 
         const Point seedPoint =
             cellCenter(
-                domainBounds,
+                domain,
                 gridSpacing,
                 seedI,
                 seedJ,
@@ -1616,7 +1623,7 @@ void STLGeometry::interiorAreaAnalysis(
 
         const Point point =
             cellCenter(
-                domainBounds,
+                domain,
                 gridSpacing,
                 i,
                 j,
@@ -1642,6 +1649,27 @@ void STLGeometry::interiorAreaAnalysis(
 
     boundaryZ.resize(
         boundaryCount);
+
+
+    scalar.resize(
+        cellCount);
+
+
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index = 0;
+        index <
+            static_cast<std::ptrdiff_t>(
+                cellCount);
+        ++index)
+    {
+        const std::size_t cellID =
+            static_cast<std::size_t>(
+                index);
+
+        scalar[cellID] =
+            static_cast<double>(
+                cellTypes[cellID]);
+    }
 }
 
 } // namespace ntic::lbm::geometry
