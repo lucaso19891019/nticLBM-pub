@@ -158,10 +158,7 @@ struct Rectangle
 
     void interiorAreaAnalysis(
         const double gridSpacing,
-        BoundingBox2D& domain,
-        std::size_t& nx,
-        std::size_t& ny,
-        std::vector<double>& scalar,
+        std::vector<CellType>& cellTypes,
         std::vector<double>& boundaryX,
         std::vector<double>& boundaryY) const
     {
@@ -171,18 +168,20 @@ struct Rectangle
                 "Grid spacing must be positive.");
         }
 
-        domain =
+
+        const BoundingBox2D& domain =
             flowType == FlowType::Internal
                 ? bounds
                 : openBox;
 
-        nx =
+
+        const std::size_t nx =
             static_cast<std::size_t>(
                 std::ceil(
                     domain.width() /
                     gridSpacing));
 
-        ny =
+        const std::size_t ny =
             static_cast<std::size_t>(
                 std::ceil(
                     domain.height() /
@@ -191,137 +190,13 @@ struct Rectangle
         const std::size_t cellCount =
             nx * ny;
 
-        std::vector<CellType> cellTypes;
 
         cellTypes.assign(
             cellCount,
             CellType::Dry);
 
-        const double halfSpacing =
-            0.5 * gridSpacing;
 
-        const double halfDiagonal =
-            std::sqrt(2.0) *
-            halfSpacing;
-
-        #pragma omp parallel for schedule(static)
-        for(std::size_t index = 0;
-            index < cellCount;
-            ++index)
-        {
-            const std::size_t i =
-                index % nx;
-
-            const std::size_t j =
-                index / nx;
-
-            const Point2D center{
-                domain.min[0] +
-                    (static_cast<double>(i) + 0.5) *
-                    gridSpacing,
-
-                domain.min[1] +
-                    (static_cast<double>(j) + 0.5) *
-                    gridSpacing
-            };
-
-            const bool centerInside =
-                pointInside(center);
-
-            const bool centerFluid =
-                flowType == FlowType::Internal
-                    ? centerInside
-                    : !centerInside;
-
-            const double distance =
-                distanceToBoundary(center);
-
-            if(distance > halfDiagonal)
-            {
-                cellTypes[index] =
-                    centerFluid
-                        ? CellType::Interior
-                        : CellType::Dry;
-
-                continue;
-            }
-
-            const Point2D cellMin{
-                center[0] - halfSpacing,
-                center[1] - halfSpacing
-            };
-
-            const Point2D cellMax{
-                center[0] + halfSpacing,
-                center[1] + halfSpacing
-            };
-
-            const SurfaceRelation relation =
-                surfaceRelation(
-                    cellMin,
-                    cellMax);
-
-            if(relation == SurfaceRelation::Cross)
-            {
-                cellTypes[index] =
-                    CellType::Boundary;
-
-                continue;
-            }
-
-            if(relation == SurfaceRelation::Touch)
-            {
-                cellTypes[index] =
-                    cellTouchesFluidSide(
-                        cellMin,
-                        cellMax)
-                        ? CellType::Boundary
-                        : CellType::Dry;
-
-                continue;
-            }
-
-            cellTypes[index] =
-                centerFluid
-                    ? CellType::Interior
-                    : CellType::Dry;
-        }
-
-        boundaryX.clear();
-        boundaryY.clear();
-
-        for(std::size_t index = 0;
-            index < cellCount;
-            ++index)
-        {
-            if(cellTypes[index] !=
-               CellType::Boundary)
-            {
-                continue;
-            }
-
-            const std::size_t i =
-                index % nx;
-
-            const std::size_t j =
-                index / nx;
-
-            boundaryX.push_back(
-                domain.min[0] +
-                (static_cast<double>(i) + 0.5) *
-                gridSpacing);
-
-            boundaryY.push_back(
-                domain.min[1] +
-                (static_cast<double>(j) + 0.5) *
-                gridSpacing);
-        }
-    
-
-        scalar.resize(
-            cellCount);
-
-#pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
             index <
                 static_cast<std::ptrdiff_t>(
@@ -332,10 +207,152 @@ struct Rectangle
                 static_cast<std::size_t>(
                     index);
 
-            scalar[cellID] =
-                static_cast<double>(
-                    cellTypes[cellID]);
+            const std::size_t i =
+                cellID %
+                nx;
+
+            const std::size_t j =
+                cellID /
+                nx;
+
+
+            const Point2D point
+            {
+                domain.min[0] +
+                    (static_cast<double>(i) + 0.5) *
+                    gridSpacing,
+
+                domain.min[1] +
+                    (static_cast<double>(j) + 0.5) *
+                    gridSpacing
+            };
+
+
+            const bool inside =
+                pointInside(
+                    point);
+
+            const bool wet =
+                flowType == FlowType::Internal
+                    ? inside
+                    : !inside;
+
+
+            if(!wet)
+            {
+                cellTypes[cellID] =
+                    CellType::Dry;
+
+                continue;
+            }
+
+
+            if(distanceToBoundary(point) <=
+            std::numeric_limits<double>::epsilon())
+            {
+                cellTypes[cellID] =
+                    CellType::Dry;
+
+                continue;
+            }
+
+
+            const Point2D stencilMin
+            {
+                point[0] - gridSpacing,
+                point[1] - gridSpacing
+            };
+
+            const Point2D stencilMax
+            {
+                point[0] + gridSpacing,
+                point[1] + gridSpacing
+            };
+
+
+            const SurfaceRelation relation =
+                surfaceRelation(
+                    stencilMin,
+                    stencilMax);
+
+
+            if(relation !=
+            SurfaceRelation::None)
+            {
+                cellTypes[cellID] =
+                    CellType::Boundary;
+            }
+            else
+            {
+                cellTypes[cellID] =
+                    CellType::Interior;
+            }
         }
+
+
+        boundaryX.resize(
+            cellCount);
+
+        boundaryY.resize(
+            cellCount);
+
+
+        std::size_t boundaryCount =
+            0;
+
+
+    #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index <
+                static_cast<std::ptrdiff_t>(
+                    cellCount);
+            ++index)
+        {
+            const std::size_t cellID =
+                static_cast<std::size_t>(
+                    index);
+
+
+            if(cellTypes[cellID] !=
+            CellType::Boundary)
+            {
+                continue;
+            }
+
+
+            const std::size_t i =
+                cellID %
+                nx;
+
+            const std::size_t j =
+                cellID /
+                nx;
+
+
+            std::size_t slot =
+                0;
+
+    #pragma omp atomic capture
+            slot = boundaryCount++;
+
+
+            boundaryX[slot] =
+                domain.min[0] +
+                (static_cast<double>(i) + 0.5) *
+                gridSpacing;
+
+            boundaryY[slot] =
+                domain.min[1] +
+                (static_cast<double>(j) + 0.5) *
+                gridSpacing;
+        }
+
+
+        boundaryX.resize(
+            boundaryCount);
+
+        boundaryY.resize(
+            boundaryCount);
     }
 
 
