@@ -144,9 +144,9 @@ bool triangleIntersectsCell(const Point& center,
     return true;
 }
 
-// Conservative center-on-surface classification for finite doubles.
-// A center sufficiently close to a triangle is treated as Dry.
-// This intentionally allows resolution-limited Wet nodes to be removed.
+// Zero-geometric-tolerance predicate for Step 3.2.
+// This uses double arithmetic (not an adaptive exact predicate): near-degenerate
+// floating-point cases can still be affected by rounding.
 bool pointOnTriangle(const Point& p,
                      const Point& a,
                      const Point& b,
@@ -157,9 +157,7 @@ bool pointOnTriangle(const Point& p,
     const double n2=dot(n,n);
     if(n2==0.0) return false;
 
-    const double scale=std::max({norm(ab),norm(ac),norm(subtract(c,b))});
-    const double tolerance=32.0*std::numeric_limits<double>::epsilon()*scale;
-    if(std::abs(dot(ap,n)) > tolerance*std::sqrt(n2)) return false;
+    if(dot(ap,n) != 0.0) return false;
 
     const double d00=dot(ab,ab), d01=dot(ab,ac), d11=dot(ac,ac);
     const double d20=dot(ap,ab), d21=dot(ap,ac);
@@ -168,9 +166,7 @@ bool pointOnTriangle(const Point& p,
 
     const double u=(d11*d20-d01*d21)/denominator;
     const double v=(d00*d21-d01*d20)/denominator;
-    const double baryTolerance=32.0*std::numeric_limits<double>::epsilon();
-    return u>=-baryTolerance && v>=-baryTolerance &&
-           u+v<=1.0+baryTolerance;
+    return u>=0.0 && v>=0.0 && u+v<=1.0;
 }
 
 // Candidate grid cells whose CLOSED boxes of half-width 'halfWidth'
@@ -279,6 +275,8 @@ void STLGeometry::interiorAreaAnalysis(
     boundaryX.clear(); boundaryY.clear(); boundaryZ.clear();
 
     // Step 1: Facet-driven closed-voxel rasterization. Touch is Boundary.
+    // The surface-center flag is evaluated without geometric tolerance,
+    // because it is consumed by Step 3.2.
     // 'initialBoundary' is immutable after this step and is the flood barrier.
     std::vector<std::atomic<std::uint8_t>> atomicBoundary(cellCount);
     std::vector<std::atomic<std::uint8_t>> atomicOnSurface(cellCount);
@@ -390,7 +388,8 @@ void STLGeometry::interiorAreaAnalysis(
     }
 
     // Step 3.2: Initial Boundary is final Boundary only for a STRICT Wet
-    // center. Points exactly on any active facet are always Dry.
+    // center. onSurface was produced by a zero-tolerance predicate in Step 1.
+    // Points exactly on any active facet are always Dry.
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index=0; index<static_cast<std::ptrdiff_t>(cellCount); ++index)
     {
