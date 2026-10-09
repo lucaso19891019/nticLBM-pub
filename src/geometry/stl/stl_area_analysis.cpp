@@ -242,17 +242,20 @@ bool facetRange(const FacetData& f,
 
 } // namespace
 
+template <lattice::LatticeType Type>
 void STLGeometry::interiorAreaAnalysis(
-    const double gridSpacing,
-    BoundingBox& domain,
-    std::size_t& nx,
-    std::size_t& ny,
-    std::size_t& nz,
-    std::vector<double>& scalar,
-    std::vector<double>& boundaryX,
-    std::vector<double>& boundaryY,
-    std::vector<double>& boundaryZ) const
+    GeometryAnalysis3D<Type>& analysis) const
 {
+    const double gridSpacing = analysis.gridSpacing;
+    BoundingBox& domain = analysis.domain;
+    std::size_t& nx = analysis.nx;
+    std::size_t& ny = analysis.ny;
+    std::size_t& nz = analysis.nz;
+    std::vector<double>& scalar = analysis.scalar;
+    std::vector<double>& boundaryX = analysis.boundaryX;
+    std::vector<double>& boundaryY = analysis.boundaryY;
+    std::vector<double>& boundaryZ = analysis.boundaryZ;
+
     if(!(gridSpacing>0.0) || !std::isfinite(gridSpacing))
         throw std::runtime_error("Grid spacing must be positive and finite.");
     if(flow.size()!=topology.components.size())
@@ -360,9 +363,15 @@ void STLGeometry::interiorAreaAnalysis(
     // Step 3.1: Generate unique Wet candidates from ALL initial Boundary
     // voxels, before any strict-Wet filtering. The 3x3x3 closed-voxel
     // neighborhood covers the half-width-h StencilCell of each Wet center.
-    std::vector<std::uint8_t> candidates(cellCount,0);
-    for(std::size_t id=0; id<cellCount; ++id)
+    std::vector<std::atomic<std::uint8_t>> candidates(cellCount);
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index=0; index<static_cast<std::ptrdiff_t>(cellCount); ++index)
+        candidates[static_cast<std::size_t>(index)].store(0,std::memory_order_relaxed);
+
+#pragma omp parallel for schedule(static)
+    for(std::ptrdiff_t index=0; index<static_cast<std::ptrdiff_t>(cellCount); ++index)
     {
+        const std::size_t id=static_cast<std::size_t>(index);
         if(!initialBoundary[id]) continue;
         const std::size_t k=id/xySize, j=(id%xySize)/nx, i=id%nx;
         const std::size_t i0=(i>0)?i-1:i, i1=std::min(i+1,nx-1);
@@ -374,7 +383,7 @@ void STLGeometry::interiorAreaAnalysis(
                 {
                     const std::size_t neighbor=ii+nx*(jj+ny*kk);
                     if(cellTypes[neighbor]==CellType::Interior)
-                        candidates[neighbor]=1;
+                        candidates[neighbor].store(1,std::memory_order_relaxed);
                 }
     }
 
@@ -418,7 +427,7 @@ void STLGeometry::interiorAreaAnalysis(
                 for(std::size_t i=lo[0]; i<=hi[0]; ++i)
                 {
                     const std::size_t id=i+nx*(j+ny*k);
-                    if(!candidates[id] ||
+                    if(!candidates[id].load(std::memory_order_relaxed) ||
                        atomicHits[id].load(std::memory_order_relaxed)) continue;
                     const Point c=cellCenter(domain,gridSpacing,i,j,k);
                     if(triangleIntersectsCell(c,gridSpacing,f.a,f.b,f.c))
@@ -430,7 +439,8 @@ void STLGeometry::interiorAreaAnalysis(
     for(std::ptrdiff_t index=0; index<static_cast<std::ptrdiff_t>(cellCount); ++index)
     {
         const std::size_t id=static_cast<std::size_t>(index);
-        if(candidates[id] && atomicHits[id].load(std::memory_order_relaxed))
+        if(candidates[id].load(std::memory_order_relaxed) &&
+           atomicHits[id].load(std::memory_order_relaxed))
             cellTypes[id]=CellType::Boundary;
     }
 
@@ -462,5 +472,13 @@ void STLGeometry::interiorAreaAnalysis(
         scalar[id]=static_cast<double>(cellTypes[id]);
     }
 }
+
+// Explicit instantiations for every supported GeometryAnalysis3D lattice.
+template void STLGeometry::interiorAreaAnalysis<lattice::LatticeType::D3Q15>(
+    GeometryAnalysis3D<lattice::LatticeType::D3Q15>&) const;
+template void STLGeometry::interiorAreaAnalysis<lattice::LatticeType::D3Q19>(
+    GeometryAnalysis3D<lattice::LatticeType::D3Q19>&) const;
+template void STLGeometry::interiorAreaAnalysis<lattice::LatticeType::D3Q27>(
+    GeometryAnalysis3D<lattice::LatticeType::D3Q27>&) const;
 
 } // namespace ntic::lbm::geometry
