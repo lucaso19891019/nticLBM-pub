@@ -36,10 +36,11 @@ endfunction()
 #====================================================
 
 set(GEOMETRY_PRIMITIVE_INCLUDE_DIRS
-    src/geometry
-    src/geometry/primitive
-    tests/geometry_tests/outputs
-    tests/geometry_tests/primitive_tests
+    "${CMAKE_SOURCE_DIR}/src/geometry"
+    "${CMAKE_SOURCE_DIR}/src/geometry/primitive"
+    "${CMAKE_SOURCE_DIR}/src/lattice"
+    "${CMAKE_SOURCE_DIR}/tests/geometry_tests/outputs"
+    "${CMAKE_SOURCE_DIR}/tests/geometry_tests/primitive_tests"
 )
 
 
