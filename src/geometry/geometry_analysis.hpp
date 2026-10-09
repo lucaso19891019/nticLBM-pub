@@ -1,7 +1,6 @@
 #pragma once
 
 #include "bounding_box.hpp"
-#include "bounding_box_2d.hpp"
 #include "lattice_model.hpp"
 
 #include <cstddef>
