@@ -149,246 +149,145 @@ struct Cylinder
     }
 
 
-    template <typename LatticeModel>
-    void analysis(
-        GeometryAnalysis3D<LatticeModel>& analysis) const
+    template <lattice::LatticeType Type>
+    void analysis(GeometryAnalysis3D<Type>& analysis) const
     {
-        interiorAreaAnalysis(
-            analysis.gridSpacing,
-            analysis.domain,
-            analysis.nx,
-            analysis.ny,
-            analysis.nz,
-            analysis.scalar,
-            analysis.boundaryX,
-            analysis.boundaryY,
-            analysis.boundaryZ);
-
-        boundaryQAnalysis(
-            analysis);
+        interiorAreaAnalysis(analysis);
+        boundaryQAnalysis(analysis);
     }
 
-
-    template <typename LatticeModel>
-    void boundaryQAnalysis(
-        GeometryAnalysis3D<LatticeModel>&) const
+    template <lattice::LatticeType Type>
+    void boundaryQAnalysis(GeometryAnalysis3D<Type>&) const
     {
         // Reserved for lattice-link q analysis.
     }
 
-
-    void interiorAreaAnalysis(
-        const double gridSpacing,
-        BoundingBox& domain,
-        std::size_t& nx,
-        std::size_t& ny,
-        std::size_t& nz,
-        std::vector<double>& scalar,
-        std::vector<double>& boundaryX,
-        std::vector<double>& boundaryY,
-        std::vector<double>& boundaryZ) const
+    template <lattice::LatticeType Type>
+    void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const
     {
-        if(gridSpacing <= 0.0)
+        const double h = analysis.gridSpacing;
+        if(!std::isfinite(h) || h <= 0.0)
         {
-            throw std::invalid_argument(
-                "Grid spacing must be positive.");
+            throw std::invalid_argument("Grid spacing must be finite and positive.");
         }
 
-        domain =
-            flowType == FlowType::Internal
-                ? bounds
-                : openBox;
+        analysis.domain = flowType == FlowType::Internal ? bounds : openBox;
+        const BoundingBox& domain = analysis.domain;
+        analysis.nx = static_cast<std::size_t>(std::ceil(domain.width() / h));
+        analysis.ny = static_cast<std::size_t>(std::ceil(domain.height() / h));
+        analysis.nz = static_cast<std::size_t>(std::ceil(domain.depth() / h));
 
-        nx =
-            static_cast<std::size_t>(
-                std::ceil(
-                    domain.width() /
-                    gridSpacing));
+        const std::size_t nx = analysis.nx;
+        const std::size_t ny = analysis.ny;
+        const std::size_t nz = analysis.nz;
+        const std::size_t cellCount = nx * ny * nz;
+        std::vector<CellType> cellTypes(cellCount, CellType::Dry);
 
-        ny =
-            static_cast<std::size_t>(
-                std::ceil(
-                    domain.height() /
-                    gridSpacing));
-
-        nz =
-            static_cast<std::size_t>(
-                std::ceil(
-                    domain.depth() /
-                    gridSpacing));
-
-        const std::size_t cellCount =
-            nx * ny * nz;
-
-        std::vector<CellType> cellTypes;
-
-        cellTypes.assign(
-            cellCount,
-            CellType::Dry);
-
-        const double halfSpacing =
-            0.5 * gridSpacing;
-
-        const double halfDiagonal =
-            std::sqrt(3.0) *
-            halfSpacing;
+        // StencilCell half-width is h; its half-diagonal is sqrt(3)*h.
+        const double stencilHalfDiagonal = std::sqrt(3.0) * h;
 
         #pragma omp parallel for schedule(static)
-        for(std::size_t index = 0;
-            index < cellCount;
-            ++index)
-        {
-            const std::size_t i =
-                index % nx;
-
-            const std::size_t tmp =
-                index / nx;
-
-            const std::size_t j =
-                tmp % ny;
-
-            const std::size_t k =
-                tmp / ny;
-
-            const Point cellCenter{
-                domain.min[0] +
-                    (static_cast<double>(i) + 0.5) *
-                    gridSpacing,
-
-                domain.min[1] +
-                    (static_cast<double>(j) + 0.5) *
-                    gridSpacing,
-
-                domain.min[2] +
-                    (static_cast<double>(k) + 0.5) *
-                    gridSpacing
-            };
-
-            const bool centerInside =
-                pointInside(
-                    cellCenter);
-
-            const bool centerFluid =
-                flowType == FlowType::Internal
-                    ? centerInside
-                    : !centerInside;
-
-            if(distanceToBoundary(cellCenter) >
-               halfDiagonal)
-            {
-                cellTypes[index] =
-                    centerFluid
-                        ? CellType::Interior
-                        : CellType::Dry;
-
-                continue;
-            }
-
-            const Point cellMin{
-                cellCenter[0] - halfSpacing,
-                cellCenter[1] - halfSpacing,
-                cellCenter[2] - halfSpacing
-            };
-
-            const Point cellMax{
-                cellCenter[0] + halfSpacing,
-                cellCenter[1] + halfSpacing,
-                cellCenter[2] + halfSpacing
-            };
-
-            const SurfaceRelation relation =
-                surfaceRelation(
-                    cellMin,
-                    cellMax);
-
-            if(relation ==
-               SurfaceRelation::Cross)
-            {
-                cellTypes[index] =
-                    CellType::Boundary;
-
-                continue;
-            }
-
-            if(relation ==
-               SurfaceRelation::Touch)
-            {
-                cellTypes[index] =
-                    cellTouchesFluidSide(
-                        cellMin,
-                        cellMax)
-                        ? CellType::Boundary
-                        : CellType::Dry;
-
-                continue;
-            }
-
-            cellTypes[index] =
-                centerFluid
-                    ? CellType::Interior
-                    : CellType::Dry;
-        }
-
-        boundaryX.clear();
-        boundaryY.clear();
-        boundaryZ.clear();
-
-        for(std::size_t index = 0;
-            index < cellCount;
-            ++index)
-        {
-            if(cellTypes[index] !=
-               CellType::Boundary)
-            {
-                continue;
-            }
-
-            const std::size_t i =
-                index % nx;
-
-            const std::size_t tmp =
-                index / nx;
-
-            const std::size_t j =
-                tmp % ny;
-
-            const std::size_t k =
-                tmp / ny;
-
-            boundaryX.push_back(
-                domain.min[0] +
-                (static_cast<double>(i) + 0.5) *
-                gridSpacing);
-
-            boundaryY.push_back(
-                domain.min[1] +
-                (static_cast<double>(j) + 0.5) *
-                gridSpacing);
-
-            boundaryZ.push_back(
-                domain.min[2] +
-                (static_cast<double>(k) + 0.5) *
-                gridSpacing);
-        }
-    
-
-        scalar.resize(
-            cellCount);
-
-#pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
-            index <
-                static_cast<std::ptrdiff_t>(
-                    cellCount);
-            ++index)
+            index < static_cast<std::ptrdiff_t>(cellCount); ++index)
         {
-            const std::size_t cellID =
-                static_cast<std::size_t>(
-                    index);
+            const std::size_t id = static_cast<std::size_t>(index);
+            const std::size_t i = id % nx;
+            const std::size_t j = (id / nx) % ny;
+            const std::size_t k = id / (nx * ny);
+            const Point centerPoint{
+                domain.min[0] + (static_cast<double>(i) + 0.5) * h,
+                domain.min[1] + (static_cast<double>(j) + 0.5) * h,
+                domain.min[2] + (static_cast<double>(k) + 0.5) * h
+            };
 
-            scalar[cellID] =
-                static_cast<double>(
-                    cellTypes[cellID]);
+            const bool inside = pointInside(centerPoint);
+            const bool wet = flowType == FlowType::Internal ? inside : !inside;
+            const double surfaceDistance = distanceToBoundary(centerPoint);
+
+            // The center must be strictly wet and must not lie on the surface.
+            if(!wet || surfaceDistance == 0.0)
+            {
+                cellTypes[id] = CellType::Dry;
+                continue;
+            }
+            if(surfaceDistance > stencilHalfDiagonal)
+            {
+                cellTypes[id] = CellType::Interior;
+                continue;
+            }
+
+            const Point stencilMin{
+                centerPoint[0] - h, centerPoint[1] - h, centerPoint[2] - h
+            };
+            const Point stencilMax{
+                centerPoint[0] + h, centerPoint[1] + h, centerPoint[2] + h
+            };
+            const SurfaceRelation relation = surfaceRelation(stencilMin, stencilMax);
+            cellTypes[id] = relation == SurfaceRelation::None
+                ? CellType::Interior : CellType::Boundary;
+        }
+
+        // Deterministic, parallel boundary-coordinate compaction.
+        constexpr std::size_t blockSize = 4096;
+        const std::size_t blockCount =
+            cellCount / blockSize + (cellCount % blockSize != 0 ? 1 : 0);
+        std::vector<std::size_t> offsets(blockCount + 1, 0);
+
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t block = 0;
+            block < static_cast<std::ptrdiff_t>(blockCount); ++block)
+        {
+            const std::size_t b = static_cast<std::size_t>(block);
+            const std::size_t begin = b * blockSize;
+            const std::size_t end = std::min(begin + blockSize, cellCount);
+            std::size_t count = 0;
+            for(std::size_t id = begin; id < end; ++id)
+            {
+                if(cellTypes[id] == CellType::Boundary) ++count;
+            }
+            offsets[b + 1] = count;
+        }
+        for(std::size_t b = 0; b < blockCount; ++b)
+        {
+            offsets[b + 1] += offsets[b];
+        }
+
+        const std::size_t boundaryCount = offsets[blockCount];
+        analysis.boundaryX.resize(boundaryCount);
+        analysis.boundaryY.resize(boundaryCount);
+        analysis.boundaryZ.resize(boundaryCount);
+
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t block = 0;
+            block < static_cast<std::ptrdiff_t>(blockCount); ++block)
+        {
+            const std::size_t b = static_cast<std::size_t>(block);
+            const std::size_t begin = b * blockSize;
+            const std::size_t end = std::min(begin + blockSize, cellCount);
+            std::size_t slot = offsets[b];
+            for(std::size_t id = begin; id < end; ++id)
+            {
+                if(cellTypes[id] != CellType::Boundary) continue;
+                const std::size_t i = id % nx;
+                const std::size_t j = (id / nx) % ny;
+                const std::size_t k = id / (nx * ny);
+                analysis.boundaryX[slot] =
+                    domain.min[0] + (static_cast<double>(i) + 0.5) * h;
+                analysis.boundaryY[slot] =
+                    domain.min[1] + (static_cast<double>(j) + 0.5) * h;
+                analysis.boundaryZ[slot] =
+                    domain.min[2] + (static_cast<double>(k) + 0.5) * h;
+                ++slot;
+            }
+        }
+
+        analysis.scalar.resize(cellCount);
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index < static_cast<std::ptrdiff_t>(cellCount); ++index)
+        {
+            const std::size_t id = static_cast<std::size_t>(index);
+            analysis.scalar[id] = static_cast<double>(static_cast<int>(cellTypes[id]));
         }
     }
 
@@ -732,58 +631,6 @@ private:
 
         return
             SurfaceRelation::Touch;
-    }
-
-
-    [[nodiscard]]
-    bool cellTouchesFluidSide(
-        const Point& cellMin,
-        const Point& cellMax) const noexcept
-    {
-        for(int ix = 0;
-            ix < 2;
-            ++ix)
-        {
-            for(int iy = 0;
-                iy < 2;
-                ++iy)
-            {
-                for(int iz = 0;
-                    iz < 2;
-                    ++iz)
-                {
-                    const Point corner{
-                        ix == 0
-                            ? cellMin[0]
-                            : cellMax[0],
-
-                        iy == 0
-                            ? cellMin[1]
-                            : cellMax[1],
-
-                        iz == 0
-                            ? cellMin[2]
-                            : cellMax[2]
-                    };
-
-                    const bool inside =
-                        pointInside(corner);
-
-                    const bool fluid =
-                        flowType ==
-                        FlowType::Internal
-                            ? inside
-                            : !inside;
-
-                    if(fluid)
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
     }
 
 
