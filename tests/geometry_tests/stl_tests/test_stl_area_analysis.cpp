@@ -1,3 +1,4 @@
+#include "cell_type.hpp"
 #include "geometry_analysis.hpp"
 #include "stl_geometry.hpp"
 #include "stl_reader.hpp"
@@ -5,255 +6,144 @@
 #include "vtk_output.hpp"
 #include "vtk_output_3d.hpp"
 
+#include <cmath>
+#include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <utility>
-
+#include <vector>
 
 using namespace ntic::lbm::geometry;
 using namespace ntic::lbm::geometry::test;
 
-
 namespace
 {
+using Analysis = GeometryAnalysis3D<ntic::lbm::lattice::LatticeType::D3Q19>;
 
-void printAnalysis(
-    const GeometryAnalysis3D<void>& analysis)
+void verifyAnalysis(const Analysis& analysis)
 {
-    std::cout
-        << "Analysis domain:\n"
-        << "  min = ("
-        << analysis.domain.min[0] << ", "
-        << analysis.domain.min[1] << ", "
-        << analysis.domain.min[2] << ")\n"
-        << "  max = ("
-        << analysis.domain.max[0] << ", "
-        << analysis.domain.max[1] << ", "
-        << analysis.domain.max[2] << ")\n"
-        << "Grid dimensions:\n"
-        << "  nx = "
-        << analysis.nx << '\n'
-        << "  ny = "
-        << analysis.ny << '\n'
-        << "  nz = "
-        << analysis.nz << "\n\n";
+    const std::size_t count = analysis.nx * analysis.ny * analysis.nz;
+    if(count == 0 || analysis.scalar.size() != count)
+        throw std::runtime_error("Invalid STL scalar grid dimensions.");
+    if(analysis.boundaryX.size() != analysis.boundaryY.size() ||
+       analysis.boundaryX.size() != analysis.boundaryZ.size())
+        throw std::runtime_error("Boundary coordinate arrays have different sizes.");
+
+    std::size_t boundaryCount = 0;
+    for(const double value : analysis.scalar)
+    {
+        if(value != static_cast<double>(CellType::Dry) &&
+           value != static_cast<double>(CellType::Boundary) &&
+           value != static_cast<double>(CellType::Interior))
+            throw std::runtime_error("Unknown STL cell classification.");
+        if(value == static_cast<double>(CellType::Boundary))
+            ++boundaryCount;
+    }
+    if(boundaryCount == 0 || boundaryCount != analysis.boundaryX.size())
+        throw std::runtime_error("Boundary count does not match scalar classification.");
+
+    // Every exported boundary center must correspond to a Boundary grid cell.
+    const auto coordinateIndex = [&](double x, int axis, std::size_t extent)
+    {
+        const double normalized = (x - analysis.domain.min[axis]) /
+                                  analysis.gridSpacing - 0.5;
+        const double nearest = std::round(normalized);
+        if(!std::isfinite(normalized) ||
+           std::abs(normalized - nearest) > 1.0e-7 ||
+           nearest < 0.0 || nearest >= static_cast<double>(extent))
+            throw std::runtime_error("Exported boundary coordinate is not a cell center.");
+        return static_cast<std::size_t>(nearest);
+    };
+    std::vector<unsigned char> seen(count, 0);
+    for(std::size_t n=0; n<boundaryCount; ++n)
+    {
+        const std::size_t i=coordinateIndex(analysis.boundaryX[n],0,analysis.nx);
+        const std::size_t j=coordinateIndex(analysis.boundaryY[n],1,analysis.ny);
+        const std::size_t k=coordinateIndex(analysis.boundaryZ[n],2,analysis.nz);
+        const std::size_t id=i+analysis.nx*(j+analysis.ny*k);
+        if(seen[id] || analysis.scalar[id] != static_cast<double>(CellType::Boundary))
+            throw std::runtime_error("Duplicate or incorrectly classified boundary center.");
+        seen[id]=1;
+    }
 }
 
-
-void writeAnalysis(
-    const STLGeometry& geometry,
-    const double spacing,
-    const std::filesystem::path& directory)
+void writeAnalysis(const STLGeometry& geometry,
+                   double spacing,
+                   const std::filesystem::path& directory)
 {
-    GeometryAnalysis3D<void> analysis(
-        spacing);
+    Analysis analysis(spacing);
+    geometry.analysis(analysis);
+    verifyAnalysis(analysis);
 
-    geometry.analysis(
-        analysis);
+    std::cout << "Grid: " << analysis.nx << " x " << analysis.ny
+              << " x " << analysis.nz
+              << ", boundary centers: " << analysis.boundaryX.size() << '\n';
 
-    printAnalysis(
-        analysis);
-
-    writeVTK3DCellScalar(
-        directory /
-            "geometry.vtk",
-        analysis.nx,
-        analysis.ny,
-        analysis.nz,
-        analysis.domain.min,
-        analysis.gridSpacing,
-        analysis.scalar);
-
-    writeVTK3DBoundingBox(
-        directory /
-            "bounding_box.vtk",
-        geometry.bounds);
+    writeVTK3DCellScalar(directory / "geometry.vtk",
+                         analysis.nx, analysis.ny, analysis.nz,
+                         analysis.domain.min, analysis.gridSpacing, analysis.scalar);
+    writeVTK3DBoundingBox(directory / "bounding_box.vtk", geometry.bounds);
+}
 }
 
-} // namespace
-
-
-int main()
+int main(int argc, char** argv)
 {
     try
     {
-        std::cout
-            << "========================================\n"
-            << "STL Area Analysis Test\n"
-            << "========================================\n\n";
+        if(argc > 2)
+            throw std::invalid_argument("Usage: test_stl_area_analysis [grid_spacing]");
 
-        const std::filesystem::path stlFile =
-            std::filesystem::path(
-                GEOMETRY_TEST_SOURCE_DIR) /
-            "stl_tests" /
-            "stls" /
-            "smooth_irregular_branched_channel.stl";
+        const auto stlFile = std::filesystem::path(GEOMETRY_TEST_SOURCE_DIR) /
+                             "stl_tests" / "stls" /
+                             "smooth_irregular_branched_channel.stl";
 
-        ntic::lbm::stl::STLData internalData =
-            ntic::lbm::stl::read(
-                stlFile.string());
-
+        auto internalData=ntic::lbm::stl::read(stlFile.string());
         ntic::lbm::stl::FacetTopology internalTopology;
+        ntic::lbm::stl::validate(internalData, "full", internalTopology);
+        STLGeometry internalGeometry(std::move(internalTopology), FlowType::Internal);
 
-        ntic::lbm::stl::validate(
-            internalData,
-            "full",
-            internalTopology);
-
-        STLGeometry internalGeometry(
-            std::move(
-                internalTopology),
-            FlowType::Internal);
-
-        const double padding =
-            1.0;
-
+        const double padding=1.0;
         const BoundingBox openBox{
-            {
-                internalGeometry.bounds.min[0] - padding,
-                internalGeometry.bounds.min[1] - padding,
-                internalGeometry.bounds.min[2] - padding
-            },
-            {
-                internalGeometry.bounds.max[0] + padding,
-                internalGeometry.bounds.max[1] + padding,
-                internalGeometry.bounds.max[2] + padding
-            }
+            {internalGeometry.bounds.min[0]-padding,
+             internalGeometry.bounds.min[1]-padding,
+             internalGeometry.bounds.min[2]-padding},
+            {internalGeometry.bounds.max[0]+padding,
+             internalGeometry.bounds.max[1]+padding,
+             internalGeometry.bounds.max[2]+padding}
         };
 
-        ntic::lbm::stl::STLData externalData =
-            ntic::lbm::stl::read(
-                stlFile.string());
-
+        auto externalData=ntic::lbm::stl::read(stlFile.string());
         ntic::lbm::stl::FacetTopology externalTopology;
+        ntic::lbm::stl::validate(externalData, "full", externalTopology);
+        STLGeometry externalGeometry(std::move(externalTopology),
+                                     FlowType::External, &openBox);
 
-        ntic::lbm::stl::validate(
-            externalData,
-            "full",
-            externalTopology);
+        // Noninteractive default; explicit spacing remains available via argv.
+        const double spacing = argc == 2
+            ? std::stod(argv[1])
+            : internalGeometry.bounds.width()/24.0;
+        if(!(spacing > 0.0) || !std::isfinite(spacing))
+            throw std::invalid_argument("Grid spacing must be positive and finite.");
 
-        STLGeometry externalGeometry(
-            std::move(
-                externalTopology),
-            FlowType::External,
-            &openBox);
+        const auto outputDirectory =
+            std::filesystem::path(GEOMETRY_TEST_OUTPUT_DIR) / "test_stl_vtks";
+        recreateOutputDirectory(outputDirectory);
+        const auto internalDirectory=outputDirectory/"internal_vtks";
+        const auto externalDirectory=outputDirectory/"external_vtks";
+        std::filesystem::create_directories(internalDirectory);
+        std::filesystem::create_directories(externalDirectory);
 
-        std::cout
-            << "STL bounding box:\n"
-            << "  min    = ("
-            << internalGeometry.bounds.min[0] << ", "
-            << internalGeometry.bounds.min[1] << ", "
-            << internalGeometry.bounds.min[2] << ")\n"
-            << "  max    = ("
-            << internalGeometry.bounds.max[0] << ", "
-            << internalGeometry.bounds.max[1] << ", "
-            << internalGeometry.bounds.max[2] << ")\n"
-            << "  width  = "
-            << internalGeometry.bounds.width()
-            << "\n"
-            << "  height = "
-            << internalGeometry.bounds.height()
-            << "\n"
-            << "  depth  = "
-            << internalGeometry.bounds.depth()
-            << "\n\n"
-            << "External open box:\n"
-            << "  min    = ("
-            << externalGeometry.openBox.min[0] << ", "
-            << externalGeometry.openBox.min[1] << ", "
-            << externalGeometry.openBox.min[2] << ")\n"
-            << "  max    = ("
-            << externalGeometry.openBox.max[0] << ", "
-            << externalGeometry.openBox.max[1] << ", "
-            << externalGeometry.openBox.max[2] << ")\n"
-            << "  width  = "
-            << externalGeometry.openBox.width()
-            << "\n"
-            << "  height = "
-            << externalGeometry.openBox.height()
-            << "\n"
-            << "  depth  = "
-            << externalGeometry.openBox.depth()
-            << "\n\n";
-
-        double spacing =
-            0.0;
-
-        std::cout
-            << "Enter grid spacing: ";
-
-        std::cin
-            >> spacing;
-
-        if(!std::cin)
-        {
-            throw std::runtime_error(
-                "Failed to read grid spacing.");
-        }
-
-        if(spacing <= 0.0)
-        {
-            throw std::runtime_error(
-                "Grid spacing must be positive.");
-        }
-
-        const std::filesystem::path outputDirectory =
-            std::filesystem::path(
-                GEOMETRY_TEST_OUTPUT_DIR) /
-            "test_stl_vtks";
-
-        recreateOutputDirectory(
-            outputDirectory);
-
-        const std::filesystem::path internalDirectory =
-            outputDirectory /
-            "internal_vtks";
-
-        const std::filesystem::path externalDirectory =
-            outputDirectory /
-            "external_vtks";
-
-        std::filesystem::create_directories(
-            internalDirectory);
-
-        std::filesystem::create_directories(
-            externalDirectory);
-
-        std::cout
-            << "\nInternal analysis:\n";
-
-        writeAnalysis(
-            internalGeometry,
-            spacing,
-            internalDirectory);
-
-        std::cout
-            << "External analysis:\n";
-
-        writeAnalysis(
-            externalGeometry,
-            spacing,
-            externalDirectory);
-
-        std::cout
-            << "VTK output directory:\n  "
-            << outputDirectory
-            << "\n\n";
-
-        std::cout
-            << "STL area analysis test passed.\n";
-
+        writeAnalysis(internalGeometry, spacing, internalDirectory);
+        writeAnalysis(externalGeometry, spacing, externalDirectory);
+        std::cout << "STL area analysis test passed.\n";
         return 0;
     }
-    catch(const std::exception& error)
+    catch(const std::exception& e)
     {
-        std::cerr
-            << "STL area analysis test failed: "
-            << error.what()
-            << '\n';
-
+        std::cerr << "STL area analysis test failed: " << e.what() << '\n';
         return 1;
     }
 }
