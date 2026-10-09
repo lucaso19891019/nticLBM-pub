@@ -10,8 +10,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include <boost/multiprecision/cpp_int.hpp>
-
 #include <omp.h>
 
 namespace ntic::lbm::geometry
@@ -146,87 +144,33 @@ bool triangleIntersectsCell(const Point& center,
     return true;
 }
 
-// Exact point-on-closed-triangle predicate for finite IEEE-754 doubles.
-// All coordinates are converted to a common binary fixed-point scale.
-// Integer arithmetic is exact: no geometric tolerance is used.
-// Boost.Multiprecision is header-only.
+// Conservative center-on-surface classification for finite doubles.
+// A center sufficiently close to a triangle is treated as Dry.
+// This intentionally allows resolution-limited Wet nodes to be removed.
 bool pointOnTriangle(const Point& p,
                      const Point& a,
                      const Point& b,
                      const Point& c)
 {
-    using boost::multiprecision::cpp_int;
-    const std::array<Point,4> points{{a,b,c,p}};
+    const Point ab=subtract(b,a), ac=subtract(c,a), ap=subtract(p,a);
+    const Point n=cross(ab,ac);
+    const double n2=dot(n,n);
+    if(n2==0.0) return false;
 
-    // x = mantissa * 2^exponent, with an integral 53-bit mantissa.
-    std::array<std::array<std::uint64_t,3>,4> mantissas{};
-    std::array<std::array<int,3>,4> exponents{};
-    int minimumExponent = 0;
-    bool hasNonzero = false;
+    const double scale=std::max({norm(ab),norm(ac),norm(subtract(c,b))});
+    const double tolerance=32.0*std::numeric_limits<double>::epsilon()*scale;
+    if(std::abs(dot(ap,n)) > tolerance*std::sqrt(n2)) return false;
 
-    for(std::size_t v=0; v<4; ++v)
-        for(int d=0; d<3; ++d)
-        {
-            const double x=points[v][d];
-            if(!std::isfinite(x))
-                throw std::invalid_argument(
-                    "STL predicate requires finite coordinates.");
-            if(x==0.0) continue;
-            int exponent=0;
-            const double fraction=std::frexp(std::abs(x),&exponent);
-            mantissas[v][d]=static_cast<std::uint64_t>(
-                std::ldexp(fraction,53));
-            exponents[v][d]=exponent-53;
-            if(!hasNonzero || exponents[v][d]<minimumExponent)
-                minimumExponent=exponents[v][d];
-            hasNonzero=true;
-        }
+    const double d00=dot(ab,ab), d01=dot(ab,ac), d11=dot(ac,ac);
+    const double d20=dot(ap,ab), d21=dot(ap,ac);
+    const double denominator=d00*d11-d01*d01;
+    if(denominator<=0.0) return false;
 
-    std::array<std::array<cpp_int,3>,4> q{};
-    for(std::size_t v=0; v<4; ++v)
-        for(int d=0; d<3; ++d)
-        {
-            if(mantissas[v][d]==0) continue;
-            q[v][d]=cpp_int(mantissas[v][d])
-                     << (exponents[v][d]-minimumExponent);
-            if(std::signbit(points[v][d])) q[v][d]=-q[v][d];
-        }
-
-    std::array<cpp_int,3> u{},v{},w{};
-    for(int d=0; d<3; ++d)
-    {
-        u[d]=q[1][d]-q[0][d];
-        v[d]=q[2][d]-q[0][d];
-        w[d]=q[3][d]-q[0][d];
-    }
-    const cpp_int nx=u[1]*v[2]-u[2]*v[1];
-    const cpp_int ny=u[2]*v[0]-u[0]*v[2];
-    const cpp_int nz=u[0]*v[1]-u[1]*v[0];
-    if(nx==0 && ny==0 && nz==0) return false;
-
-    // Exact coplanarity.
-    if(nx*w[0]+ny*w[1]+nz*w[2]!=0) return false;
-
-    // Project onto any coordinate plane where the triangle is nondegenerate.
-    int i=0,j=1;
-    if(nz!=0) { i=0; j=1; }
-    else if(ny!=0) { i=0; j=2; }
-    else { i=1; j=2; }
-
-    const auto orient=[&](int x,int y,int z) -> cpp_int
-    {
-        const cpp_int ux=q[y][i]-q[x][i];
-        const cpp_int uy=q[y][j]-q[x][j];
-        const cpp_int vx=q[z][i]-q[x][i];
-        const cpp_int vy=q[z][j]-q[x][j];
-        return ux*vy-uy*vx;
-    };
-    const cpp_int o=orient(0,1,2);
-    const cpp_int o0=orient(0,1,3);
-    const cpp_int o1=orient(1,2,3);
-    const cpp_int o2=orient(2,0,3);
-    if(o>0) return o0>=0 && o1>=0 && o2>=0;
-    return o0<=0 && o1<=0 && o2<=0;
+    const double u=(d11*d20-d01*d21)/denominator;
+    const double v=(d00*d21-d01*d20)/denominator;
+    const double baryTolerance=32.0*std::numeric_limits<double>::epsilon();
+    return u>=-baryTolerance && v>=-baryTolerance &&
+           u+v<=1.0+baryTolerance;
 }
 
 // Candidate grid cells whose CLOSED boxes of half-width 'halfWidth'
