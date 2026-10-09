@@ -130,91 +130,66 @@ struct Rectangle
     }
 
 
-    template <typename LatticeModel>
-    void analysis(
-        GeometryAnalysis2D<LatticeModel>& analysis) const
-    {
-        interiorAreaAnalysis(
-            analysis.gridSpacing,
-            analysis.domain,
-            analysis.nx,
-            analysis.ny,
-            analysis.scalar,
-            analysis.boundaryX,
-            analysis.boundaryY);
 
-        boundaryQAnalysis(
-            analysis);
+    template <lattice::LatticeType Type>
+    void analysis(
+        GeometryAnalysis2D<Type>& analysis) const
+    {
+        interiorAreaAnalysis(analysis);
+        boundaryQAnalysis(analysis);
     }
 
 
-    template <typename LatticeModel>
+    template <lattice::LatticeType Type>
     void boundaryQAnalysis(
-        GeometryAnalysis2D<LatticeModel>&) const
+        GeometryAnalysis2D<Type>&) const
     {
         // Reserved for lattice-link q analysis.
     }
 
 
+    template <lattice::LatticeType Type>
     void interiorAreaAnalysis(
-        const double gridSpacing,
-        std::vector<CellType>& cellTypes,
-        std::vector<double>& boundaryX,
-        std::vector<double>& boundaryY) const
+        GeometryAnalysis2D<Type>& analysis) const
     {
+        const double gridSpacing = analysis.gridSpacing;
+
         if(gridSpacing <= 0.0)
         {
             throw std::invalid_argument(
                 "Grid spacing must be positive.");
         }
 
-
-        const BoundingBox2D& domain =
+        analysis.domain =
             flowType == FlowType::Internal
                 ? bounds
                 : openBox;
 
+        const BoundingBox2D& domain = analysis.domain;
 
-        const std::size_t nx =
-            static_cast<std::size_t>(
-                std::ceil(
-                    domain.width() /
-                    gridSpacing));
+        analysis.nx = static_cast<std::size_t>(
+            std::ceil(domain.width() / gridSpacing));
 
-        const std::size_t ny =
-            static_cast<std::size_t>(
-                std::ceil(
-                    domain.height() /
-                    gridSpacing));
+        analysis.ny = static_cast<std::size_t>(
+            std::ceil(domain.height() / gridSpacing));
 
-        const std::size_t cellCount =
-            nx * ny;
+        const std::size_t nx = analysis.nx;
+        const std::size_t ny = analysis.ny;
+        const std::size_t cellCount = nx * ny;
 
+        std::vector<CellType> cellTypes(
+            cellCount, CellType::Dry);
 
-        cellTypes.assign(
-            cellCount,
-            CellType::Dry);
-
-
-    #pragma omp parallel for schedule(static)
+        #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
-            index <
-                static_cast<std::ptrdiff_t>(
-                    cellCount);
+            index < static_cast<std::ptrdiff_t>(cellCount);
             ++index)
         {
             const std::size_t cellID =
-                static_cast<std::size_t>(
-                    index);
+                static_cast<std::size_t>(index);
 
-            const std::size_t i =
-                cellID %
-                nx;
-
-            const std::size_t j =
-                cellID /
-                nx;
-
+            const std::size_t i = cellID % nx;
+            const std::size_t j = cellID / nx;
 
             const Point2D point
             {
@@ -227,35 +202,25 @@ struct Rectangle
                     gridSpacing
             };
 
-
-            const bool inside =
-                pointInside(
-                    point);
+            const bool inside = pointInside(point);
 
             const bool wet =
                 flowType == FlowType::Internal
                     ? inside
                     : !inside;
 
-
             if(!wet)
             {
-                cellTypes[cellID] =
-                    CellType::Dry;
-
+                cellTypes[cellID] = CellType::Dry;
                 continue;
             }
-
 
             if(distanceToBoundary(point) <=
-            std::numeric_limits<double>::epsilon())
+               std::numeric_limits<double>::epsilon())
             {
-                cellTypes[cellID] =
-                    CellType::Dry;
-
+                cellTypes[cellID] = CellType::Dry;
                 continue;
             }
-
 
             const Point2D stencilMin
             {
@@ -269,72 +234,43 @@ struct Rectangle
                 point[1] + gridSpacing
             };
 
-
             const SurfaceRelation relation =
-                surfaceRelation(
-                    stencilMin,
-                    stencilMax);
+                surfaceRelation(stencilMin, stencilMax);
 
-
-            if(relation !=
-            SurfaceRelation::None)
-            {
-                cellTypes[cellID] =
-                    CellType::Boundary;
-            }
-            else
-            {
-                cellTypes[cellID] =
-                    CellType::Interior;
-            }
+            cellTypes[cellID] =
+                relation == SurfaceRelation::None
+                    ? CellType::Interior
+                    : CellType::Boundary;
         }
 
+        auto& boundaryX = analysis.boundaryX;
+        auto& boundaryY = analysis.boundaryY;
 
-        boundaryX.resize(
-            cellCount);
+        boundaryX.resize(cellCount);
+        boundaryY.resize(cellCount);
 
-        boundaryY.resize(
-            cellCount);
+        std::size_t boundaryCount = 0;
 
-
-        std::size_t boundaryCount =
-            0;
-
-
-    #pragma omp parallel for schedule(static)
+        #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
-            index <
-                static_cast<std::ptrdiff_t>(
-                    cellCount);
+            index < static_cast<std::ptrdiff_t>(cellCount);
             ++index)
         {
             const std::size_t cellID =
-                static_cast<std::size_t>(
-                    index);
+                static_cast<std::size_t>(index);
 
-
-            if(cellTypes[cellID] !=
-            CellType::Boundary)
+            if(cellTypes[cellID] != CellType::Boundary)
             {
                 continue;
             }
 
+            const std::size_t i = cellID % nx;
+            const std::size_t j = cellID / nx;
 
-            const std::size_t i =
-                cellID %
-                nx;
+            std::size_t slot = 0;
 
-            const std::size_t j =
-                cellID /
-                nx;
-
-
-            std::size_t slot =
-                0;
-
-    #pragma omp atomic capture
+            #pragma omp atomic capture
             slot = boundaryCount++;
-
 
             boundaryX[slot] =
                 domain.min[0] +
@@ -347,12 +283,23 @@ struct Rectangle
                 gridSpacing;
         }
 
+        boundaryX.resize(boundaryCount);
+        boundaryY.resize(boundaryCount);
 
-        boundaryX.resize(
-            boundaryCount);
+        analysis.scalar.resize(cellCount);
 
-        boundaryY.resize(
-            boundaryCount);
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index < static_cast<std::ptrdiff_t>(cellCount);
+            ++index)
+        {
+            const std::size_t cellID =
+                static_cast<std::size_t>(index);
+
+            analysis.scalar[cellID] =
+                static_cast<double>(
+                    static_cast<int>(cellTypes[cellID]));
+        }
     }
 
 
