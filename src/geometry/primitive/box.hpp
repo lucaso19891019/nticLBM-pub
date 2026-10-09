@@ -521,58 +521,6 @@ private:
     }
 
 
-    [[nodiscard]]
-    bool cellTouchesFluidSide(
-        const Point& cellMin,
-        const Point& cellMax) const noexcept
-    {
-        for(int ix = 0;
-            ix < 2;
-            ++ix)
-        {
-            for(int iy = 0;
-                iy < 2;
-                ++iy)
-            {
-                for(int iz = 0;
-                    iz < 2;
-                    ++iz)
-                {
-                    const Point corner{
-                        ix == 0
-                            ? cellMin[0]
-                            : cellMax[0],
-
-                        iy == 0
-                            ? cellMin[1]
-                            : cellMax[1],
-
-                        iz == 0
-                            ? cellMin[2]
-                            : cellMax[2]
-                    };
-
-                    const bool inside =
-                        pointInside(corner);
-
-                    const bool fluid =
-                        flowType ==
-                        FlowType::Internal
-                            ? inside
-                            : !inside;
-
-                    if(fluid)
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-
     void validateOpenBox(
         const BoundingBox& box) const
     {
