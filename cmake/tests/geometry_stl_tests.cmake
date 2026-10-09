@@ -41,11 +41,12 @@ endfunction()
 #====================================================
 
 set(GEOMETRY_STL_INCLUDE_DIRS
-    src/geometry
-    src/geometry/stl
-    src/input/stl
-    src/common
-    tests/geometry_tests/outputs
+    "${CMAKE_SOURCE_DIR}/src/geometry"
+    "${CMAKE_SOURCE_DIR}/src/geometry/stl"
+    "${CMAKE_SOURCE_DIR}/src/lattice"
+    "${CMAKE_SOURCE_DIR}/src/input/stl"
+    "${CMAKE_SOURCE_DIR}/src/common"
+    "${CMAKE_SOURCE_DIR}/tests/geometry_tests/outputs"
 )
 
 
