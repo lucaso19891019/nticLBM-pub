@@ -22,7 +22,7 @@ void writeAnalysis(
     const double spacing,
     const std::filesystem::path& directory)
 {
-    GeometryAnalysis3D<void> analysis(
+    GeometryAnalysis3D<ntic::lbm::lattice::LatticeType::D3Q19> analysis(
         spacing);
 
     geometry.analysis(
