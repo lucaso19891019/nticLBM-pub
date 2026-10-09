@@ -22,11 +22,9 @@ void writeAnalysis(
     const double spacing,
     const std::filesystem::path& directory)
 {
-    GeometryAnalysis2D<void> analysis(
-        spacing);
+    GeometryAnalysis2D<ntic::lbm::lattice::LatticeType::D2Q9> analysis(spacing);
 
-    geometry.analysis(
-        analysis);
+    geometry.analysis(analysis);
 
     std::cout
         << "Analysis domain:\n"
