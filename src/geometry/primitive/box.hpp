@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "bounding_box.hpp"
@@ -232,8 +233,7 @@ struct Box
             // The surface itself is never a wet center,
             // including for External flow.
             if(!wet ||
-               distanceToBoundary(center) <=
-                   std::numeric_limits<double>::epsilon())
+               distanceToBoundary(center) == 0.0)
             {
                 cellTypes[cellID] = CellType::Dry;
                 continue;
