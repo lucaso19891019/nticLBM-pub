@@ -215,8 +215,7 @@ struct Rectangle
                 continue;
             }
 
-            if(distanceToBoundary(point) <=
-               std::numeric_limits<double>::epsilon())
+            if(distanceToBoundary(point) <= 0.0)
             {
                 cellTypes[cellID] = CellType::Dry;
                 continue;
@@ -413,38 +412,6 @@ private:
 
         return
             SurfaceRelation::Touch;
-    }
-
-
-    [[nodiscard]]
-    bool cellTouchesFluidSide(
-        const Point2D& cellMin,
-        const Point2D& cellMax) const noexcept
-    {
-        const Point2D corners[4]{
-            {cellMin[0], cellMin[1]},
-            {cellMax[0], cellMin[1]},
-            {cellMin[0], cellMax[1]},
-            {cellMax[0], cellMax[1]}
-        };
-
-        for(const Point2D& corner : corners)
-        {
-            const bool inside =
-                pointInside(corner);
-
-            const bool fluid =
-                flowType == FlowType::Internal
-                    ? inside
-                    : !inside;
-
-            if(fluid)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
 
