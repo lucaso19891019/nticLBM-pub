@@ -152,11 +152,130 @@ struct Sphere
         boundaryQAnalysis(analysis);
     }
 
+
     template <lattice::LatticeType Type>
-    void boundaryQAnalysis(GeometryAnalysis3D<Type>&) const
+    void boundaryQAnalysis(
+        GeometryAnalysis3D<Type>& analysis) const
     {
-        // Reserved for lattice-link q analysis.
+        using Lattice =
+            typename GeometryAnalysis3D<Type>::Lattice;
+    
+        constexpr std::size_t nLinks =
+            Lattice::nStencils - 1;
+    
+        const std::size_t boundaryCount =
+            analysis.boundaryX.size();
+    
+        if(analysis.boundaryY.size() != boundaryCount ||
+           analysis.boundaryZ.size() != boundaryCount)
+        {
+            throw std::invalid_argument(
+                "Boundary coordinate sizes do not match.");
+        }
+    
+        const double h = analysis.gridSpacing;
+    
+        if(!std::isfinite(h) || h <= 0.0)
+        {
+            throw std::invalid_argument(
+                "Grid spacing must be finite and positive.");
+        }
+    
+        analysis.q.assign(
+            boundaryCount * nLinks, -1.0);
+    
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index < static_cast<std::ptrdiff_t>(boundaryCount);
+            ++index)
+        {
+            const std::size_t b =
+                static_cast<std::size_t>(index);
+    
+            const double px =
+                analysis.boundaryX[b] - center[0];
+    
+            const double py =
+                analysis.boundaryY[b] - center[1];
+    
+            const double pz =
+                analysis.boundaryZ[b] - center[2];
+    
+            const double C =
+                px * px + py * py + pz * pz -
+                radius * radius;
+    
+            for(std::size_t i = 1;
+                i < Lattice::nStencils;
+                ++i)
+            {
+                const double dx =
+                    h * static_cast<double>(Lattice::ex[i]);
+    
+                const double dy =
+                    h * static_cast<double>(Lattice::ey[i]);
+    
+                const double dz =
+                    h * static_cast<double>(Lattice::ez[i]);
+    
+                const double A =
+                    dx * dx + dy * dy + dz * dz;
+    
+                const double B =
+                    2.0 * (px * dx + py * dy + pz * dz);
+    
+                const double discriminant =
+                    B * B - 4.0 * A * C;
+    
+                if(discriminant < 0.0)
+                {
+                    continue;
+                }
+    
+                const double sqrtD =
+                    std::sqrt(discriminant);
+    
+                const double rootTerm =
+                    -0.5 * (B + std::copysign(sqrtD, B));
+    
+                double qValue = -1.0;
+    
+                if(rootTerm == 0.0)
+                {
+                    const double root =
+                        -B / (2.0 * A);
+    
+                    if(root > 0.0 && root <= 1.0)
+                    {
+                        qValue = root;
+                    }
+                }
+                else
+                {
+                    const double root1 =
+                        rootTerm / A;
+    
+                    const double root2 =
+                        C / rootTerm;
+    
+                    if(root1 > 0.0 && root1 <= 1.0)
+                    {
+                        qValue = root1;
+                    }
+    
+                    if(root2 > 0.0 && root2 <= 1.0 &&
+                       (qValue < 0.0 || root2 < qValue))
+                    {
+                        qValue = root2;
+                    }
+                }
+    
+                analysis.q[b * nLinks + (i - 1)] =
+                    qValue;
+            }
+        }
     }
+
 
     template <lattice::LatticeType Type>
     void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const
