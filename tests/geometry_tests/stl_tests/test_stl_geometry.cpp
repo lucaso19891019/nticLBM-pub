@@ -14,6 +14,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <filesystem>
 
 namespace
 {
@@ -290,23 +291,27 @@ void testEmptyGeometry()
 }
 }
 
-int main(int argc, char* argv[])
+int main()
 {
-    if(argc != 2)
-    {
-        std::cerr << "Usage: " << argv[0] << " <stl_file>\n";
-        return 1;
-    }
     try
     {
-        testConstruction(argv[1]);
+        const std::filesystem::path stlFile =
+            std::filesystem::path(GEOMETRY_TEST_SOURCE_DIR) /
+            "stl_tests" / "stls" /
+            "smooth_irregular_branched_channel.stl";
+
+        testConstruction(stlFile.string());
         testEmptyGeometry();
-        std::cout << "STL geometry and boundary feature tests passed.\n";
+
+        std::cout << "STL geometry tests passed.\n";
         return 0;
     }
-    catch(const std::exception& e)
+    catch(const std::exception& exception)
     {
-        std::cerr << "STL geometry tests failed: " << e.what() << '\n';
+        std::cerr
+            << "STL geometry tests failed: "
+            << exception.what() << '\n';
+
         return 1;
     }
 }
