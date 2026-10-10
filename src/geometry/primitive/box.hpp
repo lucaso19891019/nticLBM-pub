@@ -446,7 +446,7 @@ struct Box
         }
         
         // Reorder coordinates by boundary element ID.
-        // Within each group, preserve the original cell-index order.
+        // Preserve the collected order within each boundary group.
         std::vector<std::size_t> next = analysis.boundaryOffsets;
         
         std::vector<double> groupedX(boundaryCount);
