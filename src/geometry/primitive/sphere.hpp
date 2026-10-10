@@ -337,9 +337,11 @@ struct Sphere
             const Point stencilMax{
                 centerPoint[0] + h, centerPoint[1] + h, centerPoint[2] + h
             };
-            const SurfaceRelation relation = surfaceRelation(stencilMin, stencilMax);
-            cellTypes[id] = relation == SurfaceRelation::None
-                ? CellType::Interior : CellType::Boundary;
+            
+            cellTypes[id] =
+                intersectsSurface(stencilMin, stencilMax)
+                    ? CellType::Boundary
+                    : CellType::Interior;
         }
 
         // Deterministic, parallel boundary-coordinate compaction.
@@ -468,68 +470,34 @@ private:
 
 
     [[nodiscard]]
-    SurfaceRelation surfaceRelation(
+    bool intersectsSurface(
         const Point& cellMin,
         const Point& cellMax) const noexcept
     {
         const double radiusSquared = radius * radius;
-        double minDistanceSquared =
-            0.0;
-
-        double maxDistanceSquared =
-            0.0;
-
-        for(std::size_t d = 0;
-            d < 3;
-            ++d)
+    
+        double minDistanceSquared = 0.0;
+        double maxDistanceSquared = 0.0;
+    
+        for(std::size_t d = 0; d < 3; ++d)
         {
             const double closest =
-                std::clamp(
-                    center[d],
-                    cellMin[d],
-                    cellMax[d]);
-
-            const double closestDelta =
-                closest - center[d];
-
-            minDistanceSquared +=
-                closestDelta *
-                closestDelta;
-
-            const double farthestDelta =
-                std::max(
-                    std::abs(
-                        cellMin[d] -
-                        center[d]),
-                    std::abs(
-                        cellMax[d] -
-                        center[d]));
-
-            maxDistanceSquared +=
-                farthestDelta *
-                farthestDelta;
+                std::clamp(center[d], cellMin[d], cellMax[d]);
+    
+            const double closestDelta = closest - center[d];
+    
+            minDistanceSquared += closestDelta * closestDelta;
+    
+            const double farthestDelta = std::max(
+                std::abs(cellMin[d] - center[d]),
+                std::abs(cellMax[d] - center[d]));
+    
+            maxDistanceSquared += farthestDelta * farthestDelta;
         }
-
-        if(minDistanceSquared <
-               radiusSquared &&
-           maxDistanceSquared >
-               radiusSquared)
-        {
-            return
-                SurfaceRelation::Cross;
-        }
-
-        if(minDistanceSquared ==
-               radiusSquared ||
-           maxDistanceSquared ==
-               radiusSquared)
-        {
-            return
-                SurfaceRelation::Touch;
-        }
-
-        return
-            SurfaceRelation::None;
+    
+        // Closed intersection: touching also counts.
+        return minDistanceSquared <= radiusSquared &&
+               maxDistanceSquared >= radiusSquared;
     }
 
 
