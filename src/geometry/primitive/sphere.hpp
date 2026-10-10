@@ -420,13 +420,6 @@ struct Sphere
 
 private:
 
-    enum class SurfaceRelation
-    {
-        None,
-        Touch,
-        Cross
-    };
-
 
     [[nodiscard]]
     bool pointInside(
