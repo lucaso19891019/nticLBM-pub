@@ -140,12 +140,126 @@ struct Rectangle
     }
 
 
+    
     template <lattice::LatticeType Type>
     void boundaryQAnalysis(
-        GeometryAnalysis2D<Type>&) const
+        GeometryAnalysis2D<Type>& analysis) const
     {
-        // Reserved for lattice-link q analysis.
+        using Lattice =
+            typename GeometryAnalysis2D<Type>::Lattice;
+    
+        constexpr std::size_t nLinks =
+            Lattice::nStencils - 1;
+    
+        const std::size_t boundaryCount =
+            analysis.boundaryX.size();
+    
+        if(analysis.boundaryY.size() != boundaryCount)
+        {
+            throw std::invalid_argument(
+                "Boundary coordinate sizes do not match.");
+        }
+    
+        const double h = analysis.gridSpacing;
+    
+        if(!std::isfinite(h) || h <= 0.0)
+        {
+            throw std::invalid_argument(
+                "Grid spacing must be finite and positive.");
+        }
+    
+        analysis.q.assign(
+            boundaryCount * nLinks, -1.0);
+    
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index < static_cast<std::ptrdiff_t>(boundaryCount);
+            ++index)
+        {
+            const std::size_t b =
+                static_cast<std::size_t>(index);
+    
+            const double px = analysis.boundaryX[b];
+            const double py = analysis.boundaryY[b];
+    
+            for(std::size_t i = 1;
+                i < Lattice::nStencils;
+                ++i)
+            {
+                const double dx =
+                    h * static_cast<double>(Lattice::ex[i]);
+    
+                const double dy =
+                    h * static_cast<double>(Lattice::ey[i]);
+    
+                double tEnter =
+                    -std::numeric_limits<double>::infinity();
+    
+                double tExit =
+                    std::numeric_limits<double>::infinity();
+    
+                bool valid = true;
+    
+                const double p[2] = {px, py};
+                const double d[2] = {dx, dy};
+    
+                for(std::size_t axis = 0; axis < 2; ++axis)
+                {
+                    if(d[axis] == 0.0)
+                    {
+                        if(p[axis] < min[axis] ||
+                           p[axis] > max[axis])
+                        {
+                            valid = false;
+                            break;
+                        }
+    
+                        continue;
+                    }
+    
+                    const double t1 =
+                        (min[axis] - p[axis]) / d[axis];
+    
+                    const double t2 =
+                        (max[axis] - p[axis]) / d[axis];
+    
+                    const double nearT = std::min(t1, t2);
+                    const double farT = std::max(t1, t2);
+    
+                    tEnter = std::max(tEnter, nearT);
+                    tExit = std::min(tExit, farT);
+    
+                    if(tEnter > tExit)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+    
+                if(!valid)
+                {
+                    continue;
+                }
+    
+                double qValue = -1.0;
+    
+                if(tEnter > 0.0 && tEnter <= 1.0)
+                {
+                    qValue = tEnter;
+                }
+    
+                if(tExit > 0.0 && tExit <= 1.0 &&
+                   (qValue < 0.0 || tExit < qValue))
+                {
+                    qValue = tExit;
+                }
+    
+                analysis.q[b * nLinks + (i - 1)] =
+                    qValue;
+            }
+        }
     }
+
 
 
     template <lattice::LatticeType Type>
