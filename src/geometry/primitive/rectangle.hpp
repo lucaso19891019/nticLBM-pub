@@ -295,7 +295,15 @@ struct Rectangle
         std::vector<CellType> cellTypes(
             cellCount, CellType::Dry);
 
-        std::vector<std::size_t> cellBoundaryIDs(cellCount, 0);
+        // Boundary coordinates and IDs are collected during classification.
+        auto& boundaryX = analysis.boundaryX;
+        auto& boundaryY = analysis.boundaryY;
+        
+        boundaryX.resize(cellCount);
+        boundaryY.resize(cellCount);
+        
+        std::vector<std::size_t> boundaryIDs(cellCount);
+        std::size_t boundaryCount = 0;
 
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
@@ -365,53 +373,18 @@ struct Rectangle
             
             if(intersects)
             {
-                cellBoundaryIDs[cellID] = boundaryID;
+                std::size_t slot = 0;
+            
+                #pragma omp atomic capture
+                slot = boundaryCount++;
+            
+                boundaryX[slot] = point[0];
+                boundaryY[slot] = point[1];
+                boundaryIDs[slot] = boundaryID;
             }
         }
-
-        // Compact Boundary coordinates and their geometric element IDs.
-        // The same slot is used for X, Y and boundaryIDs.
-        auto& boundaryX = analysis.boundaryX;
-        auto& boundaryY = analysis.boundaryY;
         
-        boundaryX.resize(cellCount);
-        boundaryY.resize(cellCount);
-        
-        std::vector<std::size_t> boundaryIDs(cellCount, 0);
-        std::size_t boundaryCount = 0;
-        
-        #pragma omp parallel for schedule(static)
-        for(std::ptrdiff_t index = 0;
-            index < static_cast<std::ptrdiff_t>(cellCount);
-            ++index)
-        {
-            const std::size_t cellID =
-                static_cast<std::size_t>(index);
-        
-            if(cellTypes[cellID] != CellType::Boundary)
-            {
-                continue;
-            }
-        
-            const std::size_t i = cellID % nx;
-            const std::size_t j = cellID / nx;
-        
-            std::size_t slot = 0;
-        
-            #pragma omp atomic capture
-            slot = boundaryCount++;
-        
-            boundaryX[slot] =
-                domain.min[0] +
-                (static_cast<double>(i) + 0.5) * gridSpacing;
-        
-            boundaryY[slot] =
-                domain.min[1] +
-                (static_cast<double>(j) + 0.5) * gridSpacing;
-        
-            boundaryIDs[slot] = cellBoundaryIDs[cellID];
-        }
-        
+        // All Boundary Cells have already been collected.
         boundaryX.resize(boundaryCount);
         boundaryY.resize(boundaryCount);
         boundaryIDs.resize(boundaryCount);
