@@ -387,6 +387,8 @@ struct Cylinder
         const std::size_t cellCount = nx * ny * nz;
         std::vector<CellType> cellTypes(cellCount, CellType::Dry);
 
+        std::vector<std::size_t> cellBoundaryIDs(cellCount, 0);
+
         // StencilCell half-width is h; its half-diagonal is sqrt(3)*h.
         const double stencilHalfDiagonal = std::sqrt(3.0) * h;
 
@@ -426,9 +428,24 @@ struct Cylinder
             const Point stencilMax{
                 centerPoint[0] + h, centerPoint[1] + h, centerPoint[2] + h
             };
-            const SurfaceRelation relation = surfaceRelation(stencilMin, stencilMax);
-            cellTypes[id] = relation == SurfaceRelation::None
-                ? CellType::Interior : CellType::Boundary;
+
+            bool intersects = false;
+            std::size_t boundaryID = 0;
+            
+            boundaryIntersection(
+                stencilMin,
+                stencilMax,
+                centerPoint,
+                intersects,
+                boundaryID);
+            
+            cellTypes[id] =
+                intersects ? CellType::Boundary : CellType::Interior;
+            
+            if(intersects)
+            {
+                cellBoundaryIDs[id] = boundaryID;
+            }
         }
 
         // Deterministic, parallel boundary-coordinate compaction.
@@ -681,155 +698,164 @@ private:
     }
 
 
-    [[nodiscard]]
-    SurfaceRelation surfaceRelation(
+    // Boundary element indices:
+    // 0: Lateral cylindrical surface
+    // 1: Negative-axis end cap
+    // 2: Positive-axis end cap
+    // 3: Negative-axis circular rim
+    // 4: Positive-axis circular rim
+    //
+    // Priority: circular rim (1D) before surface (2D).
+    // Same dimension: nearest finite feature, then lowest ID.
+    void boundaryIntersection(
         const Point& cellMin,
-        const Point& cellMax) const noexcept
+        const Point& cellMax,
+        const Point& point,
+        bool& intersects,
+        std::size_t& boundaryID) const noexcept
     {
-        std::size_t axialDimension = 2;
-        std::size_t radialDimension0 = 0;
-        std::size_t radialDimension1 = 1;
-
+        std::size_t a = 2, u = 0, v = 1;
+    
         if(axis == Axis::X)
         {
-            axialDimension = 0;
-            radialDimension0 = 1;
-            radialDimension1 = 2;
+            a = 0; u = 1; v = 2;
         }
         else if(axis == Axis::Y)
         {
-            axialDimension = 1;
-            radialDimension0 = 0;
-            radialDimension1 = 2;
+            a = 1; u = 0; v = 2;
         }
-
-        const double axialMin =
-            center[axialDimension] -
-            0.5 * length;
-
-        const double axialMax =
-            center[axialDimension] +
-            0.5 * length;
-
-        const bool axialClosedOverlap =
-            cellMax[axialDimension] >=
-                axialMin &&
-            cellMin[axialDimension] <=
-                axialMax;
-
-        if(!axialClosedOverlap)
-        {
-            return
-                SurfaceRelation::None;
-        }
-
-        const double closest0 =
-            std::clamp(
-                center[radialDimension0],
-                cellMin[radialDimension0],
-                cellMax[radialDimension0]);
-
-        const double closest1 =
-            std::clamp(
-                center[radialDimension1],
-                cellMin[radialDimension1],
-                cellMax[radialDimension1]);
-
-        const double closestDelta0 =
-            closest0 -
-            center[radialDimension0];
-
-        const double closestDelta1 =
-            closest1 -
-            center[radialDimension1];
-
-        const double minRadialSquared =
-            closestDelta0 *
-                closestDelta0 +
-            closestDelta1 *
-                closestDelta1;
-
-        const double farthestDelta0 =
-            std::max(
-                std::abs(
-                    cellMin[radialDimension0] -
-                    center[radialDimension0]),
-                std::abs(
-                    cellMax[radialDimension0] -
-                    center[radialDimension0]));
-
-        const double farthestDelta1 =
-            std::max(
-                std::abs(
-                    cellMin[radialDimension1] -
-                    center[radialDimension1]),
-                std::abs(
-                    cellMax[radialDimension1] -
-                    center[radialDimension1]));
-
+    
+        const double axialMin = center[a] - 0.5 * length;
+        const double axialMax = center[a] + 0.5 * length;
+        const double radiusSquared = radius * radius;
+    
+        const double closestU =
+            std::clamp(center[u], cellMin[u], cellMax[u]);
+        const double closestV =
+            std::clamp(center[v], cellMin[v], cellMax[v]);
+    
+        const double du = closestU - center[u];
+        const double dv = closestV - center[v];
+    
+        const double minRadialSquared = du * du + dv * dv;
+    
+        const double farU = std::max(
+            std::abs(cellMin[u] - center[u]),
+            std::abs(cellMax[u] - center[u]));
+    
+        const double farV = std::max(
+            std::abs(cellMin[v] - center[v]),
+            std::abs(cellMax[v] - center[v]));
+    
         const double maxRadialSquared =
-            farthestDelta0 *
-                farthestDelta0 +
-            farthestDelta1 *
-                farthestDelta1;
-
-        const double radiusSquared =
-            radius * radius;
-
-        const bool radialClosedOverlap =
-            minRadialSquared <=
-            radiusSquared;
-
-        if(!radialClosedOverlap)
+            farU * farU + farV * farV;
+    
+        const bool axialOverlap =
+            cellMax[a] >= axialMin &&
+            cellMin[a] <= axialMax;
+    
+        const bool diskOverlap =
+            minRadialSquared <= radiusSquared;
+    
+        const bool circleOverlap =
+            minRadialSquared <= radiusSquared &&
+            maxRadialSquared >= radiusSquared;
+    
+        const bool negativePlane =
+            cellMin[a] <= axialMin &&
+            cellMax[a] >= axialMin;
+    
+        const bool positivePlane =
+            cellMin[a] <= axialMax &&
+            cellMax[a] >= axialMax;
+    
+        const double radialDistance = std::hypot(
+            point[u] - center[u],
+            point[v] - center[v]);
+    
+        const double radialDelta = radialDistance - radius;
+    
+        intersects = false;
+        boundaryID = 0;
+    
+        int bestDimension = 3;
+        double bestDistance =
+            std::numeric_limits<double>::infinity();
+    
+        const auto consider = [&](std::size_t id,
+                                  int dimension,
+                                  bool hit,
+                                  double distance)
         {
-            return
-                SurfaceRelation::None;
-        }
-
-        const bool axialOpenOverlap =
-            cellMax[axialDimension] >
-                axialMin &&
-            cellMin[axialDimension] <
-                axialMax;
-
-        const bool radialOpenOverlap =
-            minRadialSquared <
-                radiusSquared;
-
-        const bool cellInsideClosed =
-            cellMin[axialDimension] >=
-                axialMin &&
-            cellMax[axialDimension] <=
-                axialMax &&
-            maxRadialSquared <=
-                radiusSquared;
-
-        const bool cellInsideOpen =
-            cellMin[axialDimension] >
-                axialMin &&
-            cellMax[axialDimension] <
-                axialMax &&
-            maxRadialSquared <
-                radiusSquared;
-
-        if(cellInsideOpen)
-        {
-            return
-                SurfaceRelation::None;
-        }
-
-        if(axialOpenOverlap &&
-           radialOpenOverlap &&
-           !cellInsideClosed)
-        {
-            return
-                SurfaceRelation::Cross;
-        }
-
-        return
-            SurfaceRelation::Touch;
+            if(!hit)
+            {
+                return;
+            }
+    
+            intersects = true;
+    
+            if(dimension < bestDimension ||
+               (dimension == bestDimension &&
+                (distance < bestDistance ||
+                 (distance == bestDistance && id < boundaryID))))
+            {
+                bestDimension = dimension;
+                bestDistance = distance;
+                boundaryID = id;
+            }
+        };
+    
+        const double axialClamped =
+            std::clamp(point[a], axialMin, axialMax);
+    
+        const double lateralAxialDelta =
+            point[a] - axialClamped;
+    
+        const double lateralDistanceSquared =
+            radialDelta * radialDelta +
+            lateralAxialDelta * lateralAxialDelta;
+    
+        const double outsideRadial =
+            std::max(radialDelta, 0.0);
+    
+        const double negativeAxialDelta =
+            point[a] - axialMin;
+    
+        const double positiveAxialDelta =
+            point[a] - axialMax;
+    
+        // Finite lateral cylindrical surface.
+        consider(
+            0, 2,
+            axialOverlap && circleOverlap,
+            lateralDistanceSquared);
+    
+        // Finite circular end caps.
+        consider(
+            1, 2,
+            negativePlane && diskOverlap,
+            negativeAxialDelta * negativeAxialDelta +
+                outsideRadial * outsideRadial);
+    
+        consider(
+            2, 2,
+            positivePlane && diskOverlap,
+            positiveAxialDelta * positiveAxialDelta +
+                outsideRadial * outsideRadial);
+    
+        // Circular rims: lower-dimensional priority.
+        consider(
+            3, 1,
+            negativePlane && circleOverlap,
+            negativeAxialDelta * negativeAxialDelta +
+                radialDelta * radialDelta);
+    
+        consider(
+            4, 1,
+            positivePlane && circleOverlap,
+            positiveAxialDelta * positiveAxialDelta +
+                radialDelta * radialDelta);
     }
-
 
     void validateOpenBox(
         const BoundingBox& box) const
