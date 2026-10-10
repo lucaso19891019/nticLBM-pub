@@ -36,7 +36,18 @@ struct GeometryAnalysis2D
 
     std::vector<double> boundaryX;
     std::vector<double> boundaryY;
-
+    
+    // Number of geometric boundary elements.
+    // Fixed by the geometry, independent of grid resolution.
+    std::size_t nBoundaries = 0;
+    
+    // Boundary k occupies the half-open interval:
+    // [boundaryOffsets[k], boundaryOffsets[k + 1]).
+    //
+    // Size: nBoundaries + 1.
+    // Empty boundary groups are allowed.
+    std::vector<std::size_t> boundaryOffsets{0};
+    
     std::vector<double> q;
 
 
@@ -86,7 +97,18 @@ struct GeometryAnalysis3D
     std::vector<double> boundaryX;
     std::vector<double> boundaryY;
     std::vector<double> boundaryZ;
-
+    
+    // Number of geometric boundary elements.
+    // Fixed by the geometry, independent of grid resolution.
+    std::size_t nBoundaries = 0;
+    
+    // Boundary k occupies the half-open interval:
+    // [boundaryOffsets[k], boundaryOffsets[k + 1]).
+    //
+    // Size: nBoundaries + 1.
+    // Empty boundary groups are allowed.
+    std::vector<std::size_t> boundaryOffsets{0};
+    
     std::vector<double> q;
 
 
