@@ -237,8 +237,13 @@ STLGeometry::STLGeometry(
 
 
     analyzeContainment();
-
+    
     interpretFlow();
+    
+    if(flowType == FlowType::Internal)
+    {
+        identifyBoundaryFeatures();
+    }
 }
 
 } // namespace ntic::lbm::geometry
