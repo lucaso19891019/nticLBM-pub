@@ -388,7 +388,13 @@ struct Cylinder
         const std::size_t cellCount = nx * ny * nz;
         std::vector<CellType> cellTypes(cellCount, CellType::Dry);
 
-        std::vector<std::size_t> cellBoundaryIDs(cellCount, 0);
+        // Preallocate storage for parallel Boundary collection.
+        analysis.boundaryX.resize(cellCount);
+        analysis.boundaryY.resize(cellCount);
+        analysis.boundaryZ.resize(cellCount);
+        
+        std::vector<std::size_t> boundaryIDs(cellCount);
+        std::size_t boundaryCount = 0;
 
         // StencilCell half-width is h; its half-diagonal is sqrt(3)*h.
         const double stencilHalfDiagonal = std::sqrt(3.0) * h;
@@ -445,97 +451,24 @@ struct Cylinder
             
             if(intersects)
             {
-                cellBoundaryIDs[id] = boundaryID;
+                std::size_t slot = 0;
+            
+                #pragma omp atomic capture
+                slot = boundaryCount++;
+            
+                analysis.boundaryX[slot] = centerPoint[0];
+                analysis.boundaryY[slot] = centerPoint[1];
+                analysis.boundaryZ[slot] = centerPoint[2];
+            
+                boundaryIDs[slot] = boundaryID;
             }
         }
 
-        // Compact Boundary coordinates and geometric element IDs.
-        // Fixed-size blocks preserve deterministic cell-index order.
-        constexpr std::size_t blockSize = 4096;
-        
-        const std::size_t blockCount =
-            cellCount / blockSize +
-            (cellCount % blockSize != 0 ? 1 : 0);
-        
-        std::vector<std::size_t> blockOffsets(blockCount + 1, 0);
-        
-        #pragma omp parallel for schedule(static)
-        for(std::ptrdiff_t block = 0;
-            block < static_cast<std::ptrdiff_t>(blockCount);
-            ++block)
-        {
-            const std::size_t b = static_cast<std::size_t>(block);
-            const std::size_t begin = b * blockSize;
-            const std::size_t end =
-                std::min(begin + blockSize, cellCount);
-        
-            std::size_t count = 0;
-        
-            for(std::size_t id = begin; id < end; ++id)
-            {
-                if(cellTypes[id] == CellType::Boundary)
-                {
-                    ++count;
-                }
-            }
-        
-            blockOffsets[b + 1] = count;
-        }
-        
-        for(std::size_t b = 0; b < blockCount; ++b)
-        {
-            blockOffsets[b + 1] += blockOffsets[b];
-        }
-        
-        const std::size_t boundaryCount =
-            blockOffsets[blockCount];
-        
+        // Boundary coordinates and IDs were collected during classification.
         analysis.boundaryX.resize(boundaryCount);
         analysis.boundaryY.resize(boundaryCount);
         analysis.boundaryZ.resize(boundaryCount);
-        
-        std::vector<std::size_t> boundaryIDs(boundaryCount, 0);
-        
-        #pragma omp parallel for schedule(static)
-        for(std::ptrdiff_t block = 0;
-            block < static_cast<std::ptrdiff_t>(blockCount);
-            ++block)
-        {
-            const std::size_t b = static_cast<std::size_t>(block);
-            const std::size_t begin = b * blockSize;
-            const std::size_t end =
-                std::min(begin + blockSize, cellCount);
-        
-            std::size_t slot = blockOffsets[b];
-        
-            for(std::size_t id = begin; id < end; ++id)
-            {
-                if(cellTypes[id] != CellType::Boundary)
-                {
-                    continue;
-                }
-        
-                const std::size_t i = id % nx;
-                const std::size_t j = (id / nx) % ny;
-                const std::size_t k = id / (nx * ny);
-        
-                analysis.boundaryX[slot] =
-                    domain.min[0] +
-                    (static_cast<double>(i) + 0.5) * h;
-        
-                analysis.boundaryY[slot] =
-                    domain.min[1] +
-                    (static_cast<double>(j) + 0.5) * h;
-        
-                analysis.boundaryZ[slot] =
-                    domain.min[2] +
-                    (static_cast<double>(k) + 0.5) * h;
-        
-                boundaryIDs[slot] = cellBoundaryIDs[id];
-        
-                ++slot;
-            }
-        }
+        boundaryIDs.resize(boundaryCount);
         
         // Fixed geometric element count:
         analysis.nBoundaries = 5; 
