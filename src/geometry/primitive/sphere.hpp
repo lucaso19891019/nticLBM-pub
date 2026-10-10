@@ -396,6 +396,17 @@ struct Sphere
             }
         }
 
+        // Boundary element indices:
+        // 0: Spherical surface.
+        //
+        // boundaryOffsets[0]: Start of spherical surface.
+        // boundaryOffsets[1]: End of spherical surface.
+        analysis.nBoundaries = 1;
+        analysis.boundaryOffsets = {
+            0,
+            boundaryCount
+        };
+
         analysis.scalar.resize(cellCount);
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
