@@ -12,6 +12,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <limits>
 
 namespace ntic::lbm::geometry
 {
