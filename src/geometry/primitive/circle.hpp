@@ -400,10 +400,21 @@ struct Circle
                 gridSpacing;
         }
 
-        boundaryX.resize(boundaryCount);
-        boundaryY.resize(boundaryCount);
-
-        analysis.scalar.resize(cellCount);
+    boundaryX.resize(boundaryCount);
+    boundaryY.resize(boundaryCount);
+    
+    // Boundary element indices:
+    // 0: Circular circumference.
+    //
+    // boundaryOffsets[0]: Start of circular circumference.
+    // boundaryOffsets[1]: End of circular circumference.
+    analysis.nBoundaries = 1;
+    analysis.boundaryOffsets = {
+        0,
+        boundaryCount
+    };
+    
+    analysis.scalar.resize(cellCount);
 
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
