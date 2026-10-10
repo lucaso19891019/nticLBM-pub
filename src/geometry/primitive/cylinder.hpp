@@ -156,11 +156,215 @@ struct Cylinder
         boundaryQAnalysis(analysis);
     }
 
+
     template <lattice::LatticeType Type>
-    void boundaryQAnalysis(GeometryAnalysis3D<Type>&) const
+    void boundaryQAnalysis(
+        GeometryAnalysis3D<Type>& analysis) const
     {
-        // Reserved for lattice-link q analysis.
+        using Lattice =
+            typename GeometryAnalysis3D<Type>::Lattice;
+    
+        constexpr std::size_t nLinks =
+            Lattice::nStencils - 1;
+    
+        const std::size_t boundaryCount =
+            analysis.boundaryX.size();
+    
+        if(analysis.boundaryY.size() != boundaryCount ||
+           analysis.boundaryZ.size() != boundaryCount)
+        {
+            throw std::invalid_argument(
+                "Boundary coordinate sizes do not match.");
+        }
+    
+        const double h = analysis.gridSpacing;
+    
+        if(!std::isfinite(h) || h <= 0.0)
+        {
+            throw std::invalid_argument(
+                "Grid spacing must be finite and positive.");
+        }
+    
+        analysis.q.assign(
+            boundaryCount * nLinks, -1.0);
+    
+        // Identify axial and radial coordinate dimensions.
+        std::size_t axialDimension = 2;
+        std::size_t radialDimension0 = 0;
+        std::size_t radialDimension1 = 1;
+    
+        if(axis == Axis::X)
+        {
+            axialDimension = 0;
+            radialDimension0 = 1;
+            radialDimension1 = 2;
+        }
+        else if(axis == Axis::Y)
+        {
+            axialDimension = 1;
+            radialDimension0 = 0;
+            radialDimension1 = 2;
+        }
+        else if(axis != Axis::Z)
+        {
+            throw std::invalid_argument(
+                "Unsupported Cylinder axis.");
+        }
+    
+        const double halfLength = 0.5 * length;
+        const double radiusSquared = radius * radius;
+    
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t index = 0;
+            index < static_cast<std::ptrdiff_t>(boundaryCount);
+            ++index)
+        {
+            const std::size_t b =
+                static_cast<std::size_t>(index);
+    
+            // Position relative to the Cylinder center.
+            const double p[3] = {
+                analysis.boundaryX[b] - center[0],
+                analysis.boundaryY[b] - center[1],
+                analysis.boundaryZ[b] - center[2]
+            };
+    
+            const double pa = p[axialDimension];
+            const double pr0 = p[radialDimension0];
+            const double pr1 = p[radialDimension1];
+    
+            for(std::size_t i = 1;
+                i < Lattice::nStencils;
+                ++i)
+            {
+                const double d[3] = {
+                    h * static_cast<double>(Lattice::ex[i]),
+                    h * static_cast<double>(Lattice::ey[i]),
+                    h * static_cast<double>(Lattice::ez[i])
+                };
+    
+                const double da = d[axialDimension];
+                const double dr0 = d[radialDimension0];
+                const double dr1 = d[radialDimension1];
+    
+                double qValue = -1.0;
+    
+                // Part 1: intersection with the lateral surface.
+                //
+                // (pr0 + q*dr0)^2 +
+                // (pr1 + q*dr1)^2 = radius^2
+    
+                const double A =
+                    dr0 * dr0 + dr1 * dr1;
+    
+                const double B =
+                    2.0 * (pr0 * dr0 + pr1 * dr1);
+    
+                const double C =
+                    pr0 * pr0 + pr1 * pr1 -
+                    radiusSquared;
+    
+                if(A > 0.0)
+                {
+                    const double discriminant =
+                        B * B - 4.0 * A * C;
+    
+                    if(discriminant >= 0.0)
+                    {
+                        const double sqrtD =
+                            std::sqrt(discriminant);
+    
+                        const double rootTerm =
+                            -0.5 *
+                            (B + std::copysign(sqrtD, B));
+    
+                        double root1;
+                        double root2;
+    
+                        if(rootTerm == 0.0)
+                        {
+                            root1 = -B / (2.0 * A);
+                            root2 = root1;
+                        }
+                        else
+                        {
+                            root1 = rootTerm / A;
+                            root2 = C / rootTerm;
+                        }
+    
+                        // A lateral intersection must lie
+                        // between the two end caps.
+                        if(root1 > 0.0 && root1 <= 1.0)
+                        {
+                            const double axial =
+                                pa + root1 * da;
+    
+                            if(std::abs(axial) <= halfLength)
+                            {
+                                qValue = root1;
+                            }
+                        }
+    
+                        if(root2 > 0.0 && root2 <= 1.0)
+                        {
+                            const double axial =
+                                pa + root2 * da;
+    
+                            if(std::abs(axial) <= halfLength &&
+                               (qValue < 0.0 ||
+                                root2 < qValue))
+                            {
+                                qValue = root2;
+                            }
+                        }
+                    }
+                }
+    
+                // Part 2: intersection with the two end caps.
+                //
+                // pa + q*da = +/- halfLength
+    
+                if(da != 0.0)
+                {
+                    for(int sign = -1; sign <= 1; sign += 2)
+                    {
+                        const double capPosition =
+                            static_cast<double>(sign) *
+                            halfLength;
+    
+                        const double root =
+                            (capPosition - pa) / da;
+    
+                        if(root <= 0.0 || root > 1.0)
+                        {
+                            continue;
+                        }
+    
+                        const double radial0 =
+                            pr0 + root * dr0;
+    
+                        const double radial1 =
+                            pr1 + root * dr1;
+    
+                        const double radialSquared =
+                            radial0 * radial0 +
+                            radial1 * radial1;
+    
+                        if(radialSquared <= radiusSquared &&
+                           (qValue < 0.0 ||
+                            root < qValue))
+                        {
+                            qValue = root;
+                        }
+                    }
+                }
+    
+                analysis.q[b * nLinks + (i - 1)] =
+                    qValue;
+            }
+        }
     }
+
 
     template <lattice::LatticeType Type>
     void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const
