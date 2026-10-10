@@ -13,7 +13,6 @@
 
 namespace ntic::lbm::geometry
 {
-
 struct STLComponentContainment
 {
     std::size_t parent = std::numeric_limits<std::size_t>::max();
@@ -22,11 +21,7 @@ struct STLComponentContainment
     std::size_t level = 0;
 };
 
-enum class FluidSide
-{
-    Inside,
-    Outside
-};
+enum class FluidSide { Inside, Outside };
 
 struct STLComponentFlow
 {
@@ -41,15 +36,22 @@ struct STLFeatureEdge
     std::size_t edgeID = 0;
 };
 
+struct STLPlanarFaceInfo
+{
+    std::size_t faceID = 0;          // Current contiguous Face ID
+    std::size_t originalFaceID = 0;  // ID before exclusions
+    std::size_t facetCount = 0;
+    double area = 0.0;
+    bool small = false;              // Warning only; never auto-exclude
+};
+
 struct STLBoundaryFeatures
 {
-    // 0: all nonplanar facets
-    // 1...nPlanarFaces: connected planar regions
+    // 0: nonplanar or explicitly excluded facets
+    // 1..nPlanarFaces: retained connected planar regions
     std::vector<std::size_t> facetFaceIDs;
-
-    // Mesh segments belonging to feature curves.
     std::vector<STLFeatureEdge> edges;
-
+    std::vector<STLPlanarFaceInfo> planarFaces;
     std::size_t nPlanarFaces = 0;
     std::size_t nFeatureEdges = 0;
 };
@@ -64,62 +66,49 @@ struct STLGeometry
     FlowType flowType;
     STLBoundaryFeatures boundaryFeatures;
 
-    STLGeometry(
-        stl::FacetTopology topology,
-        FlowType flowType = FlowType::Internal,
-        const BoundingBox* openBox = nullptr);
+    STLGeometry(stl::FacetTopology topology,
+                FlowType flowType = FlowType::Internal,
+                const BoundingBox* openBox = nullptr);
 
     void analyzeContainment();
-
-    [[nodiscard]]
-    bool pointInComponent(
-        std::size_t componentID,
-        const Point& point) const;
-
-    [[nodiscard]]
-    Point componentTestPoint(
-        std::size_t componentID) const;
-
-    [[nodiscard]]
-    bool componentInComponent(
-        std::size_t innerComponentID,
-        std::size_t outerComponentID) const;
+    [[nodiscard]] bool pointInComponent(std::size_t componentID,
+                                        const Point& point) const;
+    [[nodiscard]] Point componentTestPoint(std::size_t componentID) const;
+    [[nodiscard]] bool componentInComponent(std::size_t innerComponentID,
+                                            std::size_t outerComponentID) const;
 
     void interpretFlow();
     void validateContainmentAvailable() const;
 
-    void identifyBoundaryFeatures();
+    void identifyBoundaryFeatures(
+        const std::vector<std::size_t>& excludedFaceIDs = {},
+        double smallFaceAreaRatio = 1.0e-6);
+    void printBoundaryFeatureReport() const;
 
-    [[nodiscard]]
-    std::size_t countRoots() const;
-
+    [[nodiscard]] std::size_t countRoots() const;
     void validateFlowStructure(std::size_t rootCount) const;
     void assignInternalFlow();
     void assignExternalFlow();
     void assignFlowSemantics();
-
-    [[nodiscard]]
-    bool componentIsOutward(std::size_t componentID) const;
-
+    [[nodiscard]] bool componentIsOutward(std::size_t componentID) const;
     void flipComponent(std::size_t componentID);
     void normalizeOrientation();
-
     void translate(const Point* targetPoint = nullptr);
 
-    template <lattice::LatticeType Type>
+    template<lattice::LatticeType Type>
     void analysis(GeometryAnalysis3D<Type>& analysis) const
     {
         interiorAreaAnalysis(analysis);
         boundaryQAnalysis(analysis);
     }
 
-    template <lattice::LatticeType Type>
+    template<lattice::LatticeType Type>
     void boundaryQAnalysis(GeometryAnalysis3D<Type>&) const
     {
         // Reserved for lattice-link q analysis.
     }
 
-    template <lattice::LatticeType Type>
+    template<lattice::LatticeType Type>
     void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const;
 };
 
