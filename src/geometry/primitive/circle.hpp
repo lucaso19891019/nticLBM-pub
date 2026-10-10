@@ -351,13 +351,10 @@ struct Circle
                 point[1] + gridSpacing
             };
 
-            const SurfaceRelation relation =
-                surfaceRelation(stencilMin, stencilMax);
-
             cellTypes[cellID] =
-                relation == SurfaceRelation::None
-                    ? CellType::Interior
-                    : CellType::Boundary;
+                intersectsSurface(stencilMin, stencilMax)
+                    ? CellType::Boundary
+                    : CellType::Interior;
         }
 
         auto& boundaryX = analysis.boundaryX;
@@ -474,73 +471,38 @@ private:
 
 
     [[nodiscard]]
-    SurfaceRelation surfaceRelation(
+    bool intersectsSurface(
         const Point2D& cellMin,
         const Point2D& cellMax) const noexcept
     {
         const double closestX =
-            std::clamp(
-                center[0],
-                cellMin[0],
-                cellMax[0]);
-
+            std::clamp(center[0], cellMin[0], cellMax[0]);
+    
         const double closestY =
-            std::clamp(
-                center[1],
-                cellMin[1],
-                cellMax[1]);
-
-        const double closestDX =
-            closestX - center[0];
-
-        const double closestDY =
-            closestY - center[1];
-
-        const double minDistanceSquared =
-            closestDX * closestDX +
-            closestDY * closestDY;
-
-        const double farthestDX =
-            std::max(
-                std::abs(
-                    cellMin[0] - center[0]),
-                std::abs(
-                    cellMax[0] - center[0]));
-
-        const double farthestDY =
-            std::max(
-                std::abs(
-                    cellMin[1] - center[1]),
-                std::abs(
-                    cellMax[1] - center[1]));
-
+            std::clamp(center[1], cellMin[1], cellMax[1]);
+    
+        const double dx = closestX - center[0];
+        const double dy = closestY - center[1];
+    
+        const double minDistanceSquared = dx * dx + dy * dy;
+    
+        const double farthestDX = std::max(
+            std::abs(cellMin[0] - center[0]),
+            std::abs(cellMax[0] - center[0]));
+    
+        const double farthestDY = std::max(
+            std::abs(cellMin[1] - center[1]),
+            std::abs(cellMax[1] - center[1]));
+    
         const double maxDistanceSquared =
             farthestDX * farthestDX +
             farthestDY * farthestDY;
-
-        const double radiusSquared =
-            radius * radius;
-
-        if(minDistanceSquared <
-               radiusSquared &&
-           maxDistanceSquared >
-               radiusSquared)
-        {
-            return
-                SurfaceRelation::Cross;
-        }
-
-        if(minDistanceSquared ==
-               radiusSquared ||
-           maxDistanceSquared ==
-               radiusSquared)
-        {
-            return
-                SurfaceRelation::Touch;
-        }
-
-        return
-            SurfaceRelation::None;
+    
+        const double radiusSquared = radius * radius;
+    
+        // Closed intersection: touching also counts.
+        return minDistanceSquared <= radiusSquared &&
+               maxDistanceSquared >= radiusSquared;
     }
 
     void validateOpenBox(
