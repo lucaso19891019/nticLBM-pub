@@ -498,13 +498,6 @@ struct Cylinder
 
 private:
 
-    enum class SurfaceRelation
-    {
-        None,
-        Touch,
-        Cross
-    };
-
 
     [[nodiscard]]
     BoundingBox makeBounds() const noexcept
