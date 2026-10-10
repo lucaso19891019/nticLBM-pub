@@ -369,14 +369,17 @@ struct Rectangle
             }
         }
 
+        // Compact Boundary coordinates and their geometric element IDs.
+        // The same slot is used for X, Y and boundaryIDs.
         auto& boundaryX = analysis.boundaryX;
         auto& boundaryY = analysis.boundaryY;
-
+        
         boundaryX.resize(cellCount);
         boundaryY.resize(cellCount);
-
+        
+        std::vector<std::size_t> boundaryIDs(cellCount, 0);
         std::size_t boundaryCount = 0;
-
+        
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
             index < static_cast<std::ptrdiff_t>(cellCount);
@@ -384,35 +387,67 @@ struct Rectangle
         {
             const std::size_t cellID =
                 static_cast<std::size_t>(index);
-
+        
             if(cellTypes[cellID] != CellType::Boundary)
             {
                 continue;
             }
-
+        
             const std::size_t i = cellID % nx;
             const std::size_t j = cellID / nx;
-
+        
             std::size_t slot = 0;
-
+        
             #pragma omp atomic capture
             slot = boundaryCount++;
-
+        
             boundaryX[slot] =
                 domain.min[0] +
-                (static_cast<double>(i) + 0.5) *
-                gridSpacing;
-
+                (static_cast<double>(i) + 0.5) * gridSpacing;
+        
             boundaryY[slot] =
                 domain.min[1] +
-                (static_cast<double>(j) + 0.5) *
-                gridSpacing;
+                (static_cast<double>(j) + 0.5) * gridSpacing;
+        
+            boundaryIDs[slot] = cellBoundaryIDs[cellID];
         }
-
+        
         boundaryX.resize(boundaryCount);
         boundaryY.resize(boundaryCount);
-
-        analysis.scalar.resize(cellCount);
+        boundaryIDs.resize(boundaryCount);
+        
+        // Count Boundary Cells belonging to each geometric element.
+        analysis.nBoundaries = 8;
+        analysis.boundaryOffsets.assign(analysis.nBoundaries + 1, 0);
+        
+        for(const std::size_t id : boundaryIDs)
+        {
+            ++analysis.boundaryOffsets[id + 1];
+        }
+        
+        // Prefix sum.
+        for(std::size_t k = 0; k < analysis.nBoundaries; ++k)
+        {
+            analysis.boundaryOffsets[k + 1] +=
+                analysis.boundaryOffsets[k];
+        }
+        
+        // Stable grouping by boundary element ID.
+        std::vector<std::size_t> next = analysis.boundaryOffsets;
+        
+        std::vector<double> groupedX(boundaryCount);
+        std::vector<double> groupedY(boundaryCount);
+        
+        for(std::size_t b = 0; b < boundaryCount; ++b)
+        {
+            const std::size_t slot = next[boundaryIDs[b]]++;
+        
+            groupedX[slot] = boundaryX[b];
+            groupedY[slot] = boundaryY[b];
+        }
+        
+        boundaryX.swap(groupedX);
+        boundaryY.swap(groupedY);
 
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
