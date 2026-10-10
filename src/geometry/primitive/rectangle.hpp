@@ -295,6 +295,8 @@ struct Rectangle
         std::vector<CellType> cellTypes(
             cellCount, CellType::Dry);
 
+        std::vector<std::size_t> cellBoundaryIDs(cellCount, 0);
+
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
             index < static_cast<std::ptrdiff_t>(cellCount);
@@ -348,13 +350,23 @@ struct Rectangle
                 point[1] + gridSpacing
             };
 
-            const SurfaceRelation relation =
-                surfaceRelation(stencilMin, stencilMax);
-
+            bool intersects = false;
+            std::size_t boundaryID = 0;
+            
+            boundaryIntersection(
+                stencilMin,
+                stencilMax,
+                point,
+                intersects,
+                boundaryID);
+            
             cellTypes[cellID] =
-                relation == SurfaceRelation::None
-                    ? CellType::Interior
-                    : CellType::Boundary;
+                intersects ? CellType::Boundary : CellType::Interior;
+            
+            if(intersects)
+            {
+                cellBoundaryIDs[cellID] = boundaryID;
+            }
         }
 
         auto& boundaryX = analysis.boundaryX;
@@ -470,56 +482,75 @@ private:
     }
 
 
-    [[nodiscard]]
-    SurfaceRelation surfaceRelation(
+    // Boundary element indices:
+    // 0: Bottom edge       y = min[1]
+    // 1: Right edge        x = max[0]
+    // 2: Top edge          y = max[1]
+    // 3: Left edge         x = min[0]
+    // 4: Bottom-left vertex
+    // 5: Bottom-right vertex
+    // 6: Top-right vertex
+    // 7: Top-left vertex
+    //
+    // Dimension priority: vertex (0D) before edge (1D).
+    // Same dimension: nearest finite feature, then lowest ID.
+    void boundaryIntersection(
         const Point2D& cellMin,
-        const Point2D& cellMax) const noexcept
+        const Point2D& cellMax,
+        const Point2D& point,
+        bool& intersects,
+        std::size_t& boundaryID) const noexcept
     {
-        const bool closedOverlap =
-            cellMax[0] >= min[0] &&
-            cellMin[0] <= max[0] &&
-            cellMax[1] >= min[1] &&
-            cellMin[1] <= max[1];
-
-        if(!closedOverlap)
+        intersects = false;
+        boundaryID = 0;
+    
+        double bestDistance = std::numeric_limits<double>::infinity();
+        int bestDimension = 2;
+    
+        const auto consider = [&](std::size_t id,
+                                  int dimension,
+                                  const Point2D& featureMin,
+                                  const Point2D& featureMax)
         {
-            return
-                SurfaceRelation::None;
-        }
-
-        const bool cellInsideOpen =
-            cellMin[0] > min[0] &&
-            cellMax[0] < max[0] &&
-            cellMin[1] > min[1] &&
-            cellMax[1] < max[1];
-
-        if(cellInsideOpen)
-        {
-            return
-                SurfaceRelation::None;
-        }
-
-        const bool cellInsideClosed =
-            cellMin[0] >= min[0] &&
-            cellMax[0] <= max[0] &&
-            cellMin[1] >= min[1] &&
-            cellMax[1] <= max[1];
-
-        const bool openOverlap =
-            cellMax[0] > min[0] &&
-            cellMin[0] < max[0] &&
-            cellMax[1] > min[1] &&
-            cellMin[1] < max[1];
-
-        if(openOverlap &&
-           !cellInsideClosed)
-        {
-            return
-                SurfaceRelation::Cross;
-        }
-
-        return
-            SurfaceRelation::Touch;
+            if(cellMax[0] < featureMin[0] ||
+               cellMin[0] > featureMax[0] ||
+               cellMax[1] < featureMin[1] ||
+               cellMin[1] > featureMax[1])
+            {
+                return;
+            }
+    
+            intersects = true;
+    
+            const double dx = point[0] -
+                std::clamp(point[0], featureMin[0], featureMax[0]);
+            const double dy = point[1] -
+                std::clamp(point[1], featureMin[1], featureMax[1]);
+    
+            const double distance = dx * dx + dy * dy;
+    
+            if(dimension < bestDimension ||
+               (dimension == bestDimension &&
+                (distance < bestDistance ||
+                 (distance == bestDistance && id < boundaryID))))
+            {
+                bestDimension = dimension;
+                bestDistance = distance;
+                boundaryID = id;
+            }
+        };
+    
+        // Four finite edges.
+        consider(0, 1, {min[0], min[1]}, {max[0], min[1]});
+        consider(1, 1, {max[0], min[1]}, {max[0], max[1]});
+        consider(2, 1, {min[0], max[1]}, {max[0], max[1]});
+        consider(3, 1, {min[0], min[1]}, {min[0], max[1]});
+    
+        // Four vertices.
+        consider(4, 0, {min[0], min[1]}, {min[0], min[1]});
+        consider(5, 0, {max[0], min[1]}, {max[0], min[1]});
+        consider(6, 0, {max[0], max[1]}, {max[0], max[1]});
+        consider(7, 0, {min[0], max[1]}, {min[0], max[1]});
     }
 
 
