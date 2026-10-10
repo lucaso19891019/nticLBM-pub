@@ -512,13 +512,6 @@ struct Box
 
 private:
 
-    enum class SurfaceRelation
-    {
-        None,
-        Touch,
-        Cross
-    };
-
 
     [[nodiscard]]
     bool pointInside(
