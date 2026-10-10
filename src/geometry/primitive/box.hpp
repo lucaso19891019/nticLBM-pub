@@ -317,6 +317,8 @@ struct Box
         std::vector<CellType> cellTypes(
             cellCount, CellType::Dry);
 
+        std::vector<std::size_t> cellBoundaryIDs(cellCount, 0);
+
         // A StencilCell has half-width h, not 0.5*h.
         // Its maximum center-to-corner distance is sqrt(3)*h.
         const double stencilHalfDiagonal =
@@ -384,13 +386,23 @@ struct Box
                 center[2] + h
             };
 
-            const SurfaceRelation relation =
-                surfaceRelation(stencilMin, stencilMax);
-
+            bool intersects = false;
+            std::size_t boundaryID = 0;
+            
+            boundaryIntersection(
+                stencilMin,
+                stencilMax,
+                center,
+                intersects,
+                boundaryID);
+            
             cellTypes[cellID] =
-                relation == SurfaceRelation::None
-                    ? CellType::Interior
-                    : CellType::Boundary;
+                intersects ? CellType::Boundary : CellType::Interior;
+            
+            if(intersects)
+            {
+                cellBoundaryIDs[cellID] = boundaryID;
+            }
         }
 
         // Compact Boundary coordinates in parallel.
@@ -575,66 +587,123 @@ private:
     }
 
 
-    [[nodiscard]]
-    SurfaceRelation surfaceRelation(
+    // Boundary element indices:
+    //
+    // Faces:
+    //  0 X-min, 1 X-max, 2 Y-min, 3 Y-max,
+    //  4 Z-min, 5 Z-max
+    //
+    // Edges parallel to X:
+    //  6 (Y-min,Z-min), 7 (Y-max,Z-min),
+    //  8 (Y-max,Z-max), 9 (Y-min,Z-max)
+    //
+    // Edges parallel to Y:
+    // 10 (X-min,Z-min), 11 (X-max,Z-min),
+    // 12 (X-max,Z-max), 13 (X-min,Z-max)
+    //
+    // Edges parallel to Z:
+    // 14 (X-min,Y-min), 15 (X-max,Y-min),
+    // 16 (X-max,Y-max), 17 (X-min,Y-max)
+    //
+    // Vertices:
+    // 18 (X-min,Y-min,Z-min)
+    // 19 (X-max,Y-min,Z-min)
+    // 20 (X-max,Y-max,Z-min)
+    // 21 (X-min,Y-max,Z-min)
+    // 22 (X-min,Y-min,Z-max)
+    // 23 (X-max,Y-min,Z-max)
+    // 24 (X-max,Y-max,Z-max)
+    // 25 (X-min,Y-max,Z-max)
+    //
+    // Priority: vertex (0D), edge (1D), face (2D).
+    void boundaryIntersection(
         const Point& cellMin,
-        const Point& cellMax) const noexcept
+        const Point& cellMax,
+        const Point& point,
+        bool& intersects,
+        std::size_t& boundaryID) const noexcept
     {
-        const bool closedOverlap =
-            cellMax[0] >= min[0] &&
-            cellMin[0] <= max[0] &&
-            cellMax[1] >= min[1] &&
-            cellMin[1] <= max[1] &&
-            cellMax[2] >= min[2] &&
-            cellMin[2] <= max[2];
-
-        if(!closedOverlap)
+        intersects = false;
+        boundaryID = 0;
+    
+        int bestDimension = 3;
+        double bestDistance =
+            std::numeric_limits<double>::infinity();
+    
+        const auto consider = [&](std::size_t id,
+                                  int dimension,
+                                  const Point& featureMin,
+                                  const Point& featureMax)
         {
-            return
-                SurfaceRelation::None;
-        }
-
-        const bool cellInsideOpen =
-            cellMin[0] > min[0] &&
-            cellMax[0] < max[0] &&
-            cellMin[1] > min[1] &&
-            cellMax[1] < max[1] &&
-            cellMin[2] > min[2] &&
-            cellMax[2] < max[2];
-
-        if(cellInsideOpen)
-        {
-            return
-                SurfaceRelation::None;
-        }
-
-        const bool cellInsideClosed =
-            cellMin[0] >= min[0] &&
-            cellMax[0] <= max[0] &&
-            cellMin[1] >= min[1] &&
-            cellMax[1] <= max[1] &&
-            cellMin[2] >= min[2] &&
-            cellMax[2] <= max[2];
-
-        const bool openOverlap =
-            cellMax[0] > min[0] &&
-            cellMin[0] < max[0] &&
-            cellMax[1] > min[1] &&
-            cellMin[1] < max[1] &&
-            cellMax[2] > min[2] &&
-            cellMin[2] < max[2];
-
-        if(openOverlap &&
-           !cellInsideClosed)
-        {
-            return
-                SurfaceRelation::Cross;
-        }
-
-        return
-            SurfaceRelation::Touch;
+            double distance = 0.0;
+    
+            for(std::size_t d = 0; d < 3; ++d)
+            {
+                if(cellMax[d] < featureMin[d] ||
+                   cellMin[d] > featureMax[d])
+                {
+                    return;
+                }
+    
+                const double delta = point[d] -
+                    std::clamp(point[d], featureMin[d], featureMax[d]);
+    
+                distance += delta * delta;
+            }
+    
+            intersects = true;
+    
+            if(dimension < bestDimension ||
+               (dimension == bestDimension &&
+                (distance < bestDistance ||
+                 (distance == bestDistance && id < boundaryID))))
+            {
+                bestDimension = dimension;
+                bestDistance = distance;
+                boundaryID = id;
+            }
+        };
+    
+        const double x0 = min[0], x1 = max[0];
+        const double y0 = min[1], y1 = max[1];
+        const double z0 = min[2], z1 = max[2];
+    
+        // Faces.
+        consider(0, 2, {x0,y0,z0}, {x0,y1,z1});
+        consider(1, 2, {x1,y0,z0}, {x1,y1,z1});
+        consider(2, 2, {x0,y0,z0}, {x1,y0,z1});
+        consider(3, 2, {x0,y1,z0}, {x1,y1,z1});
+        consider(4, 2, {x0,y0,z0}, {x1,y1,z0});
+        consider(5, 2, {x0,y0,z1}, {x1,y1,z1});
+    
+        // Edges parallel to X.
+        consider(6, 1, {x0,y0,z0}, {x1,y0,z0});
+        consider(7, 1, {x0,y1,z0}, {x1,y1,z0});
+        consider(8, 1, {x0,y1,z1}, {x1,y1,z1});
+        consider(9, 1, {x0,y0,z1}, {x1,y0,z1});
+    
+        // Edges parallel to Y.
+        consider(10, 1, {x0,y0,z0}, {x0,y1,z0});
+        consider(11, 1, {x1,y0,z0}, {x1,y1,z0});
+        consider(12, 1, {x1,y0,z1}, {x1,y1,z1});
+        consider(13, 1, {x0,y0,z1}, {x0,y1,z1});
+    
+        // Edges parallel to Z.
+        consider(14, 1, {x0,y0,z0}, {x0,y0,z1});
+        consider(15, 1, {x1,y0,z0}, {x1,y0,z1});
+        consider(16, 1, {x1,y1,z0}, {x1,y1,z1});
+        consider(17, 1, {x0,y1,z0}, {x0,y1,z1});
+    
+        // Vertices.
+        consider(18, 0, {x0,y0,z0}, {x0,y0,z0});
+        consider(19, 0, {x1,y0,z0}, {x1,y0,z0});
+        consider(20, 0, {x1,y1,z0}, {x1,y1,z0});
+        consider(21, 0, {x0,y1,z0}, {x0,y1,z0});
+        consider(22, 0, {x0,y0,z1}, {x0,y0,z1});
+        consider(23, 0, {x1,y0,z1}, {x1,y0,z1});
+        consider(24, 0, {x1,y1,z1}, {x1,y1,z1});
+        consider(25, 0, {x0,y1,z1}, {x0,y1,z1});
     }
-
 
     void validateOpenBox(
         const BoundingBox& box) const
