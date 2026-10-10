@@ -405,103 +405,133 @@ struct Box
             }
         }
 
-        // Compact Boundary coordinates in parallel.
-        // Fixed-size blocks avoid atomic contention and
-        // preserve a deterministic cell-index order.
+        // Compact Boundary coordinates and geometric element IDs.
+        // Fixed-size blocks preserve deterministic cell-index order.
         constexpr std::size_t blockSize = 4096;
-
+        
         const std::size_t blockCount =
             cellCount / blockSize +
             (cellCount % blockSize != 0 ? 1 : 0);
-
-        std::vector<std::size_t> blockOffsets(
-            blockCount + 1, 0);
-
+        
+        std::vector<std::size_t> blockOffsets(blockCount + 1, 0);
+        
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t block = 0;
             block < static_cast<std::ptrdiff_t>(blockCount);
             ++block)
         {
-            const std::size_t b =
-                static_cast<std::size_t>(block);
-
+            const std::size_t b = static_cast<std::size_t>(block);
             const std::size_t begin = b * blockSize;
             const std::size_t end =
                 std::min(begin + blockSize, cellCount);
-
+        
             std::size_t count = 0;
-
-            for(std::size_t cellID = begin;
-                cellID < end;
-                ++cellID)
+        
+            for(std::size_t id = begin; id < end; ++id)
             {
-                if(cellTypes[cellID] == CellType::Boundary)
+                if(cellTypes[id] == CellType::Boundary)
                 {
                     ++count;
                 }
             }
-
+        
             blockOffsets[b + 1] = count;
         }
-
-        // Prefix sum: one small serial pass over blocks.
-        for(std::size_t b = 0;
-            b < blockCount;
-            ++b)
+        
+        for(std::size_t b = 0; b < blockCount; ++b)
         {
             blockOffsets[b + 1] += blockOffsets[b];
         }
-
+        
         const std::size_t boundaryCount =
             blockOffsets[blockCount];
-
+        
         analysis.boundaryX.resize(boundaryCount);
         analysis.boundaryY.resize(boundaryCount);
         analysis.boundaryZ.resize(boundaryCount);
-
+        
+        std::vector<std::size_t> boundaryIDs(boundaryCount, 0);
+        
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t block = 0;
             block < static_cast<std::ptrdiff_t>(blockCount);
             ++block)
         {
-            const std::size_t b =
-                static_cast<std::size_t>(block);
-
+            const std::size_t b = static_cast<std::size_t>(block);
             const std::size_t begin = b * blockSize;
             const std::size_t end =
                 std::min(begin + blockSize, cellCount);
-
+        
             std::size_t slot = blockOffsets[b];
-
-            for(std::size_t cellID = begin;
-                cellID < end;
-                ++cellID)
+        
+            for(std::size_t id = begin; id < end; ++id)
             {
-                if(cellTypes[cellID] != CellType::Boundary)
+                if(cellTypes[id] != CellType::Boundary)
                 {
                     continue;
                 }
-
-                const std::size_t i = cellID % nx;
-                const std::size_t tmp = cellID / nx;
-                const std::size_t j = tmp % ny;
-                const std::size_t k = tmp / ny;
-
+        
+                const std::size_t i = id % nx;
+                const std::size_t j = (id / nx) % ny;
+                const std::size_t k = id / (nx * ny);
+        
                 analysis.boundaryX[slot] =
                     domain.min[0] +
                     (static_cast<double>(i) + 0.5) * h;
-
+        
                 analysis.boundaryY[slot] =
                     domain.min[1] +
                     (static_cast<double>(j) + 0.5) * h;
-
+        
                 analysis.boundaryZ[slot] =
                     domain.min[2] +
                     (static_cast<double>(k) + 0.5) * h;
-
+        
+                boundaryIDs[slot] = cellBoundaryIDs[id];
+        
                 ++slot;
             }
         }
+        
+        // Fixed geometric element count:
+        analysis.nBoundaries = 26; 
+        
+        analysis.boundaryOffsets.assign(
+            analysis.nBoundaries + 1, 0);
+        
+        // Histogram.
+        for(const std::size_t id : boundaryIDs)
+        {
+            ++analysis.boundaryOffsets[id + 1];
+        }
+        
+        // Prefix sum.
+        for(std::size_t k = 0; k < analysis.nBoundaries; ++k)
+        {
+            analysis.boundaryOffsets[k + 1] +=
+                analysis.boundaryOffsets[k];
+        }
+        
+        // Reorder coordinates by boundary element ID.
+        // Within each group, preserve the original cell-index order.
+        std::vector<std::size_t> next = analysis.boundaryOffsets;
+        
+        std::vector<double> groupedX(boundaryCount);
+        std::vector<double> groupedY(boundaryCount);
+        std::vector<double> groupedZ(boundaryCount);
+        
+        for(std::size_t b = 0; b < boundaryCount; ++b)
+        {
+            const std::size_t slot = next[boundaryIDs[b]]++;
+        
+            groupedX[slot] = analysis.boundaryX[b];
+            groupedY[slot] = analysis.boundaryY[b];
+            groupedZ[slot] = analysis.boundaryZ[b];
+        }
+        
+        analysis.boundaryX.swap(groupedX);
+        analysis.boundaryY.swap(groupedY);
+        analysis.boundaryZ.swap(groupedZ);
 
         // Keep the existing scalar representation
         // for compatibility with VTK output.
