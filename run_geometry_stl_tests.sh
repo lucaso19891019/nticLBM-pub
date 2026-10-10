@@ -12,6 +12,21 @@ STL_DIR=tests/geometry_tests/stl_tests/stls
 $GEOMETRY_APP_DIR/test_stl_geometry \
     $STL_DIR/smooth_irregular_branched_channel.stl
 
+$GEOMETRY_APP_DIR/test_stl_geometry \
+    $STL_DIR/single_root.stl
+
+$GEOMETRY_APP_DIR/test_stl_geometry \
+    $STL_DIR/nested.stl
+
+$GEOMETRY_APP_DIR/test_stl_geometry \
+    $STL_DIR/two_roots.stl
+
+$GEOMETRY_APP_DIR/test_stl_geometry \
+    $STL_DIR/two_children.stl
+
+$GEOMETRY_APP_DIR/test_stl_geometry \
+    $STL_DIR/two_nested_roots.stl
+
 
 #=============================================================================
 # 2. STL component containment
