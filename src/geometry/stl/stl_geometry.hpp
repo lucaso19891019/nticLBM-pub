@@ -34,6 +34,26 @@ struct STLComponentFlow
     FluidSide fluidSide = FluidSide::Outside;
 };
 
+struct STLFeatureEdge
+{
+    std::size_t v0 = 0;
+    std::size_t v1 = 0;
+    std::size_t edgeID = 0;
+};
+
+struct STLBoundaryFeatures
+{
+    // 0: all nonplanar facets
+    // 1...nPlanarFaces: connected planar regions
+    std::vector<std::size_t> facetFaceIDs;
+
+    // Mesh segments belonging to feature curves.
+    std::vector<STLFeatureEdge> edges;
+
+    std::size_t nPlanarFaces = 0;
+    std::size_t nFeatureEdges = 0;
+};
+
 struct STLGeometry
 {
     stl::FacetTopology topology;
@@ -42,6 +62,7 @@ struct STLGeometry
     std::vector<STLComponentContainment> containment;
     std::vector<STLComponentFlow> flow;
     FlowType flowType;
+    STLBoundaryFeatures boundaryFeatures;
 
     STLGeometry(
         stl::FacetTopology topology,
@@ -66,6 +87,8 @@ struct STLGeometry
 
     void interpretFlow();
     void validateContainmentAvailable() const;
+
+    void identifyBoundaryFeatures();
 
     [[nodiscard]]
     std::size_t countRoots() const;
