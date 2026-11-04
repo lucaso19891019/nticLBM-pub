@@ -14,7 +14,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <filesystem>
 
 namespace
 {
@@ -272,7 +271,6 @@ void testConstruction(const std::string& stlFile)
         require(geometry.bounds.contains(vertex),
                 "Bounding box does not contain an STL vertex.");
 
-    geometry.printBoundaryFeatureReport();
     validateBoundaryFeatures(geometry);
     const STLBoundaryFeatures baseline = geometry.boundaryFeatures;
     geometry.identifyBoundaryFeatures();
@@ -291,27 +289,23 @@ void testEmptyGeometry()
 }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    if(argc != 2)
+    {
+        std::cerr << "Usage: " << argv[0] << " <stl_file>\n";
+        return 1;
+    }
     try
     {
-        const std::filesystem::path stlFile =
-            std::filesystem::path(GEOMETRY_TEST_SOURCE_DIR) /
-            "stl_tests" / "stls" /
-            "smooth_irregular_branched_channel.stl";
-
-        testConstruction(stlFile.string());
+        testConstruction(argv[1]);
         testEmptyGeometry();
-
-        std::cout << "STL geometry tests passed.\n";
+        std::cout << "STL geometry and boundary feature tests passed.\n";
         return 0;
     }
-    catch(const std::exception& exception)
+    catch(const std::exception& e)
     {
-        std::cerr
-            << "STL geometry tests failed: "
-            << exception.what() << '\n';
-
+        std::cerr << "STL geometry tests failed: " << e.what() << '\n';
         return 1;
     }
 }
