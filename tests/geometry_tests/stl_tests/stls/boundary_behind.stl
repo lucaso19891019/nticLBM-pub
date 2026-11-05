@@ -1,0 +1,9 @@
+solid boundary_behind
+  facet normal 1 0 0
+    outer loop
+      vertex -0.25 -1 -1
+      vertex -0.25 1 -1
+      vertex -0.25 0 1
+    endloop
+  endfacet
+endsolid boundary_behind

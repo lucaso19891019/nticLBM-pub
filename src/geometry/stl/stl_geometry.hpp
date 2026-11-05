@@ -103,10 +103,7 @@ struct STLGeometry
     }
 
     template<lattice::LatticeType Type>
-    void boundaryQAnalysis(GeometryAnalysis3D<Type>&) const
-    {
-        // Reserved for lattice-link q analysis.
-    }
+    void boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const;
 
     template<lattice::LatticeType Type>
     void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const;

@@ -357,49 +357,50 @@ struct Circle
                     : CellType::Interior;
         }
 
-        auto& boundaryX = analysis.boundaryX;
-        auto& boundaryY = analysis.boundaryY;
-
-        boundaryX.resize(cellCount);
-        boundaryY.resize(cellCount);
-
-        std::size_t boundaryCount = 0;
+        // Deterministic parallel compaction in ascending physical cell order.
+        constexpr std::size_t blockSize = 4096;
+        const std::size_t blockCount =
+            cellCount / blockSize + (cellCount % blockSize != 0 ? 1 : 0);
+        std::vector<std::size_t> offsets(blockCount + 1, 0);
 
         #pragma omp parallel for schedule(static)
-        for(std::ptrdiff_t index = 0;
-            index < static_cast<std::ptrdiff_t>(cellCount);
-            ++index)
+        for(std::ptrdiff_t block = 0;
+            block < static_cast<std::ptrdiff_t>(blockCount); ++block)
         {
-            const std::size_t cellID =
-                static_cast<std::size_t>(index);
+            const std::size_t b = static_cast<std::size_t>(block);
+            const std::size_t begin = b * blockSize;
+            const std::size_t end = std::min(begin + blockSize, cellCount);
+            std::size_t count = 0;
+            for(std::size_t id = begin; id < end; ++id)
+                if(cellTypes[id] == CellType::Boundary) ++count;
+            offsets[b + 1] = count;
+        }
+        for(std::size_t b = 0; b < blockCount; ++b)
+            offsets[b + 1] += offsets[b];
 
-            if(cellTypes[cellID] != CellType::Boundary)
+        const std::size_t boundaryCount = offsets.back();
+        auto& boundaryX = analysis.boundaryX;
+        auto& boundaryY = analysis.boundaryY;
+        boundaryX.resize(boundaryCount);
+        boundaryY.resize(boundaryCount);
+
+        #pragma omp parallel for schedule(static)
+        for(std::ptrdiff_t block = 0;
+            block < static_cast<std::ptrdiff_t>(blockCount); ++block)
+        {
+            const std::size_t b = static_cast<std::size_t>(block);
+            const std::size_t begin = b * blockSize;
+            const std::size_t end = std::min(begin + blockSize, cellCount);
+            std::size_t slot = offsets[b];
+            for(std::size_t id = begin; id < end; ++id)
             {
-                continue;
+                if(cellTypes[id] != CellType::Boundary) continue;
+                boundaryX[slot] = domain.min[0] + (id % nx + 0.5) * gridSpacing;
+                boundaryY[slot] = domain.min[1] + (id / nx + 0.5) * gridSpacing;
+                ++slot;
             }
-
-            const std::size_t i = cellID % nx;
-            const std::size_t j = cellID / nx;
-
-            std::size_t slot = 0;
-
-            #pragma omp atomic capture
-            slot = boundaryCount++;
-
-            boundaryX[slot] =
-                domain.min[0] +
-                (static_cast<double>(i) + 0.5) *
-                gridSpacing;
-
-            boundaryY[slot] =
-                domain.min[1] +
-                (static_cast<double>(j) + 0.5) *
-                gridSpacing;
         }
 
-    boundaryX.resize(boundaryCount);
-    boundaryY.resize(boundaryCount);
-    
     // Boundary element indices:
     // 0: Circular circumference.
     //

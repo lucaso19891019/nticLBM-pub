@@ -223,3 +223,39 @@ target_link_libraries(
 configure_geometry_stl_test(
     test_stl_area_analysis
 )
+
+
+#====================================================
+# test_stl_boundary_acceptance
+#====================================================
+
+add_executable(test_stl_boundary_acceptance
+    tests/geometry_tests/stl_tests/test_stl_boundary_acceptance.cpp
+
+    src/geometry/stl/stl_geometry.cpp
+    src/geometry/stl/stl_containment.cpp
+    src/geometry/stl/stl_flow.cpp
+    src/geometry/stl/stl_translation.cpp
+    src/geometry/stl/stl_area_analysis.cpp
+    src/geometry/stl/stl_boundary_features.cpp
+
+    src/input/stl/stl_reader.cpp
+    src/input/stl/stl_validator.cpp
+)
+
+target_include_directories(
+    test_stl_boundary_acceptance
+    PRIVATE
+    ${GEOMETRY_STL_INCLUDE_DIRS}
+    "${CMAKE_SOURCE_DIR}/src/geometry/primitive"
+)
+
+target_link_libraries(
+    test_stl_boundary_acceptance
+    PRIVATE
+    OpenMP::OpenMP_CXX
+)
+
+configure_geometry_stl_test(
+    test_stl_boundary_acceptance
+)

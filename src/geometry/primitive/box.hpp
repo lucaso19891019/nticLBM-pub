@@ -8,6 +8,7 @@
 #include "point.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -171,6 +172,16 @@ struct Box
             throw std::invalid_argument(
                 "Boundary coordinate sizes do not match.");
         }
+
+        if(analysis.nBoundaries != 6 || analysis.boundaryOffsets.size() != 7 ||
+           analysis.boundaryOffsets.front() != 0 ||
+           analysis.boundaryOffsets.back() != boundaryCount ||
+           !std::is_sorted(analysis.boundaryOffsets.begin(),
+                           analysis.boundaryOffsets.end()))
+        {
+            throw std::invalid_argument(
+                "Box boundary entries must be grouped by Face ID.");
+        }
     
         const double h = analysis.gridSpacing;
     
@@ -190,6 +201,10 @@ struct Box
         {
             const std::size_t b =
                 static_cast<std::size_t>(index);
+            const std::size_t faceID = static_cast<std::size_t>(
+                std::upper_bound(analysis.boundaryOffsets.begin(),
+                                 analysis.boundaryOffsets.end(), b) -
+                analysis.boundaryOffsets.begin() - 1);
     
             const double p[3] = {
                 analysis.boundaryX[b],
@@ -212,6 +227,9 @@ struct Box
     
                 double tExit =
                     std::numeric_limits<double>::infinity();
+
+                std::size_t enterFace = 6;
+                std::size_t exitFace = 6;
     
                 bool valid = true;
     
@@ -241,11 +259,22 @@ struct Box
                     const double farT =
                         std::max(t1, t2);
     
-                    tEnter =
-                        std::max(tEnter, nearT);
-    
-                    tExit =
-                        std::min(tExit, farT);
+                    const std::size_t nearFace =
+                        2 * axis + (d[axis] > 0.0 ? 0 : 1);
+                    const std::size_t farFace =
+                        2 * axis + (d[axis] > 0.0 ? 1 : 0);
+                    if(nearT > tEnter ||
+                       (nearT == tEnter && nearFace < enterFace))
+                    {
+                        tEnter = nearT;
+                        enterFace = nearFace;
+                    }
+                    if(farT < tExit ||
+                       (farT == tExit && farFace < exitFace))
+                    {
+                        tExit = farT;
+                        exitFace = farFace;
+                    }
     
                     if(tEnter > tExit)
                     {
@@ -260,20 +289,27 @@ struct Box
                 }
     
                 double qValue = -1.0;
+                std::size_t owningFace = 6;
     
                 if(tEnter > 0.0 && tEnter <= 1.0)
                 {
                     qValue = tEnter;
+                    owningFace = enterFace;
                 }
     
                 if(tExit > 0.0 && tExit <= 1.0 &&
                    (qValue < 0.0 || tExit < qValue))
                 {
                     qValue = tExit;
+                    owningFace = exitFace;
                 }
+
+                // Exact shared-edge/corner ties use the lowest Face ID.
+                if(qValue > 0.0 && tEnter == tExit)
+                    owningFace = std::min(enterFace, exitFace);
     
                 analysis.q[b * nLinks + (i - 1)] =
-                    qValue;
+                    owningFace == faceID ? qValue : -1.0;
             }
         }
     }
@@ -317,13 +353,7 @@ struct Box
         std::vector<CellType> cellTypes(
             cellCount, CellType::Dry);
 
-        // Preallocate storage for parallel Boundary collection.
-        analysis.boundaryX.resize(cellCount);
-        analysis.boundaryY.resize(cellCount);
-        analysis.boundaryZ.resize(cellCount);
-        
-        std::vector<std::size_t> boundaryIDs(cellCount);
-        std::size_t boundaryCount = 0;
+        std::vector<std::array<bool, 6>> faceMembership(cellCount);
 
         // A StencilCell has half-width h, not 0.5*h.
         // Its maximum center-to-corner distance is sqrt(3)*h.
@@ -392,50 +422,26 @@ struct Box
                 center[2] + h
             };
 
-            bool intersects = false;
-            std::size_t boundaryID = 0;
-            
-            boundaryIntersection(
-                stencilMin,
-                stencilMax,
-                center,
-                intersects,
-                boundaryID);
+            faceMembership[cellID] = boundaryIntersections(stencilMin, stencilMax);
+            const auto& membership = faceMembership[cellID];
+            const bool intersects = std::any_of(
+                membership.begin(), membership.end(), [](bool hit) { return hit; });
             
             cellTypes[cellID] =
                 intersects ? CellType::Boundary : CellType::Interior;
-            
-            if(intersects)
-            {
-                std::size_t slot = 0;
-            
-                #pragma omp atomic capture
-                slot = boundaryCount++;
-            
-                analysis.boundaryX[slot] = center[0];
-                analysis.boundaryY[slot] = center[1];
-                analysis.boundaryZ[slot] = center[2];
-            
-                boundaryIDs[slot] = boundaryID;
-            }
         }
 
-        // Boundary coordinates and IDs were collected during classification.
-        analysis.boundaryX.resize(boundaryCount);
-        analysis.boundaryY.resize(boundaryCount);
-        analysis.boundaryZ.resize(boundaryCount);
-        boundaryIDs.resize(boundaryCount);
-        
-        // Fixed geometric element count:
-        analysis.nBoundaries = 26; 
+        // Face IDs: XMin, XMax, YMin, YMax, ZMin, ZMax.
+        analysis.nBoundaries = 6;
         
         analysis.boundaryOffsets.assign(
             analysis.nBoundaries + 1, 0);
         
         // Histogram.
-        for(const std::size_t id : boundaryIDs)
+        for(const auto& membership : faceMembership)
         {
-            ++analysis.boundaryOffsets[id + 1];
+            for(std::size_t face = 0; face < analysis.nBoundaries; ++face)
+                if(membership[face]) ++analysis.boundaryOffsets[face + 1];
         }
         
         // Prefix sum.
@@ -445,26 +451,28 @@ struct Box
                 analysis.boundaryOffsets[k];
         }
         
-        // Reorder coordinates by boundary element ID.
-        // Preserve the collected order within each boundary group.
-        std::vector<std::size_t> next = analysis.boundaryOffsets;
-        
-        std::vector<double> groupedX(boundaryCount);
-        std::vector<double> groupedY(boundaryCount);
-        std::vector<double> groupedZ(boundaryCount);
-        
-        for(std::size_t b = 0; b < boundaryCount; ++b)
+        const std::size_t boundaryCount = analysis.boundaryOffsets.back();
+        analysis.boundaryX.resize(boundaryCount);
+        analysis.boundaryY.resize(boundaryCount);
+        analysis.boundaryZ.resize(boundaryCount);
+
+        // Disjoint Face ranges, each in ascending physical cell-index order.
+        #pragma omp parallel for schedule(static)
+        for(int face = 0; face < 6; ++face)
         {
-            const std::size_t slot = next[boundaryIDs[b]]++;
-        
-            groupedX[slot] = analysis.boundaryX[b];
-            groupedY[slot] = analysis.boundaryY[b];
-            groupedZ[slot] = analysis.boundaryZ[b];
+            std::size_t slot = analysis.boundaryOffsets[face];
+            for(std::size_t id = 0; id < cellCount; ++id)
+            {
+                if(!faceMembership[id][face]) continue;
+                const std::size_t i = id % nx;
+                const std::size_t j = (id / nx) % ny;
+                const std::size_t k = id / (nx * ny);
+                analysis.boundaryX[slot] = domain.min[0] + (i + 0.5) * h;
+                analysis.boundaryY[slot] = domain.min[1] + (j + 0.5) * h;
+                analysis.boundaryZ[slot] = domain.min[2] + (k + 0.5) * h;
+                ++slot;
+            }
         }
-        
-        analysis.boundaryX.swap(groupedX);
-        analysis.boundaryY.swap(groupedY);
-        analysis.boundaryZ.swap(groupedZ);
 
         // Keep the existing scalar representation
         // for compatibility with VTK output.
@@ -550,122 +558,26 @@ private:
     }
 
 
-    // Boundary element indices:
-    //
-    // Faces:
-    //  0 X-min, 1 X-max, 2 Y-min, 3 Y-max,
-    //  4 Z-min, 5 Z-max
-    //
-    // Edges parallel to X:
-    //  6 (Y-min,Z-min), 7 (Y-max,Z-min),
-    //  8 (Y-max,Z-max), 9 (Y-min,Z-max)
-    //
-    // Edges parallel to Y:
-    // 10 (X-min,Z-min), 11 (X-max,Z-min),
-    // 12 (X-max,Z-max), 13 (X-min,Z-max)
-    //
-    // Edges parallel to Z:
-    // 14 (X-min,Y-min), 15 (X-max,Y-min),
-    // 16 (X-max,Y-max), 17 (X-min,Y-max)
-    //
-    // Vertices:
-    // 18 (X-min,Y-min,Z-min)
-    // 19 (X-max,Y-min,Z-min)
-    // 20 (X-max,Y-max,Z-min)
-    // 21 (X-min,Y-max,Z-min)
-    // 22 (X-min,Y-min,Z-max)
-    // 23 (X-max,Y-min,Z-max)
-    // 24 (X-max,Y-max,Z-max)
-    // 25 (X-min,Y-max,Z-max)
-    //
-    // Priority: vertex (0D), edge (1D), face (2D).
-    void boundaryIntersection(
-        const Point& cellMin,
-        const Point& cellMax,
-        const Point& point,
-        bool& intersects,
-        std::size_t& boundaryID) const noexcept
+    // Stable Face IDs: 0 XMin, 1 XMax, 2 YMin, 3 YMax, 4 ZMin, 5 ZMax.
+    // Closed contact at edges and vertices belongs to all incident faces.
+    [[nodiscard]]
+    std::array<bool, 6> boundaryIntersections(
+        const Point& cellMin, const Point& cellMax) const noexcept
     {
-        intersects = false;
-        boundaryID = 0;
-    
-        int bestDimension = 3;
-        double bestDistance =
-            std::numeric_limits<double>::infinity();
-    
-        const auto consider = [&](std::size_t id,
-                                  int dimension,
-                                  const Point& featureMin,
-                                  const Point& featureMax)
+        std::array<bool, 6> result{};
+        for(std::size_t face = 0; face < result.size(); ++face)
         {
-            double distance = 0.0;
-    
+            const std::size_t axis = face / 2;
+            const double plane = face % 2 == 0 ? min[axis] : max[axis];
+            bool hit = cellMin[axis] <= plane && cellMax[axis] >= plane;
             for(std::size_t d = 0; d < 3; ++d)
             {
-                if(cellMax[d] < featureMin[d] ||
-                   cellMin[d] > featureMax[d])
-                {
-                    return;
-                }
-    
-                const double delta = point[d] -
-                    std::clamp(point[d], featureMin[d], featureMax[d]);
-    
-                distance += delta * delta;
+                if(d != axis && (cellMax[d] < min[d] || cellMin[d] > max[d]))
+                    hit = false;
             }
-    
-            intersects = true;
-    
-            if(dimension < bestDimension ||
-               (dimension == bestDimension &&
-                (distance < bestDistance ||
-                 (distance == bestDistance && id < boundaryID))))
-            {
-                bestDimension = dimension;
-                bestDistance = distance;
-                boundaryID = id;
-            }
-        };
-    
-        const double x0 = min[0], x1 = max[0];
-        const double y0 = min[1], y1 = max[1];
-        const double z0 = min[2], z1 = max[2];
-    
-        // Faces.
-        consider(0, 2, {x0,y0,z0}, {x0,y1,z1});
-        consider(1, 2, {x1,y0,z0}, {x1,y1,z1});
-        consider(2, 2, {x0,y0,z0}, {x1,y0,z1});
-        consider(3, 2, {x0,y1,z0}, {x1,y1,z1});
-        consider(4, 2, {x0,y0,z0}, {x1,y1,z0});
-        consider(5, 2, {x0,y0,z1}, {x1,y1,z1});
-    
-        // Edges parallel to X.
-        consider(6, 1, {x0,y0,z0}, {x1,y0,z0});
-        consider(7, 1, {x0,y1,z0}, {x1,y1,z0});
-        consider(8, 1, {x0,y1,z1}, {x1,y1,z1});
-        consider(9, 1, {x0,y0,z1}, {x1,y0,z1});
-    
-        // Edges parallel to Y.
-        consider(10, 1, {x0,y0,z0}, {x0,y1,z0});
-        consider(11, 1, {x1,y0,z0}, {x1,y1,z0});
-        consider(12, 1, {x1,y0,z1}, {x1,y1,z1});
-        consider(13, 1, {x0,y0,z1}, {x0,y1,z1});
-    
-        // Edges parallel to Z.
-        consider(14, 1, {x0,y0,z0}, {x0,y0,z1});
-        consider(15, 1, {x1,y0,z0}, {x1,y0,z1});
-        consider(16, 1, {x1,y1,z0}, {x1,y1,z1});
-        consider(17, 1, {x0,y1,z0}, {x0,y1,z1});
-    
-        // Vertices.
-        consider(18, 0, {x0,y0,z0}, {x0,y0,z0});
-        consider(19, 0, {x1,y0,z0}, {x1,y0,z0});
-        consider(20, 0, {x1,y1,z0}, {x1,y1,z0});
-        consider(21, 0, {x0,y1,z0}, {x0,y1,z0});
-        consider(22, 0, {x0,y0,z1}, {x0,y0,z1});
-        consider(23, 0, {x1,y0,z1}, {x1,y0,z1});
-        consider(24, 0, {x1,y1,z1}, {x1,y1,z1});
-        consider(25, 0, {x0,y1,z1}, {x0,y1,z1});
+            result[face] = hit;
+        }
+        return result;
     }
 
     void validateOpenBox(

@@ -167,3 +167,38 @@ target_link_libraries(
 configure_geometry_primitive_test(
     test_cylinder
 )
+
+
+#====================================================
+# test_primitive_acceptance
+#====================================================
+
+add_executable(test_primitive_acceptance
+    tests/geometry_tests/primitive_tests/test_primitive_acceptance.cpp
+)
+
+target_include_directories(
+    test_primitive_acceptance
+    PRIVATE
+    ${GEOMETRY_PRIMITIVE_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    test_primitive_acceptance
+    PRIVATE
+    OpenMP::OpenMP_CXX
+)
+
+configure_geometry_primitive_test(
+    test_primitive_acceptance
+)
+
+# Existing interactive VTK programs must continue to compile too.
+add_dependencies(
+    test_primitive_acceptance
+    test_rectangle
+    test_circle
+    test_box
+    test_sphere
+    test_cylinder
+)

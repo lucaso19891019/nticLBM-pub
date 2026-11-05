@@ -8,6 +8,7 @@
 #include "point.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -177,6 +178,16 @@ struct Cylinder
             throw std::invalid_argument(
                 "Boundary coordinate sizes do not match.");
         }
+
+        if(analysis.nBoundaries != 3 || analysis.boundaryOffsets.size() != 4 ||
+           analysis.boundaryOffsets.front() != 0 ||
+           analysis.boundaryOffsets.back() != boundaryCount ||
+           !std::is_sorted(analysis.boundaryOffsets.begin(),
+                           analysis.boundaryOffsets.end()))
+        {
+            throw std::invalid_argument(
+                "Cylinder boundary entries must be grouped by Face ID.");
+        }
     
         const double h = analysis.gridSpacing;
     
@@ -222,6 +233,10 @@ struct Cylinder
         {
             const std::size_t b =
                 static_cast<std::size_t>(index);
+            const std::size_t faceID = static_cast<std::size_t>(
+                std::upper_bound(analysis.boundaryOffsets.begin(),
+                                 analysis.boundaryOffsets.end(), b) -
+                analysis.boundaryOffsets.begin() - 1);
     
             // Position relative to the Cylinder center.
             const double p[3] = {
@@ -249,6 +264,7 @@ struct Cylinder
                 const double dr1 = d[radialDimension1];
     
                 double qValue = -1.0;
+                std::size_t owningFace = 3;
     
                 // Part 1: intersection with the lateral surface.
                 //
@@ -303,6 +319,7 @@ struct Cylinder
                             if(std::abs(axial) <= halfLength)
                             {
                                 qValue = root1;
+                                owningFace = 0;
                             }
                         }
     
@@ -316,12 +333,15 @@ struct Cylinder
                                 root2 < qValue))
                             {
                                 qValue = root2;
+                                owningFace = 0;
                             }
                         }
                     }
                 }
     
                 // Part 2: intersection with the two end caps.
+                // Candidates are visited by Face ID (0, 1, 2); strict
+                // distance replacement keeps the lowest ID on exact ties.
                 //
                 // pa + q*da = +/- halfLength
     
@@ -356,12 +376,13 @@ struct Cylinder
                             root < qValue))
                         {
                             qValue = root;
+                            owningFace = sign < 0 ? 1 : 2;
                         }
                     }
                 }
     
                 analysis.q[b * nLinks + (i - 1)] =
-                    qValue;
+                    owningFace == faceID ? qValue : -1.0;
             }
         }
     }
@@ -388,13 +409,7 @@ struct Cylinder
         const std::size_t cellCount = nx * ny * nz;
         std::vector<CellType> cellTypes(cellCount, CellType::Dry);
 
-        // Preallocate storage for parallel Boundary collection.
-        analysis.boundaryX.resize(cellCount);
-        analysis.boundaryY.resize(cellCount);
-        analysis.boundaryZ.resize(cellCount);
-        
-        std::vector<std::size_t> boundaryIDs(cellCount);
-        std::size_t boundaryCount = 0;
+        std::vector<std::array<bool, 3>> faceMembership(cellCount);
 
         // StencilCell half-width is h; its half-diagonal is sqrt(3)*h.
         const double stencilHalfDiagonal = std::sqrt(3.0) * h;
@@ -436,50 +451,26 @@ struct Cylinder
                 centerPoint[0] + h, centerPoint[1] + h, centerPoint[2] + h
             };
 
-            bool intersects = false;
-            std::size_t boundaryID = 0;
-            
-            boundaryIntersection(
-                stencilMin,
-                stencilMax,
-                centerPoint,
-                intersects,
-                boundaryID);
+            faceMembership[id] = boundaryIntersections(stencilMin, stencilMax);
+            const auto& membership = faceMembership[id];
+            const bool intersects = std::any_of(
+                membership.begin(), membership.end(), [](bool hit) { return hit; });
             
             cellTypes[id] =
                 intersects ? CellType::Boundary : CellType::Interior;
-            
-            if(intersects)
-            {
-                std::size_t slot = 0;
-            
-                #pragma omp atomic capture
-                slot = boundaryCount++;
-            
-                analysis.boundaryX[slot] = centerPoint[0];
-                analysis.boundaryY[slot] = centerPoint[1];
-                analysis.boundaryZ[slot] = centerPoint[2];
-            
-                boundaryIDs[slot] = boundaryID;
-            }
         }
 
-        // Boundary coordinates and IDs were collected during classification.
-        analysis.boundaryX.resize(boundaryCount);
-        analysis.boundaryY.resize(boundaryCount);
-        analysis.boundaryZ.resize(boundaryCount);
-        boundaryIDs.resize(boundaryCount);
-        
-        // Fixed geometric element count:
-        analysis.nBoundaries = 5; 
+        // Face IDs: 0 lateral surface, 1 negative cap, 2 positive cap.
+        analysis.nBoundaries = 3;
         
         analysis.boundaryOffsets.assign(
             analysis.nBoundaries + 1, 0);
         
         // Histogram.
-        for(const std::size_t id : boundaryIDs)
+        for(const auto& membership : faceMembership)
         {
-            ++analysis.boundaryOffsets[id + 1];
+            for(std::size_t face = 0; face < analysis.nBoundaries; ++face)
+                if(membership[face]) ++analysis.boundaryOffsets[face + 1];
         }
         
         // Prefix sum.
@@ -489,26 +480,28 @@ struct Cylinder
                 analysis.boundaryOffsets[k];
         }
         
-        // Reorder coordinates by boundary element ID.
-        // Within each group, preserve the original cell-index order.
-        std::vector<std::size_t> next = analysis.boundaryOffsets;
-        
-        std::vector<double> groupedX(boundaryCount);
-        std::vector<double> groupedY(boundaryCount);
-        std::vector<double> groupedZ(boundaryCount);
-        
-        for(std::size_t b = 0; b < boundaryCount; ++b)
+        const std::size_t boundaryCount = analysis.boundaryOffsets.back();
+        analysis.boundaryX.resize(boundaryCount);
+        analysis.boundaryY.resize(boundaryCount);
+        analysis.boundaryZ.resize(boundaryCount);
+
+        // Disjoint Face ranges, each in ascending physical cell-index order.
+        #pragma omp parallel for schedule(static)
+        for(int face = 0; face < 3; ++face)
         {
-            const std::size_t slot = next[boundaryIDs[b]]++;
-        
-            groupedX[slot] = analysis.boundaryX[b];
-            groupedY[slot] = analysis.boundaryY[b];
-            groupedZ[slot] = analysis.boundaryZ[b];
+            std::size_t slot = analysis.boundaryOffsets[face];
+            for(std::size_t id = 0; id < cellCount; ++id)
+            {
+                if(!faceMembership[id][face]) continue;
+                const std::size_t i = id % nx;
+                const std::size_t j = (id / nx) % ny;
+                const std::size_t k = id / (nx * ny);
+                analysis.boundaryX[slot] = domain.min[0] + (i + 0.5) * h;
+                analysis.boundaryY[slot] = domain.min[1] + (j + 0.5) * h;
+                analysis.boundaryZ[slot] = domain.min[2] + (k + 0.5) * h;
+                ++slot;
+            }
         }
-        
-        analysis.boundaryX.swap(groupedX);
-        analysis.boundaryY.swap(groupedY);
-        analysis.boundaryZ.swap(groupedZ);
 
         analysis.scalar.resize(cellCount);
         #pragma omp parallel for schedule(static)
@@ -706,21 +699,11 @@ private:
     }
 
 
-    // Boundary element indices:
-    // 0: Lateral cylindrical surface
-    // 1: Negative-axis end cap
-    // 2: Positive-axis end cap
-    // 3: Negative-axis circular rim
-    // 4: Positive-axis circular rim
-    //
-    // Priority: circular rim (1D) before surface (2D).
-    // Same dimension: nearest finite feature, then lowest ID.
-    void boundaryIntersection(
-        const Point& cellMin,
-        const Point& cellMax,
-        const Point& point,
-        bool& intersects,
-        std::size_t& boundaryID) const noexcept
+    // Stable Face IDs: 0 lateral surface, 1 negative-axis cap, 2 positive-axis cap.
+    // The circular rims belong to both incident finite surfaces.
+    [[nodiscard]]
+    std::array<bool, 3> boundaryIntersections(
+        const Point& cellMin, const Point& cellMax) const noexcept
     {
         std::size_t a = 2, u = 0, v = 1;
     
@@ -777,92 +760,11 @@ private:
             cellMin[a] <= axialMax &&
             cellMax[a] >= axialMax;
     
-        const double radialDistance = std::hypot(
-            point[u] - center[u],
-            point[v] - center[v]);
-    
-        const double radialDelta = radialDistance - radius;
-    
-        intersects = false;
-        boundaryID = 0;
-    
-        int bestDimension = 3;
-        double bestDistance =
-            std::numeric_limits<double>::infinity();
-    
-        const auto consider = [&](std::size_t id,
-                                  int dimension,
-                                  bool hit,
-                                  double distance)
-        {
-            if(!hit)
-            {
-                return;
-            }
-    
-            intersects = true;
-    
-            if(dimension < bestDimension ||
-               (dimension == bestDimension &&
-                (distance < bestDistance ||
-                 (distance == bestDistance && id < boundaryID))))
-            {
-                bestDimension = dimension;
-                bestDistance = distance;
-                boundaryID = id;
-            }
-        };
-    
-        const double axialClamped =
-            std::clamp(point[a], axialMin, axialMax);
-    
-        const double lateralAxialDelta =
-            point[a] - axialClamped;
-    
-        const double lateralDistanceSquared =
-            radialDelta * radialDelta +
-            lateralAxialDelta * lateralAxialDelta;
-    
-        const double outsideRadial =
-            std::max(radialDelta, 0.0);
-    
-        const double negativeAxialDelta =
-            point[a] - axialMin;
-    
-        const double positiveAxialDelta =
-            point[a] - axialMax;
-    
-        // Finite lateral cylindrical surface.
-        consider(
-            0, 2,
+        return {
             axialOverlap && circleOverlap,
-            lateralDistanceSquared);
-    
-        // Finite circular end caps.
-        consider(
-            1, 2,
             negativePlane && diskOverlap,
-            negativeAxialDelta * negativeAxialDelta +
-                outsideRadial * outsideRadial);
-    
-        consider(
-            2, 2,
-            positivePlane && diskOverlap,
-            positiveAxialDelta * positiveAxialDelta +
-                outsideRadial * outsideRadial);
-    
-        // Circular rims: lower-dimensional priority.
-        consider(
-            3, 1,
-            negativePlane && circleOverlap,
-            negativeAxialDelta * negativeAxialDelta +
-                radialDelta * radialDelta);
-    
-        consider(
-            4, 1,
-            positivePlane && circleOverlap,
-            positiveAxialDelta * positiveAxialDelta +
-                radialDelta * radialDelta);
+            positivePlane && diskOverlap
+        };
     }
 
     void validateOpenBox(

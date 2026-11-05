@@ -1,0 +1,9 @@
+solid boundary_endpoint
+  facet normal 1 0 0
+    outer loop
+      vertex 0.5 -1 -1
+      vertex 0.5 1 -1
+      vertex 0.5 0 1
+    endloop
+  endfacet
+endsolid boundary_endpoint

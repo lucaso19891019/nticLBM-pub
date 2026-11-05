@@ -37,15 +37,20 @@ struct GeometryAnalysis2D
     std::vector<double> boundaryX;
     std::vector<double> boundaryY;
     
-    // Number of geometric boundary elements.
-    // Fixed by the geometry, independent of grid resolution.
+    // Number of geometric boundary edges.
+    // Independent of grid resolution.
     std::size_t nBoundaries = 0;
     
-    // Boundary k occupies the half-open interval:
-    // [boundaryOffsets[k], boundaryOffsets[k + 1]).
+    // Boundary entries are grouped by Edge ID.
+    // Edge e occupies the half-open interval:
+    // [boundaryOffsets[e], boundaryOffsets[e + 1]).
     //
     // Size: nBoundaries + 1.
-    // Empty boundary groups are allowed.
+    // boundaryOffsets[0] == 0.
+    // boundaryOffsets.back() == boundaryX.size().
+    //
+    // A cell may appear in multiple Edge groups.
+    // Empty Edge groups are allowed.
     std::vector<std::size_t> boundaryOffsets{0};
     
     std::vector<double> q;
@@ -98,15 +103,20 @@ struct GeometryAnalysis3D
     std::vector<double> boundaryY;
     std::vector<double> boundaryZ;
     
-    // Number of geometric boundary elements.
-    // Fixed by the geometry, independent of grid resolution.
+    // Number of geometric boundary faces.
+    // Independent of grid resolution.
     std::size_t nBoundaries = 0;
     
-    // Boundary k occupies the half-open interval:
-    // [boundaryOffsets[k], boundaryOffsets[k + 1]).
+    // Boundary entries are grouped by Face ID.
+    // Face f occupies the half-open interval:
+    // [boundaryOffsets[f], boundaryOffsets[f + 1]).
     //
     // Size: nBoundaries + 1.
-    // Empty boundary groups are allowed.
+    // boundaryOffsets[0] == 0.
+    // boundaryOffsets.back() == boundaryX.size().
+    //
+    // A cell may appear in multiple Face groups.
+    // Empty Face groups are allowed.
     std::vector<std::size_t> boundaryOffsets{0};
     
     std::vector<double> q;

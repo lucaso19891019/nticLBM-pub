@@ -7,6 +7,7 @@
 #include "point.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -160,6 +161,17 @@ struct Rectangle
             throw std::invalid_argument(
                 "Boundary coordinate sizes do not match.");
         }
+
+        if(analysis.nBoundaries != 4 ||
+           analysis.boundaryOffsets.size() != 5 ||
+           analysis.boundaryOffsets.front() != 0 ||
+           analysis.boundaryOffsets.back() != boundaryCount ||
+           !std::is_sorted(analysis.boundaryOffsets.begin(),
+                           analysis.boundaryOffsets.end()))
+        {
+            throw std::invalid_argument(
+                "Rectangle boundary entries must be grouped by Edge ID.");
+        }
     
         const double h = analysis.gridSpacing;
     
@@ -182,6 +194,10 @@ struct Rectangle
     
             const double px = analysis.boundaryX[b];
             const double py = analysis.boundaryY[b];
+            const std::size_t edgeID = static_cast<std::size_t>(
+                std::upper_bound(analysis.boundaryOffsets.begin(),
+                                 analysis.boundaryOffsets.end(), b) -
+                analysis.boundaryOffsets.begin() - 1);
     
             for(std::size_t i = 1;
                 i < Lattice::nStencils;
@@ -198,6 +214,9 @@ struct Rectangle
     
                 double tExit =
                     std::numeric_limits<double>::infinity();
+
+                std::size_t enterEdge = 4;
+                std::size_t exitEdge = 4;
     
                 bool valid = true;
     
@@ -227,8 +246,27 @@ struct Rectangle
                     const double nearT = std::min(t1, t2);
                     const double farT = std::max(t1, t2);
     
-                    tEnter = std::max(tEnter, nearT);
-                    tExit = std::min(tExit, farT);
+                    // Preserve the slab intersection distances and attach
+                    // their finite edge IDs. Exact ties use the lowest ID.
+                    const std::size_t minEdge = axis == 0 ? 3 : 0;
+                    const std::size_t maxEdge = axis == 0 ? 1 : 2;
+                    const std::size_t nearEdge =
+                        d[axis] > 0.0 ? minEdge : maxEdge;
+                    const std::size_t farEdge =
+                        d[axis] > 0.0 ? maxEdge : minEdge;
+
+                    if(nearT > tEnter ||
+                       (nearT == tEnter && nearEdge < enterEdge))
+                    {
+                        tEnter = nearT;
+                        enterEdge = nearEdge;
+                    }
+                    if(farT < tExit ||
+                       (farT == tExit && farEdge < exitEdge))
+                    {
+                        tExit = farT;
+                        exitEdge = farEdge;
+                    }
     
                     if(tEnter > tExit)
                     {
@@ -243,20 +281,27 @@ struct Rectangle
                 }
     
                 double qValue = -1.0;
+                std::size_t owningEdge = 4;
     
                 if(tEnter > 0.0 && tEnter <= 1.0)
                 {
                     qValue = tEnter;
+                    owningEdge = enterEdge;
                 }
     
                 if(tExit > 0.0 && tExit <= 1.0 &&
                    (qValue < 0.0 || tExit < qValue))
                 {
                     qValue = tExit;
+                    owningEdge = exitEdge;
                 }
+
+                // A tangent corner can be both an entry and exit point.
+                if(qValue > 0.0 && tEnter == tExit)
+                    owningEdge = std::min(enterEdge, exitEdge);
     
                 analysis.q[b * nLinks + (i - 1)] =
-                    qValue;
+                    owningEdge == edgeID ? qValue : -1.0;
             }
         }
     }
@@ -295,15 +340,11 @@ struct Rectangle
         std::vector<CellType> cellTypes(
             cellCount, CellType::Dry);
 
-        // Boundary coordinates and IDs are collected during classification.
+        // Record all finite edges touched by the closed stencil square.
+        // Cells can belong to multiple edges without changing CellType.
+        std::vector<std::array<bool, 4>> edgeMembership(cellCount);
         auto& boundaryX = analysis.boundaryX;
         auto& boundaryY = analysis.boundaryY;
-        
-        boundaryX.resize(cellCount);
-        boundaryY.resize(cellCount);
-        
-        std::vector<std::size_t> boundaryIDs(cellCount);
-        std::size_t boundaryCount = 0;
 
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
@@ -358,44 +399,24 @@ struct Rectangle
                 point[1] + gridSpacing
             };
 
-            bool intersects = false;
-            std::size_t boundaryID = 0;
-            
-            boundaryIntersection(
-                stencilMin,
-                stencilMax,
-                point,
-                intersects,
-                boundaryID);
+            edgeMembership[cellID] = boundaryIntersections(stencilMin, stencilMax);
+            const auto& membership = edgeMembership[cellID];
+            const bool intersects = std::any_of(
+                membership.begin(), membership.end(), [](bool hit) { return hit; });
             
             cellTypes[cellID] =
                 intersects ? CellType::Boundary : CellType::Interior;
-            
-            if(intersects)
-            {
-                std::size_t slot = 0;
-            
-                #pragma omp atomic capture
-                slot = boundaryCount++;
-            
-                boundaryX[slot] = point[0];
-                boundaryY[slot] = point[1];
-                boundaryIDs[slot] = boundaryID;
-            }
         }
-        
-        // All Boundary Cells have already been collected.
-        boundaryX.resize(boundaryCount);
-        boundaryY.resize(boundaryCount);
-        boundaryIDs.resize(boundaryCount);
-        
-        // Count Boundary Cells belonging to each geometric element.
-        analysis.nBoundaries = 8;
+
+        // Edge IDs: 0 Bottom, 1 Right, 2 Top, 3 Left.
+        // Keep empty groups, and include each (Edge, Cell) exactly once.
+        analysis.nBoundaries = 4;
         analysis.boundaryOffsets.assign(analysis.nBoundaries + 1, 0);
-        
-        for(const std::size_t id : boundaryIDs)
+
+        for(const auto& membership : edgeMembership)
         {
-            ++analysis.boundaryOffsets[id + 1];
+            for(std::size_t edge = 0; edge < analysis.nBoundaries; ++edge)
+                if(membership[edge]) ++analysis.boundaryOffsets[edge + 1];
         }
         
         // Prefix sum.
@@ -405,23 +426,29 @@ struct Rectangle
                 analysis.boundaryOffsets[k];
         }
         
-        // Stable grouping by boundary element ID.
-        std::vector<std::size_t> next = analysis.boundaryOffsets;
-        
-        std::vector<double> groupedX(boundaryCount);
-        std::vector<double> groupedY(boundaryCount);
-        
-        for(std::size_t b = 0; b < boundaryCount; ++b)
-        {
-            const std::size_t slot = next[boundaryIDs[b]]++;
-        
-            groupedX[slot] = boundaryX[b];
-            groupedY[slot] = boundaryY[b];
-        }
-        
-        boundaryX.swap(groupedX);
-        boundaryY.swap(groupedY);
+        const std::size_t boundaryCount = analysis.boundaryOffsets.back();
+        boundaryX.resize(boundaryCount);
+        boundaryY.resize(boundaryCount);
 
+        // Each edge writes a disjoint range in ascending cell-index order.
+        #pragma omp parallel for schedule(static)
+        for(int edge = 0; edge < 4; ++edge)
+        {
+            std::size_t slot = analysis.boundaryOffsets[edge];
+            for(std::size_t cellID = 0; cellID < cellCount; ++cellID)
+            {
+                if(!edgeMembership[cellID][edge]) continue;
+                const std::size_t i = cellID % nx;
+                const std::size_t j = cellID / nx;
+                boundaryX[slot] = domain.min[0] +
+                    (static_cast<double>(i) + 0.5) * gridSpacing;
+                boundaryY[slot] = domain.min[1] +
+                    (static_cast<double>(j) + 0.5) * gridSpacing;
+                ++slot;
+            }
+        }
+
+        analysis.scalar.resize(cellCount);
         #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t index = 0;
             index < static_cast<std::ptrdiff_t>(cellCount);
@@ -490,75 +517,32 @@ private:
     }
 
 
-    // Boundary element indices:
+    // Geometric Edge IDs (independent of grid resolution):
     // 0: Bottom edge       y = min[1]
     // 1: Right edge        x = max[0]
     // 2: Top edge          y = max[1]
     // 3: Left edge         x = min[0]
-    // 4: Bottom-left vertex
-    // 5: Bottom-right vertex
-    // 6: Top-right vertex
-    // 7: Top-left vertex
-    //
-    // Dimension priority: vertex (0D) before edge (1D).
-    // Same dimension: nearest finite feature, then lowest ID.
-    void boundaryIntersection(
+    // Closed stencil contact with an endpoint belongs to both adjacent edges.
+    [[nodiscard]]
+    std::array<bool, 4> boundaryIntersections(
         const Point2D& cellMin,
-        const Point2D& cellMax,
-        const Point2D& point,
-        bool& intersects,
-        std::size_t& boundaryID) const noexcept
+        const Point2D& cellMax) const noexcept
     {
-        intersects = false;
-        boundaryID = 0;
-    
-        double bestDistance = std::numeric_limits<double>::infinity();
-        int bestDimension = 2;
-    
-        const auto consider = [&](std::size_t id,
-                                  int dimension,
-                                  const Point2D& featureMin,
-                                  const Point2D& featureMax)
+        const auto intersects = [&](const Point2D& featureMin,
+                                    const Point2D& featureMax)
         {
-            if(cellMax[0] < featureMin[0] ||
-               cellMin[0] > featureMax[0] ||
-               cellMax[1] < featureMin[1] ||
-               cellMin[1] > featureMax[1])
-            {
-                return;
-            }
-    
-            intersects = true;
-    
-            const double dx = point[0] -
-                std::clamp(point[0], featureMin[0], featureMax[0]);
-            const double dy = point[1] -
-                std::clamp(point[1], featureMin[1], featureMax[1]);
-    
-            const double distance = dx * dx + dy * dy;
-    
-            if(dimension < bestDimension ||
-               (dimension == bestDimension &&
-                (distance < bestDistance ||
-                 (distance == bestDistance && id < boundaryID))))
-            {
-                bestDimension = dimension;
-                bestDistance = distance;
-                boundaryID = id;
-            }
+            return !(cellMax[0] < featureMin[0] ||
+                     cellMin[0] > featureMax[0] ||
+                     cellMax[1] < featureMin[1] ||
+                     cellMin[1] > featureMax[1]);
         };
-    
-        // Four finite edges.
-        consider(0, 1, {min[0], min[1]}, {max[0], min[1]});
-        consider(1, 1, {max[0], min[1]}, {max[0], max[1]});
-        consider(2, 1, {min[0], max[1]}, {max[0], max[1]});
-        consider(3, 1, {min[0], min[1]}, {min[0], max[1]});
-    
-        // Four vertices.
-        consider(4, 0, {min[0], min[1]}, {min[0], min[1]});
-        consider(5, 0, {max[0], min[1]}, {max[0], min[1]});
-        consider(6, 0, {max[0], max[1]}, {max[0], max[1]});
-        consider(7, 0, {min[0], max[1]}, {min[0], max[1]});
+
+        return {
+            intersects({min[0], min[1]}, {max[0], min[1]}),
+            intersects({max[0], min[1]}, {max[0], max[1]}),
+            intersects({min[0], max[1]}, {max[0], max[1]}),
+            intersects({min[0], min[1]}, {min[0], max[1]})
+        };
     }
 
 
