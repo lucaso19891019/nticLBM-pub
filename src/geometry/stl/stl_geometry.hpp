@@ -58,6 +58,8 @@ struct STLBoundaryFeatures
 
 struct STLGeometry
 {
+    // Active boundary facets are oriented from fluid to solid after flow
+    // interpretation; stored normals and vertex winding remain consistent.
     stl::FacetTopology topology;
     BoundingBox bounds;
     BoundingBox openBox;
@@ -107,6 +109,7 @@ struct STLGeometry
 
     template<lattice::LatticeType Type>
     void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const;
+
 };
 
 } // namespace ntic::lbm::geometry

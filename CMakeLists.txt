@@ -53,3 +53,7 @@ include(
 include(
     cmake/tests/geometry_stl_tests.cmake
 )
+
+include(
+    cmake/tests/geometry_boolean_tests.cmake
+)

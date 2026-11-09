@@ -4,6 +4,7 @@
 #include "lattice_model.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -27,6 +28,12 @@ struct GeometryAnalysis2D
 
     double gridSpacing;
 
+    // Optional input domain; otherwise the geometry selects its usual domain.
+    std::optional<BoundingBox2D> domainBounds;
+    // Analyze the complementary wet region without modifying the geometry.
+    bool complemented = false;
+
+    // Actual output domain used for this analysis.
     BoundingBox2D domain;
 
     std::size_t nx = 0;
@@ -91,6 +98,12 @@ struct GeometryAnalysis3D
 
     double gridSpacing;
 
+    // Optional input domain; otherwise the geometry selects its usual domain.
+    std::optional<BoundingBox> domainBounds;
+    // Analyze the complementary wet region without modifying the geometry.
+    bool complemented = false;
+
+    // Actual output domain used for this analysis.
     BoundingBox domain;
 
     std::size_t nx = 0;

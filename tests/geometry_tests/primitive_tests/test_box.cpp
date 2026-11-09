@@ -1,6 +1,7 @@
 #include "box.hpp"
 #include "geometry_analysis.hpp"
 #include "vtk_output.hpp"
+#include "vtk_output_boundary.hpp"
 #include "vtk_output_3d.hpp"
 
 #include <cmath>
@@ -25,6 +26,9 @@ void writeAnalysis(
     GeometryAnalysis3D<ntic::lbm::lattice::LatticeType::D3Q19> analysis(spacing);
 
     geometry.analysis(analysis);
+
+    writeVTKBoundaryPoints(
+        directory / "boundary_q.vtk", analysis);
 
     std::cout
         << "Analysis domain:\n"

@@ -346,9 +346,11 @@ void STLGeometry::normalizeOrientation()
                 componentID);
 
 
+        // Normals point from fluid to solid. If fluid occupies the component
+        // interior, its solid side is outward; otherwise it is inward.
         const bool targetOutward =
             componentFlow.fluidSide ==
-                FluidSide::Outside;
+                FluidSide::Inside;
 
 
         if(currentlyOutward !=

@@ -320,6 +320,7 @@ struct Box
     void interiorAreaAnalysis(
         GeometryAnalysis3D<Type>& analysis) const
     {
+        const bool complemented = analysis.complemented;
         const double h = analysis.gridSpacing;
 
         if(!std::isfinite(h) || h <= 0.0)
@@ -328,10 +329,8 @@ struct Box
                 "Grid spacing must be finite and positive.");
         }
 
-        analysis.domain =
-            flowType == FlowType::Internal
-                ? bounds
-                : openBox;
+        analysis.domain = analysis.domainBounds.value_or(
+            flowType == FlowType::Internal ? bounds : openBox);
 
         const BoundingBox& domain = analysis.domain;
 
@@ -385,10 +384,8 @@ struct Box
 
             const bool inside = pointInside(center);
 
-            const bool wet =
-                flowType == FlowType::Internal
-                    ? inside
-                    : !inside;
+            const bool wet = complemented !=
+                (flowType == FlowType::Internal ? inside : !inside);
 
             // The surface itself is never a wet center,
             // including for External flow.

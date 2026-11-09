@@ -312,6 +312,7 @@ struct Rectangle
     void interiorAreaAnalysis(
         GeometryAnalysis2D<Type>& analysis) const
     {
+        const bool complemented = analysis.complemented;
         const double gridSpacing = analysis.gridSpacing;
 
         if(gridSpacing <= 0.0)
@@ -320,10 +321,8 @@ struct Rectangle
                 "Grid spacing must be positive.");
         }
 
-        analysis.domain =
-            flowType == FlowType::Internal
-                ? bounds
-                : openBox;
+        analysis.domain = analysis.domainBounds.value_or(
+            flowType == FlowType::Internal ? bounds : openBox);
 
         const BoundingBox2D& domain = analysis.domain;
 
@@ -370,10 +369,8 @@ struct Rectangle
 
             const bool inside = pointInside(point);
 
-            const bool wet =
-                flowType == FlowType::Internal
-                    ? inside
-                    : !inside;
+            const bool wet = complemented !=
+                (flowType == FlowType::Internal ? inside : !inside);
 
             if(!wet)
             {

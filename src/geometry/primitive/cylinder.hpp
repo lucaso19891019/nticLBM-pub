@@ -391,13 +391,15 @@ struct Cylinder
     template <lattice::LatticeType Type>
     void interiorAreaAnalysis(GeometryAnalysis3D<Type>& analysis) const
     {
+        const bool complemented = analysis.complemented;
         const double h = analysis.gridSpacing;
         if(!std::isfinite(h) || h <= 0.0)
         {
             throw std::invalid_argument("Grid spacing must be finite and positive.");
         }
 
-        analysis.domain = flowType == FlowType::Internal ? bounds : openBox;
+        analysis.domain = analysis.domainBounds.value_or(
+            flowType == FlowType::Internal ? bounds : openBox);
         const BoundingBox& domain = analysis.domain;
         analysis.nx = static_cast<std::size_t>(std::ceil(domain.width() / h));
         analysis.ny = static_cast<std::size_t>(std::ceil(domain.height() / h));
@@ -429,7 +431,8 @@ struct Cylinder
             };
 
             const bool inside = pointInside(centerPoint);
-            const bool wet = flowType == FlowType::Internal ? inside : !inside;
+            const bool wet = complemented !=
+                (flowType == FlowType::Internal ? inside : !inside);
             const double surfaceDistance = distanceToBoundary(centerPoint);
 
             // The center must be strictly wet and must not lie on the surface.

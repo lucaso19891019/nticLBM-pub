@@ -1,6 +1,7 @@
 #include "circle.hpp"
 #include "geometry_analysis.hpp"
 #include "vtk_output.hpp"
+#include "vtk_output_boundary.hpp"
 #include "vtk_output_2d.hpp"
 
 #include <cmath>
@@ -25,6 +26,9 @@ void writeAnalysis(
     GeometryAnalysis2D<ntic::lbm::lattice::LatticeType::D2Q9> analysis(spacing);
 
     geometry.analysis(analysis);
+
+    writeVTKBoundaryPoints(
+        directory / "boundary_q.vtk", analysis);
 
     std::cout
         << "Analysis domain:\n"

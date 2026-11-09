@@ -397,7 +397,7 @@ bool expectedOutward(
 
     return
         flow.fluidSide ==
-            FluidSide::Outside;
+            FluidSide::Inside;
 }
 
 
@@ -439,8 +439,7 @@ void checkActiveOrientations(
                 expectedOutward(
                     geometry,
                     componentID),
-            "Active component orientation does not match "
-            "its fluid side.");
+            "Active component normal does not point from fluid to solid.");
     }
 }
 

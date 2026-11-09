@@ -1,4 +1,5 @@
 #include "stl_geometry.hpp"
+#include "geometry_query.hpp"
 
 #include <algorithm>
 #include <array>
@@ -78,7 +79,7 @@ bool pointInComponent(const STLGeometry& geometry,
     return std::abs(solidAngle) > 2.0*pi;
 }
 
-bool centerIsWet(const STLGeometry& geometry, const Point& point)
+bool centerIsWetBase(const STLGeometry& geometry, const Point& point)
 {
     for(std::size_t componentID=0;
         componentID<geometry.topology.components.size(); ++componentID)
@@ -99,6 +100,11 @@ bool centerIsWet(const STLGeometry& geometry, const Point& point)
         else if(inside) return false;
     }
     return true;
+}
+
+bool centerIsWet(const STLGeometry& geometry, const Point& point, bool complemented = false)
+{
+    return complemented != centerIsWetBase(geometry,point);
 }
 
 // Closed triangle/axis-aligned cube SAT. Touching is an intersection.
@@ -245,6 +251,7 @@ template <lattice::LatticeType Type>
 void STLGeometry::interiorAreaAnalysis(
     GeometryAnalysis3D<Type>& analysis) const
 {
+    const bool complemented = analysis.complemented;
     const double gridSpacing = analysis.gridSpacing;
     BoundingBox& domain = analysis.domain;
     std::size_t& nx = analysis.nx;
@@ -260,7 +267,7 @@ void STLGeometry::interiorAreaAnalysis(
     if(flow.size()!=topology.components.size())
         throw std::runtime_error("STL flow interpretation is not available.");
 
-    domain=(flowType==FlowType::Internal) ? bounds : openBox;
+    domain=analysis.domainBounds.value_or(flowType==FlowType::Internal ? bounds : openBox);
     nx=static_cast<std::size_t>(std::ceil(domain.width()/gridSpacing));
     ny=static_cast<std::size_t>(std::ceil(domain.height()/gridSpacing));
     nz=static_cast<std::size_t>(std::ceil(domain.depth()/gridSpacing));
@@ -338,7 +345,7 @@ void STLGeometry::interiorAreaAnalysis(
     {
         if(initialBoundary[seed] || visited[seed]) continue;
         const std::size_t sk=seed/xySize, sj=(seed%xySize)/nx, si=seed%nx;
-        const bool wet=centerIsWet(*this,cellCenter(domain,gridSpacing,si,sj,sk));
+        const bool wet=centerIsWet(*this,cellCenter(domain,gridSpacing,si,sj,sk),complemented);
         const CellType type=wet ? CellType::Interior : CellType::Dry;
         queue.clear(); queue.push_back(seed); visited[seed]=1;
         for(std::size_t head=0; head<queue.size(); ++head)
@@ -406,7 +413,7 @@ void STLGeometry::interiorAreaAnalysis(
         }
         const std::size_t k=id/xySize, j=(id%xySize)/nx, i=id%nx;
         const Point c=cellCenter(domain,gridSpacing,i,j,k);
-        cellTypes[id]=centerIsWet(*this,c) ? CellType::Boundary : CellType::Dry;
+        cellTypes[id]=centerIsWet(*this,c,complemented) ? CellType::Boundary : CellType::Dry;
     }
 
     // Step 3.3: Facet-driven CLOSED StencilCell SAT, only for unique Wet
@@ -557,6 +564,46 @@ struct BoundaryEntry
 };
 
 } // namespace
+
+detail::PointLocation detail::locatePoint(const STLGeometry& geometry,const Point& p)
+{
+    for(std::size_t facet=0;facet<geometry.topology.geometry.facetVertexIDs.size();++facet)
+    {
+        const std::size_t component=geometry.topology.facetComponentIDs[facet];
+        if(!geometry.flow[component].active) continue;
+        const FacetData triangle=facetData(geometry,facet);
+        bool insideBounds=true;
+        for(std::size_t axis=0;axis<3;++axis)
+            insideBounds=insideBounds && p[axis]>=triangle.min[axis] && p[axis]<=triangle.max[axis];
+        if(insideBounds && pointOnTriangle(p,triangle.a,triangle.b,triangle.c))
+            return PointLocation::Surface;
+    }
+    return centerIsWet(geometry,p) ? PointLocation::Wet : PointLocation::Dry;
+}
+
+void detail::appendIntersections(const STLGeometry& geometry,const Point& p,const Point& delta,
+    std::size_t faceBase,std::vector<LinkIntersection>& output)
+{
+    for(std::size_t facet=0;facet<geometry.topology.geometry.facetVertexIDs.size();++facet)
+    {
+        const std::size_t component=geometry.topology.facetComponentIDs[facet];
+        if(!geometry.flow[component].active) continue;
+        const FacetData triangle=facetData(geometry,facet);
+        bool overlaps=true;
+        for(std::size_t axis=0;axis<3;++axis)
+        {
+            const double end=p[axis]+delta[axis];
+            if(std::max(p[axis],end)<triangle.min[axis] ||
+               std::min(p[axis],end)>triangle.max[axis]) overlaps=false;
+        }
+        if(!overlaps) continue;
+        double q;
+        if(!linkTriangle(p,delta,triangle,q)) continue;
+        const std::size_t face=geometry.flowType==FlowType::Internal
+            ? geometry.boundaryFeatures.facetFaceIDs[facet] : 0;
+        output.push_back({q,faceBase+face});
+    }
+}
 
 template<lattice::LatticeType Type>
 void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
