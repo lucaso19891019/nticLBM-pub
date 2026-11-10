@@ -57,3 +57,7 @@ include(
 include(
     cmake/tests/geometry_boolean_tests.cmake
 )
+
+include(
+    cmake/tests/geometry_multilevel_tests.cmake
+)

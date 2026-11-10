@@ -60,23 +60,7 @@ bool pointInComponent(const STLGeometry& geometry,
                       std::size_t componentID,
                       const Point& point)
 {
-    const auto& topology = geometry.topology;
-    const auto& facets = topology.components[componentID].facets;
-    double solidAngle = 0.0;
-
-#pragma omp parallel for reduction(+:solidAngle) schedule(static) if(!omp_in_parallel())
-    for(std::int64_t i=0; i<static_cast<std::int64_t>(facets.size()); ++i)
-    {
-        const auto& ids = topology.geometry.facetVertexIDs[
-            facets[static_cast<std::size_t>(i)]];
-        const auto& vertices = topology.geometry.vertices;
-        solidAngle += triangleSolidAngle(point,
-                                         vertices[ids[0]],
-                                         vertices[ids[1]],
-                                         vertices[ids[2]]);
-    }
-    constexpr double pi = 3.14159265358979323846;
-    return std::abs(solidAngle) > 2.0*pi;
+    return detail::pointInClosedComponent(geometry.topology, componentID, point);
 }
 
 bool centerIsWetBase(const STLGeometry& geometry, const Point& point)
@@ -564,6 +548,27 @@ struct BoundaryEntry
 };
 
 } // namespace
+
+bool detail::pointInClosedComponent(const stl::FacetTopology& topology,
+                                    std::size_t componentID, const Point& point)
+{
+    const auto& facets = topology.components.at(componentID).facets;
+    double solidAngle = 0.0;
+#pragma omp parallel for reduction(+:solidAngle) schedule(static) if(!omp_in_parallel())
+    for(std::int64_t i=0; i<static_cast<std::int64_t>(facets.size()); ++i)
+    {
+        const auto& ids = topology.geometry.facetVertexIDs[facets[static_cast<std::size_t>(i)]];
+        const auto& vertices = topology.geometry.vertices;
+        solidAngle += triangleSolidAngle(point, vertices[ids[0]], vertices[ids[1]], vertices[ids[2]]);
+    }
+    constexpr double pi = 3.14159265358979323846;
+    return std::abs(solidAngle) > 2.0*pi;
+}
+
+bool detail::fluidContainsPoint(const STLGeometry& geometry,const Point& p)
+{
+    return centerIsWet(geometry,p);
+}
 
 detail::PointLocation detail::locatePoint(const STLGeometry& geometry,const Point& p)
 {

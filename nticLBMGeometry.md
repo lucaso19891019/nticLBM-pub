@@ -524,18 +524,27 @@ this environment even for the current CPU/OpenMP geometry implementation.
 
 ## Manual tests and ParaView output
 
-Manual applications prompt for grid spacing. Geometry dimensions and the STL
-filename are specified in their `.cpp` sources.
+There are 14 interactive manual applications. Primitive, STL and Boolean
+applications prompt for grid spacing. The three multilevel applications prompt
+for base spacing, maximum level and wall-band thickness. Geometry dimensions
+and STL filenames are specified in their respective `.cpp` sources.
 
 | Executable under `build/geometry` | Case |
 | --- | --- |
-| `primitive/test_rectangle`, `test_circle`, `test_box`, `test_sphere`, `test_cylinder` | Each primitive, internal and external |
+| `primitive/test_rectangle` | 2D rectangle, internal and external |
+| `primitive/test_circle` | 2D circle, internal and external |
+| `primitive/test_box` | 3D box, internal and external |
+| `primitive/test_sphere` | 3D sphere, internal and external |
+| `primitive/test_cylinder` | Axis-aligned cylinder, internal and external |
 | `stl/test_stl_area_analysis` | Branched-channel STL, internal and external |
 | `boolean/test_boolean_annulus` | 2D internal difference |
 | `boolean/test_boolean_annular_pipe` | 3D internal/external intersection |
 | `boolean/test_boolean_branched_channel` | STL union with seven cylindrical guides |
 | `boolean/test_boolean_crossed_cylinders` | Internal/internal intersection |
 | `boolean/test_boolean_two_spheres` | External/external intersection |
+| `multilevel/test_multilevel_annulus` | 2D annulus with wall bands and disconnected volume zones |
+| `multilevel/test_multilevel_spherical_obstacle` | 3D Box minus sphere with a spherical wall band |
+| `multilevel/test_multilevel_branched_channel` | Branched-channel STL with an Other Surface wall band |
 
 For example:
 
@@ -543,21 +552,29 @@ For example:
 printf '0.1\n' | OMP_NUM_THREADS=4 ./build/geometry/primitive/test_box
 printf '1.0\n' | OMP_NUM_THREADS=128 ./build/geometry/stl/test_stl_area_analysis
 printf '1.0\n' | OMP_NUM_THREADS=128 ./build/geometry/boolean/test_boolean_branched_channel
+printf '1\n2\n0.5\n' | OMP_NUM_THREADS=4 ./build/geometry/multilevel/test_multilevel_annulus
 ```
 
 Outputs are written under `tests/geometry_tests/outputs/test_xxx_vtks/`.
 Primitive and standalone STL tests use `internal_vtks/` and `external_vtks/`
-subdirectories. Boolean cases already have a determined result flow type and
-write directly into their own output directories. Re-running a manual program
-recreates its output directory.
+subdirectories. Boolean and multilevel cases have a determined result flow
+type and write directly into their own named output directories. Re-running
+a manual program recreates only its own output directory.
 
-Files include:
+Single-level primitive, STL and Boolean files include:
 
 - `geometry.vtk`: cell-centered scalar map on `STRUCTURED_POINTS`;
 - `bounding_box.vtk`: geometry enclosure;
 - `open_box.vtk`: explicit external analysis box, where applicable;
 - `boundary_q.vtk`: Q intersection points with `Q`, `FaceID`, and `LinkID`
   as Point Data.
+
+Multilevel cases instead write quadrilateral/hexahedral real cells as an
+`UNSTRUCTURED_GRID` in `geometry.vtk`, separate exchange helpers in
+`auxiliary.vtk`, and level-aware Q points in `boundary_q.vtk`. Their three
+named output directories and refinement definitions are listed in the
+multilevel section below. Manual applications are not invoked by the automatic
+test runners.
 
 `vtk_output_boundary.hpp`, under the test output helper directory, provides
 `writeVTKBoundaryPoints(path, result)` for both 2D and 3D analysis. It writes
@@ -580,21 +597,273 @@ For ParaView:
 Generated `*_vtks` directories and build outputs are not source artifacts and
 are kept untracked.
 
-## Validation applications and current scope
+## Multilevel grid generation
 
-`primitive/test_primitive_acceptance` checks Face grouping, link Q contracts,
-shared-hit behavior, historical scalar/Q regression, and repeated 1/4-thread
-results. `stl/test_stl_boundary_acceptance` checks STL link intersections,
-Face grouping, and deterministic output on static fixtures.
+`multilevel/multilevel_grid.hpp` adds a static cell-centered quadtree (2D) or
+octree (3D) forest. Level 0 is the base grid; each refinement divides a cell
+into four/eight children and halves the spacing. Geometry construction,
+selection, and physical scalar/Q analysis remain separate responsibilities.
 
-Additional STL applications cover construction/feature detection
-(`test_stl_geometry`), containment (`test_stl_containment`), flow interpretation
-and orientation (`test_stl_flow`), and translation (`test_stl_translation`).
-These take model paths and, where applicable, a named test case; see their
-usage messages and sources under `tests/geometry_tests/stl_tests/`.
+```cpp
+#include "multilevel/multilevel_grid.hpp"
 
-The current geometry module uses a single uniform grid per analysis. Nested
-Boolean expressions are supported; multilevel grid nesting/refinement is not
-implemented in this analysis pipeline. Separate curved STL Face labels from
+const geo::Box physical({0,0,0}, {12,12,12});
+const geo::Sphere selection({6,6,6}, 2);
+
+geo::MultilevelOptions options;
+options.maxLevel = 3;
+geo::MultilevelGrid<3> grid(physical.bounds, 1.0, options);
+const auto volume = geo::RefinementRule<3>::volume(geo::volumeRegion(selection), 2);
+const auto wall = geo::RefinementRule<3>::surface(
+    geo::fluidRegion(physical), 3, 0.5, {0,1}); // X-min/X-max fluid-side bands.
+grid.generate(physical, {volume, wall});
+```
+
+2D uses `MultilevelGrid<2>` and `RefinementRule<2>`. The default lattices are
+D2Q9 and D3Q19; a 3D lattice can be supplied as the second template parameter.
+All root cells cover a spacing-aligned enclosure of the requested domain.
+Root and child coordinates use integers; centers and spacing are derived.
+
+### Refinement selections
+
+`volumeRegion(primitive)` selects the primitive's interior independently of
+its `FlowType`. Region values support unrestricted `|`, `&`, `-`, and unary
+`!`, so nested and disconnected selections do not inherit BooleanGeometry's
+flow-type restrictions. Overlapping rules apply the highest requested target
+level. Full face/edge/corner 2:1 balancing can add transition refinement.
+
+`volumeRegion(validatedTopology)` uses even/odd containment of closed STL
+components, allowing arbitrary nesting without constructing an STLGeometry.
+Its surface group is Face 0. `fluidRegion(STLGeometry)` instead uses the
+geometry's active components, fluid-side interpretation, and Face numbering.
+`fluidRegion(BooleanGeometry)` preserves the final fluid Boolean expression.
+For a Boolean volume selector, `volumeRegion()` selects the internal fluid
+result, or its complement for an external result (the combined obstacle).
+
+Surface rules take a fluid region, a target level, a physical Euclidean
+thickness, and optional Face IDs. Empty Face selections mean all surfaces.
+Each band is measured from the original selected geometry, not from a previous
+level's stair-step envelope. A cell bounding sphere supplies conservative
+distance bounds. Near curved surfaces/corners and uncertain Boolean cuts this
+can refine extra cells; it avoids dropping thin bands by testing centers only.
+Boolean surfaces proven hidden over the query region do not select cells.
+These are conservative selectors, not an exact curved-cell clipping algorithm.
+Standalone open surface meshes are not accepted as volume selectors.
+
+STL selectors build a shared read-only triangle BVH for distance queries and
+borrow the original validated topology/geometry. Those objects must outlive
+the rules and must not be moved or mutated while the rules are in use.
+Primitive parameters are copied into their lightweight region representation.
+
+### Topology, cell data, and access order
+
+`nodes()` contains indexed tree metadata: level, integer coordinate, parent,
+first child, active state, and cell index. Direct children use bit order
+`bx + 2*by [+ 4*bz]` and are contiguous in the topology vector. A covered parent
+has `cell == invalidIndex`; it does not occupy a field-data slot.
+
+`cells()` is one SoA index space for real leaves and auxiliary exchange cells.
+It stores source-node indices, role, auxiliary-child number, and physical
+`CellType`. Dry leaves retain lightweight mesh metadata; `computes(cell)` is
+false for Dry and auxiliary cells. No LBM distribution arrays are allocated.
+
+Cell data are ordered by level, role, physical type (Interior/Boundary/Dry),
+then Morton spatial order. `levels()` exposes contiguous ranges. Real roles
+are Ordinary, FineInterface, CoarseInterface, and BothInterfaces. A real leaf
+may participate in both adjacent-level interfaces without being duplicated.
+Physical types are independent of interface roles. Auxiliary groups follow
+real cells, with each source coarse cell's four/eight auxiliary children
+contiguous in child-number order.
+
+`coordinate(cell)`, `center(cell)`, and `level(cell)` resolve a cell index.
+`nodeBox(node)` resolves a topology index. NodeIndex and CellIndex are different
+index domains even though both use `std::size_t`; do not interchange them.
+Real children may occupy different role/type blocks in cell storage: access
+them through `nodes()[firstChild + childID].cell`, not parent-cell arithmetic.
+
+### Coarse/fine interface representation
+
+After refinement and balance, a full coarse-cell neighbour ring outside the
+refined region is considered for CoarseInterface. Cells proven wholly outside
+the physical fluid region do not allocate exchange families; a dry center alone
+does not discard a cut cell. Each retained interface cell keeps its real coarse slot
+and gets four/eight fine-sized auxiliary slots covering that same volume.
+These are an exchange representation, not actual tree children or independent
+solving volume. At a flat interface their width is one coarse spacing, or two
+fine spacings. FineInterface marks a conservative two-fine-cell ring inside
+the real fine region. The full box neighbourhood includes face/edge/corner
+contacts. Helpers are shared when a coarse cell touches several interfaces.
+
+`interfaces().blocks` maps coarse CellIndex to its contiguous auxiliary range
+and a range in `interfaces().fineCells`. This is geometric connectivity, not
+a streaming/interpolation matrix or a time-stepping implementation. Dry cells
+can be present in interface metadata and must not be treated as active fluid.
+
+### Physical analysis, edits, and partition handoff
+
+Physical analysis reuses `geometry.analysis()` on occupied per-level tiles;
+it does not allocate the complete finest-level Cartesian box. Boundary data
+retain geometric Face IDs, offsets and entry-major Q, but reference the shared
+CellIndex pool rather than duplicate coordinate arrays. `boundaries()` includes
+both real and auxiliary boundary entries; use cell roles to distinguish them.
+
+`refine(nodeIndex)` and `derefine(parentNodeIndex)` edit topology and invalidate
+cell data/connectivity. Derefinement currently requires direct leaf children.
+Call `finalize(geometry)` afterwards to balance, analyze, sort and rebuild
+indices. Balance may refine neighbours again to preserve 2:1. Repeated
+`generate()` applies rules to the existing forest rather than resetting it.
+Indices into the cell pool must not be retained across these rebuilds.
+Retired child topology nodes remain inactive; automatic AMR compaction and
+distributed migration are not implemented.
+
+The partition module can read the cell/level ranges, node-to-cell relations,
+interface blocks, and `adjacentRealCells(cell)` (face/edge/corner neighbours).
+Adjacency is derived on demand instead of retaining a dense N-by-stencil table.
+Dry and auxiliary entries have no independent physical volume. No partition
+rank, device ownership, or communication backend is assigned here.
+
+`maxNodes` and `maxCells` limit storage growth. `analysisTileWidth` bounds each
+dense analysis tile; `analysisThreads` caps simultaneous tiles to bound memory.
+Selection, topology creation, balancing and interface-role detection also use
+OpenMP. Allocation and canonical sorting are deterministic serial stages.
+
+The automatic acceptance suite is split into seven `.cpp` files, each with its
+own executable and no case-selection arguments. Together they cover the same
+14 test points:
+
+| Executable under `build/geometry/multilevel` | Coverage |
+| --- | --- |
+| `test_multilevel_topology` | Grid snapping, indexed topology, coarse/fine interface bands |
+| `test_multilevel_regions` | Disconnected/nested regions and Boolean wall visibility |
+| `test_multilevel_primitive` | Curved walls, external flow, Cylinder Face bands |
+| `test_multilevel_edits` | Refine/derefine, stale views, invalid input and capacity |
+| `test_multilevel_lattice` | D3Q15/19/27 topology and physical Q |
+| `test_multilevel_stl` | STL Face bands and arbitrary-depth STL refinement volumes |
+| `test_multilevel_determinism` | Identical 1/4-thread topology, storage, interfaces and Q |
+
+`multilevel_test_checks.cpp` supplies shared verification functions, linked
+through a test-support library; tests do not include another `.cpp` or require
+a test-only helper header. `test_multilevel_acceptance` is now a build-only
+aggregate target, not an executable. Use:
+
+```bash
+make_hpcc -C build -j 16 test_multilevel_acceptance
+bash run_geometry_multilevel_tests.sh
+./build/geometry/multilevel/test_multilevel_stl
+```
+
+Like the existing runners, run the shell script from the project root. It
+invokes the seven independent automatic applications directly. Interactive
+visualization is split into three separate sources and executables:
+
+| Manual executable under `build/geometry/multilevel` | Geometry and refinement | Output directory under `tests/geometry_tests/outputs` |
+| --- | --- | --- |
+| `test_multilevel_annulus` | 2D annulus, both wall bands and two disconnected level-1 rectangle zones | `test_multilevel_annulus_vtks/` |
+| `test_multilevel_spherical_obstacle` | 3D Box minus sphere, spherical Face 6 wall band | `test_multilevel_spherical_obstacle_vtks/` |
+| `test_multilevel_branched_channel` | Internal branched-channel STL, Face 0 wall band | `test_multilevel_branched_channel_vtks/` |
+
+Each program prompts only for base spacing, maximum level (1..4), and fluid-side
+wall-band thickness. Geometry dimensions and the STL filename are fixed in the
+corresponding `.cpp`. Run each independently, for example:
+
+```bash
+./build/geometry/multilevel/test_multilevel_annulus
+./build/geometry/multilevel/test_multilevel_spherical_obstacle
+OMP_NUM_THREADS=128 ./build/geometry/multilevel/test_multilevel_branched_channel
+```
+
+Each recreates its own output directory, leaving the other cases intact. Real
+quadrilateral/hexahedral cells go to `geometry.vtk`, overlapping auxiliary
+cells to `auxiliary.vtk`, and Q points to `boundary_q.vtk`. The former combined
+`test_multilevel` application and `test_multilevel_vtks` output directory have
+been replaced by these named cases.
+
+## Automatic tests and shell runners
+
+There are 13 non-interactive automatic test executables. Paths in this table
+are relative to `build/geometry/`. `<case>` and `<stl_file>` are command-line
+arguments, not interactive input.
+
+| Executable | Arguments | Coverage |
+| --- | --- | --- |
+| `primitive/test_primitive_acceptance` | None | Primitive Face groups, Q ownership, exact shared hits, historical scalar/Q regression, repeated 1/4-thread results |
+| `stl/test_stl_geometry` | `<stl_file>` | Construction, preserved topology, planar/Other Face detection, exclusions, repeated detection and empty-geometry rejection |
+| `stl/test_stl_containment` | `<case> <stl_file>` | Root/child relationships and unsupported-depth rejection |
+| `stl/test_stl_flow` | `<case> <stl_file>` | Internal/external component semantics, solid-side normals, repeated interpretation and flow-type switching |
+| `stl/test_stl_translation` | `<case> <stl_file>` | Internal/external translation and preserved topology, normals and volume |
+| `stl/test_stl_boundary_acceptance` | None | Static STL intersection fixtures, primitive/STL comparison, Face/Q contracts and deterministic output |
+| `multilevel/test_multilevel_topology` | None | Grid snapping, tree indices, coverage, balance and coarse/fine interface bands |
+| `multilevel/test_multilevel_regions` | None | Disconnected/nested volumes and Boolean wall visibility |
+| `multilevel/test_multilevel_primitive` | None | Curved walls, external fluid domain and Cylinder Face selection |
+| `multilevel/test_multilevel_edits` | None | Refine/derefine, stale views, invalid input and capacity limits |
+| `multilevel/test_multilevel_lattice` | None | D3Q15/19/27 octrees, cell storage, adjacency and scalar/Q comparison |
+| `multilevel/test_multilevel_stl` | None | STL Face bands and arbitrary-depth STL refinement volumes |
+| `multilevel/test_multilevel_determinism` | None | Identical 1/4-thread tree, cell order, interfaces and boundary Q |
+
+The existing STL command-line case names are:
+
+| Program | Supported `<case>` values |
+| --- | --- |
+| `test_stl_containment` | `single_root`, `two_roots`, `aabb_overlap`, `pseudo_containment`, `nested`, `two_children`, `two_nested_roots`, `three_levels` |
+| `test_stl_flow` | `internal_root`, `internal_nested`, `internal_multiple_roots`, `external_roots`, `external_nested`, `internal_to_external` |
+| `test_stl_translation` | `internal`, `external`, `repeated` |
+
+Match each case with a suitable static fixture under
+`tests/geometry_tests/stl_tests/stls/`; the STL runner contains the established
+case/file combinations. For example:
+
+```bash
+STL_DIR=tests/geometry_tests/stl_tests/stls
+./build/geometry/stl/test_stl_geometry "$STL_DIR/single_root.stl"
+./build/geometry/stl/test_stl_containment nested "$STL_DIR/nested.stl"
+./build/geometry/stl/test_stl_flow internal_to_external "$STL_DIR/nested.stl"
+./build/geometry/stl/test_stl_translation repeated "$STL_DIR/two_children.stl"
+```
+
+Cases testing unsupported configurations pass when the expected exception is
+raised. In particular, physical STL `three_levels` rejection and multilevel
+`stl_nested` volume-selection acceptance test different semantics.
+
+Two geometry shell runners are provided in the project root:
+
+| Script | Programs invoked |
+| --- | --- |
+| `run_geometry_stl_tests.sh` | STL construction/feature detection, containment, flow interpretation and translation with the listed fixture combinations |
+| `run_geometry_multilevel_tests.sh` | Seven independent multilevel automatic executables, covering 14 test points |
+
+The primitive and STL boundary acceptance executables are run directly; the
+two scripts do not invoke them. Boolean currently has the five manual cases
+listed above, rather than a separate Boolean-only automatic executable.
+
+After loading the remote build environment described earlier, the full
+automatic geometry sequence is:
+
+```bash
+cmake_hpcc -S . -B build
+make_hpcc -C build -j 16
+
+./build/geometry/primitive/test_primitive_acceptance
+./build/geometry/stl/test_stl_boundary_acceptance
+OMP_NUM_THREADS=128 bash run_geometry_stl_tests.sh
+bash run_geometry_multilevel_tests.sh
+```
+
+Run both scripts from the project root, like the existing project runners.
+Each executable returns nonzero on failure. The scripts execute sequentially
+without aggregating exit codes, so inspect each program's result rather than
+using only the final shell status as the suite verdict. Multilevel acceptance
+applications set their own 4-thread baseline; the determinism application
+explicitly compares 1 and 4 threads.
+
+Across geometry there are 27 executable tests: 14 interactive and 13 automatic.
+`multilevel_test_checks.cpp` is shared verification code, not an additional
+program; `test_multilevel_acceptance` is a CMake aggregate build target.
+
+## Current scope
+
+Each primitive/STL/Boolean analysis still uses a single uniform grid. The
+multilevel module composes sparse per-level results and provides tree/interface
+metadata; LBM evolution, adaptive refinement decisions, and partitioning are
+not implemented here. Separate curved STL Face labels from
 external software, a unified boundary-normal result array, and general
 rotated primitive geometry remain outside the current interface.

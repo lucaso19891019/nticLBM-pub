@@ -117,6 +117,9 @@ inline PointLocation locatePoint(const Cylinder& geometry,const Point& p)
 }
 
 // STL definitions share the existing triangle predicates in stl_area_analysis.cpp.
+bool pointInClosedComponent(const stl::FacetTopology& topology,
+                            std::size_t componentID, const Point& p);
+bool fluidContainsPoint(const STLGeometry& geometry, const Point& p);
 PointLocation locatePoint(const STLGeometry& geometry,const Point& p);
 void appendIntersections(const STLGeometry& geometry,const Point& p,const Point& delta,
                          std::size_t faceBase,std::vector<LinkIntersection>& output);
