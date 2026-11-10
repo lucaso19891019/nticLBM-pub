@@ -395,7 +395,7 @@ operands use the same analysis interface.
 
 | Operation | Operand flow types | Result flow type | Expression |
 | --- | --- | --- | --- |
-| Union | Internal, Internal | Internal | `a | b` or `a + b` |
+| Union | Internal, Internal | Internal | `a \| b` or `a + b` |
 | Difference | Internal, Internal | Internal | `a - b` |
 | Intersection | Internal, Internal | Internal | `a & b` |
 | Intersection | Internal, External, in either order | Internal | `a & b` |
