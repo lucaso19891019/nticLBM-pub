@@ -1,0 +1,3 @@
+# Keep only the directory placeholder; generated libraries stay untracked.
+/lib/*
+!/lib/.gitkeep

@@ -1,0 +1,7 @@
+# Source-bundle entry generated under build/, not inside vendored source.
+cmake_minimum_required(VERSION 3.18)
+project(nticLBMThirdPartySources LANGUAGES C)
+
+include(
+    cmake/3rdparties/thirdparties.cmake
+)

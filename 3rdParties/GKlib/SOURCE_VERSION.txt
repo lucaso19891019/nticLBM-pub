@@ -1,0 +1,6 @@
+Upstream: https://github.com/KarypisLab/GKlib
+Commit: 3b7d61b9f885063c89901f3901fb4426f9cfb58f
+Archive SHA256: ce44d6d64a786df09dc979b0b18f095b0fd95d03682bdaac5276e4d234b41b56
+Upstream source and licensing files are preserved without modification.
+nticLBM build configuration lives in cmake/3rdparties/gklib.cmake.
+See LICENSE.txt, LICENSES.md and LICENSES/ for the full licensing inventory.

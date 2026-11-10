@@ -1,0 +1,40 @@
+#include "test_partition_checks.hpp"
+#include <iostream>
+
+namespace geo=ntic::lbm::geometry;
+namespace part=ntic::lbm::mpi;
+
+int main()
+{
+    try
+    {
+        omp_set_num_threads(4);
+        const geo::Rectangle physical({0,0},{8,8});
+        geo::MultilevelOptions gridOptions; gridOptions.maxLevel=0;
+        geo::MultilevelGrid<2> uniform(physical.bounds,1,gridOptions); uniform.generate(physical);
+        part::PartitionOptions options; options.ranks=4;
+        const auto equal=part::partition(uniform,options);
+        part::test::checkOwnership(uniform,equal);
+        for(auto count:equal.statistics.realCells) part::test::require(count==16,"Equal-cost uniform partition is unbalanced");
+        part::test::require(equal.statistics.maxToMean==1,"Uniform weight statistics incorrect");
+        std::cout << "[PASS] uniform_ownership\n";
+
+        const auto grid=part::test::annulus();
+        const auto sourceNodes=grid.cells().sourceNode;
+        options.boundaryWeight=2; options.auxiliaryWeight=0.5; options.interfaceWeight=0; options.levelWeights={1,2,4};
+        const auto weighted=part::partition(grid,options);
+        part::test::checkOwnership(grid,weighted);
+        std::vector<double> expected(options.ranks,0);
+        for(std::size_t c=0; c<grid.cells().size(); ++c)
+        {
+            const double base=grid.cells().isAuxiliary(c) ? 0.5 : grid.cells().cellType[c]==geo::CellType::Boundary ? 2 : 1;
+            const auto level=grid.level(c)-(grid.cells().isAuxiliary(c) ? 1 : 0);
+            expected[weighted.owner[c]]+=base*std::ldexp(1.0,static_cast<int>(level))*options.levelWeights[level];
+        }
+        part::test::require(expected==weighted.statistics.rankWeights,"Weighted load accounting differs");
+        part::test::require(grid.cells().sourceNode==sourceNodes,"Partition reordered geometry storage");
+        std::cout << "[PASS] weighted_multilevel_ownership\n";
+        return 0;
+    }
+    catch(const std::exception& error) { std::cerr << "[FAIL] ownership: " << error.what() << '\n'; return 1; }
+}

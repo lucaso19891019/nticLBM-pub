@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
-project(nticLBM LANGUAGES CXX)
+project(nticLBM LANGUAGES C CXX)
 
 
 #====================================================
@@ -35,6 +35,15 @@ endif()
 
 
 #====================================================
+# Third-party libraries
+#====================================================
+
+include(
+    cmake/3rdparties/thirdparties.cmake
+)
+
+
+#====================================================
 # Tests
 #====================================================
 
@@ -60,4 +69,8 @@ include(
 
 include(
     cmake/tests/geometry_multilevel_tests.cmake
+)
+
+include(
+    cmake/tests/mpi_tests.cmake
 )

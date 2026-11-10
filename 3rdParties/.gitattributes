@@ -1,0 +1,3 @@
+# Preserve upstream source bytes, including original batch-file line endings.
+GKlib/** -text
+METIS/src/** -text

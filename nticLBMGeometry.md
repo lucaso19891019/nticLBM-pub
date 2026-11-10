@@ -684,6 +684,101 @@ index domains even though both use `std::size_t`; do not interchange them.
 Real children may occupy different role/type blocks in cell storage: access
 them through `nodes()[firstChild + childID].cell`, not parent-cell arithmetic.
 
+The index domains are:
+
+| Index | Addresses | Access rule |
+| --- | --- | --- |
+| `NodeIndex` | `nodes()` topology entries | Parent and first-child relations use this domain |
+| `CellIndex` | All SoA arrays in `cells()` | One shared index space across levels, roles, and physical types |
+| Boundary entry index | `boundaries().cells` and the corresponding row of `q` | Several entries may reference the same `CellIndex` |
+| Interface fine-list index | `interfaces().fineCells` | The stored value is a `CellIndex`; the list position is not |
+
+Within each level, real cells are stored in this exact order:
+
+```text
+Ordinary:        Interior, Boundary
+FineInterface:   Interior, Boundary
+CoarseInterface: Interior, Boundary
+BothInterfaces:  Interior, Boundary
+Auxiliary:      source coarse cell in Morton order, then child ID
+```
+
+Each real role/type subgroup uses Morton spatial order. This is the geometry
+storage order; it does not prescribe the MPI partition algorithm. Auxiliary
+cells belong to the fine-sized level returned by `level(cell)`, one greater
+than their source coarse node's level. Their families remain contiguous even
+when the auxiliary children have different physical types; they are not split
+into Interior/Boundary subgroups.
+
+All ranges below use absolute `CellIndex` endpoints and the half-open
+convention `[begin, end)`:
+
+| Range | Meaning |
+| --- | --- |
+| `levels()[l].all` | Every stored cell at level `l`, including auxiliary cells |
+| `levels()[l].roles[r]` | The role `r` subgroup at level `l` |
+| `levels()[l].types[r][0]` | Interior cells within real role `r` |
+| `levels()[l].types[r][1]` | Boundary cells within real role `r` |
+| `levels()[l].types[r][2]` | Empty Dry range, retained for interface compatibility |
+
+The role indices are Ordinary=0, FineInterface=1, CoarseInterface=2,
+BothInterfaces=3, Auxiliary=4. `types` only has entries for the four real roles.
+Its type indices 0/1/2 are layout positions, **not `CellType` enum values**.
+An absent subgroup has `begin == end`. The independently computing portion of
+one level is `[roles[Ordinary].begin, roles[Auxiliary].begin)`.
+
+Because role takes precedence over physical type, all Boundary cells of a
+level do not form one contiguous interval. Iterate the Boundary range of each
+real role. Likewise, physical boundary Face membership is a separate index
+list; it does not duplicate or reorder the shared cell pool.
+
+### Multilevel boundary membership and offsets
+
+`boundaries()` preserves the original geometry's Face IDs, including empty
+Faces. For Face `f`, iterate boundary entries in
+`[offsets[f], offsets[f+1])`, and resolve each entry through `cells[entry]`:
+
+```cpp
+const auto& boundary = grid.boundaries();
+for (auto entry = boundary.offsets[face];
+     entry < boundary.offsets[face + 1]; ++entry)
+{
+    const auto cell = boundary.cells[entry];
+    const auto level = grid.level(cell);
+    // q[entry * (nStencils - 1) + (link - 1)], for link=1..nStencils-1.
+    // Physical distance along that lattice link uses grid.spacing(level).
+}
+```
+
+`offsets` counts boundary records, not distinct cells and not Q scalars.
+It has `nBoundaries + 1` entries, starts at zero, and ends at
+`boundaries().cells.size()`. Each Q row has `nStencils - 1` entries; invalid
+links are `-1`, and valid Q values are in `(0, 1]`.
+
+Multiple Face membership is retained. For example:
+
+```text
+offsets = [0, 2, 4]
+cells   = [12, 27, 12, 45]
+           Face 0  Face 1
+```
+
+Cell 12 occupies one cell-data slot but appears in two Face lists. Each Face
+record contains only the links assigned to that Face. Every valid
+`(CellIndex, link)` has a unique Face owner; multiple membership does not
+duplicate a valid link's Q.
+
+Construction analyzes each level at its own spacing, including retained
+auxiliary positions. It does not copy coarse-grid Q onto fine cells. After
+Dry removal and cell sorting, every boundary record is remapped to the new
+`CellIndex`; records for discarded candidates are removed. Records are then
+sorted by Face and final CellIndex, and Face offsets are rebuilt from counts.
+Within one Face, CellIndex order therefore also follows level order.
+
+Currently there is one Face-offset table combining all levels and both real
+and auxiliary entries. A separate `level x Face` offset table is not exposed.
+Use `grid.level(cell)` and `grid.cells().isAuxiliary(cell)` to select entries.
+
 ### Coarse/fine interface representation
 
 After refinement and balance, a full coarse-cell neighbour ring outside the
@@ -703,6 +798,14 @@ and a range in `interfaces().fineCells`. This is geometric connectivity, not
 a streaming/interpolation matrix or a time-stepping implementation. Real coarse
 and fine indices always refer to wet cells. Complete auxiliary families can
 include Dry children; these are exchange metadata, not active fluid cells.
+
+For each `InterfaceBlock`, `coarse` directly addresses the shared cell pool;
+`auxiliary.begin/end` also address that pool and cover four/eight contiguous
+children in bitwise child order. In contrast, `fine.begin/end` address the
+`interfaces().fineCells` list: use `fineCells[i]` to obtain the actual fine
+CellIndex. A fine cell may occur in several interface blocks when it interacts
+with several coarse cells; its cell-data slot is still unique. Connectivity
+is rebuilt using final cell indices after sorting.
 
 ### Physical analysis, edits, and partition handoff
 

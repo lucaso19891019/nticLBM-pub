@@ -1,0 +1,7 @@
+Upstream: https://github.com/KarypisLab/METIS
+Version: v5.2.1
+Commit: f5ae915a84d3bbf1508b529af90292dd7085b9ec
+Archive SHA256: f6efd14ad010c172c33ef98bab5c792819c5eb8871f6ec66e38ed5cd4c4a2234
+Upstream source under src/ is unmodified.
+nticLBM integration lives in cmake/3rdparties/metis.cmake.
+Generated public header uses 64-bit idx_t and real_t consistently.
