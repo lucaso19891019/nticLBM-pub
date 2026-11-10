@@ -50,12 +50,10 @@ set(GEOMETRY_MULTILEVEL_INCLUDE_DIRS
 )
 
 #====================================================
-# Shared multilevel test checks and STL implementation
+# Shared STL implementation for multilevel tests
 #====================================================
 
 add_library(geometry_multilevel_test_support STATIC
-    tests/geometry_tests/multilevel_tests/multilevel_test_checks.cpp
-
     src/geometry/stl/stl_geometry.cpp
     src/geometry/stl/stl_containment.cpp
     src/geometry/stl/stl_flow.cpp

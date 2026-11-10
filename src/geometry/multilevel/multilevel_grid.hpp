@@ -52,8 +52,8 @@ struct TreeNode
     bool leaf() const { return active && firstChild==invalidIndex; }
 };
 
-// Only real leaves and auxiliary exchange cells have CellIndex slots. Covered
-// parents remain in nodes, with cell == invalidIndex and no field-data slot.
+// Only wet real leaves and retained auxiliary exchange families have slots.
+// Dry leaves and covered parents remain topology-only (cell == invalidIndex).
 struct CellPool
 {
     std::vector<NodeIndex> sourceNode;
@@ -69,7 +69,7 @@ struct LevelRanges
     IndexRange all;
     // Ordinary, FineInterface, CoarseInterface, BothInterfaces, Auxiliary.
     std::array<IndexRange,5> roles{};
-    // Real-role subdivisions: Interior, Boundary, Dry. Each computes range
+    // Real-role subdivisions: Interior, Boundary, Dry (always empty). Each computes range
     // is types[r][0].begin .. types[r][1].end, without duplication of cells.
     std::array<std::array<IndexRange,3>,4> types{};
 };
@@ -267,7 +267,6 @@ private:
     }
     void appendCell(NodeIndex source,std::uint8_t role,std::uint8_t child=0)
     {
-        if(cells_.size()>=options_.maxCells) throw std::length_error("Multilevel cell pool exceeds maxCells.");
         cells_.sourceNode.push_back(source); cells_.role.push_back(role);
         cells_.auxiliaryChild.push_back(child); cells_.cellType.push_back(CellType::Dry);
     }
@@ -366,7 +365,39 @@ private:
 
     void sortCells(std::vector<BoundaryEntry>& boundaryEntries)
     {
-        std::vector<CellIndex> order(cells_.size()),newIndex(cells_.size()); std::iota(order.begin(),order.end(),0);
+        // Analysis candidates are temporary. Only wet real cells enter the
+        // persistent pool; topology still covers the complete snapped domain.
+        for(CellIndex c=0; c<cells_.size(); ++c)
+            if(!cells_.isAuxiliary(c)) nodes_[cells_.sourceNode[c]].cell=c;
+        std::vector<std::uint8_t> retainedRoles(nodes_.size(),Ordinary);
+        for(CellIndex c=0; c<cells_.size(); ++c)
+        {
+            if(cells_.isAuxiliary(c) || cells_.cellType[c]==CellType::Dry || !(cells_.role[c]&FineInterface)) continue;
+            const auto source=cells_.sourceNode[c];
+            const auto& node=nodes_[source];
+            offsets(2,[&](const auto& delta) {
+                const auto other=neighbourAt(node,delta);
+                if(other==invalidIndex || nodes_[other].level+1!=node.level) return;
+                const auto coarse=nodes_[other].cell;
+                if(coarse==invalidIndex || cells_.cellType[coarse]==CellType::Dry || !(cells_.role[coarse]&CoarseInterface)) return;
+                retainedRoles[source]|=FineInterface;
+                retainedRoles[other]|=CoarseInterface;
+            });
+        }
+        std::vector<CellIndex> order,newIndex(cells_.size(),invalidIndex);
+        for(CellIndex c=0; c<cells_.size(); ++c)
+        {
+            const auto role=retainedRoles[cells_.sourceNode[c]];
+            if(cells_.isAuxiliary(c))
+            { if(!(role&CoarseInterface)) continue; }
+            else
+            {
+                if(cells_.cellType[c]==CellType::Dry) continue;
+                cells_.role[c]=role;
+            }
+            order.push_back(c);
+        }
+        if(order.size()>options_.maxCells) throw std::length_error("Multilevel cell pool exceeds maxCells.");
         std::sort(order.begin(),order.end(),[&](auto a,auto b) {
             if(level(a)!=level(b)) return level(a)<level(b);
             if(cells_.role[a]!=cells_.role[b]) return cells_.role[a]<cells_.role[b];
@@ -391,9 +422,12 @@ private:
             sorted.auxiliaryChild.push_back(cells_.auxiliaryChild[old]); sorted.cellType.push_back(cells_.cellType[old]);
         }
         cells_=std::move(sorted);
+        for(auto& node:nodes_) node.cell=invalidIndex;
         for(std::size_t c=0; c<cells_.size(); ++c)
             if(!cells_.isAuxiliary(c)) nodes_[cells_.sourceNode[c]].cell=c;
-        for(auto& record:boundaryEntries) record.cell=newIndex[record.cell];
+        boundaryEntries.erase(std::remove_if(boundaryEntries.begin(),boundaryEntries.end(),[&](auto& record) {
+            record.cell=newIndex[record.cell]; return record.cell==invalidIndex;
+        }),boundaryEntries.end());
         unsigned maxLevel=0; for(std::size_t c=0; c<cells_.size(); ++c) maxLevel=std::max(maxLevel,level(c));
         levels_.resize(maxLevel+1);
         std::size_t cursor=0;

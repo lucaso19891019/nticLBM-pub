@@ -1,4 +1,4 @@
-#include "multilevel/multilevel_grid.hpp"
+#include "test_multilevel_checks.hpp"
 
 #include <functional>
 #include <iostream>
@@ -6,16 +6,6 @@
 
 namespace geo=ntic::lbm::geometry;
 namespace lat=ntic::lbm::lattice;
-
-// Shared verification is implemented in multilevel_test_checks.cpp.
-namespace ntic::lbm::geometry::test
-{
-void require(bool condition,const char* message);
-void checkTopology(const geo::MultilevelGrid<2>& grid);
-void checkGeometry(
-    const geo::MultilevelGrid<2>& grid,
-    const std::function<void(geo::GeometryAnalysis2D<lat::LatticeType::D2Q9>&)>& analyze);
-} // namespace ntic::lbm::geometry::test
 
 namespace
 {
@@ -49,6 +39,32 @@ void slab()
     require(fine==64,"Wrong fine interface cell count");
 }
 
+void sparseDryStorage()
+{
+    const geo::BoundingBox2D domain{{-4,-4},{4,4}};
+    const geo::Circle physical({0,0},2);
+    geo::MultilevelOptions options; options.maxLevel=2; options.analysisTileWidth=2;
+    geo::MultilevelGrid<2> grid(domain,1,options);
+    grid.generate(physical,{geo::RefinementRule<2>::surface(geo::fluidRegion(physical),2,0.5)});
+    geo::test::checkTopology(grid); compareGeometry(grid,physical);
+    std::size_t dry=0;
+    for(const auto& node:grid.nodes()) dry+=node.leaf() && node.cell==geo::invalidIndex;
+    require(dry>0,"Dry topology-only leaves were not exercised");
+
+    // maxCells applies to retained slots, not temporary dry candidates.
+    options.maxCells=16;
+    geo::MultilevelGrid<2> coarse(domain,1,options); coarse.generate(physical);
+    geo::test::checkTopology(coarse); compareGeometry(coarse,physical);
+    require(coarse.cells().size()<=16,"Dry candidates consume the cell capacity");
+    const geo::Circle absent({20,20},1);
+    coarse.finalize(absent);
+    geo::test::checkTopology(coarse); compareGeometry(coarse,absent);
+    require(coarse.cells().size()==0 && coarse.interfaces().blocks.empty() && coarse.boundaries().cells.empty(),
+            "Fully dry domain retains cell data or stale connectivity");
+    coarse.finalize(physical);
+    geo::test::checkTopology(coarse); compareGeometry(coarse,physical);
+}
+
 } // namespace
 
 int main()
@@ -58,6 +74,8 @@ int main()
         omp_set_dynamic(0); omp_set_num_threads(4);
         slab();
         std::cout << "[PASS] slab\n";
+        sparseDryStorage();
+        std::cout << "[PASS] sparse_dry_storage\n";
         return 0;
     }
     catch(const std::exception& error)

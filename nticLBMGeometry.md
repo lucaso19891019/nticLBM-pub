@@ -664,16 +664,19 @@ has `cell == invalidIndex`; it does not occupy a field-data slot.
 
 `cells()` is one SoA index space for real leaves and auxiliary exchange cells.
 It stores source-node indices, role, auxiliary-child number, and physical
-`CellType`. Dry leaves retain lightweight mesh metadata; `computes(cell)` is
-false for Dry and auxiliary cells. No LBM distribution arrays are allocated.
+`CellType`. Dry leaves remain only in `nodes()` with `cell == invalidIndex`;
+they occupy no persistent cell slot. `computes(cell)` is true for every real
+cell and false for auxiliary cells. No LBM distribution arrays are allocated.
 
-Cell data are ordered by level, role, physical type (Interior/Boundary/Dry),
+Cell data are ordered by level, role, physical type (Interior/Boundary),
 then Morton spatial order. `levels()` exposes contiguous ranges. Real roles
 are Ordinary, FineInterface, CoarseInterface, and BothInterfaces. A real leaf
 may participate in both adjacent-level interfaces without being duplicated.
 Physical types are independent of interface roles. Auxiliary groups follow
 real cells, with each source coarse cell's four/eight auxiliary children
 contiguous in child-number order.
+The existing Dry type ranges remain empty. Always check for `invalidIndex`
+when resolving a topology leaf to a cell index.
 
 `coordinate(cell)`, `center(cell)`, and `level(cell)` resolve a cell index.
 `nodeBox(node)` resolves a topology index. NodeIndex and CellIndex are different
@@ -685,8 +688,9 @@ them through `nodes()[firstChild + childID].cell`, not parent-cell arithmetic.
 
 After refinement and balance, a full coarse-cell neighbour ring outside the
 refined region is considered for CoarseInterface. Cells proven wholly outside
-the physical fluid region do not allocate exchange families; a dry center alone
-does not discard a cut cell. Each retained interface cell keeps its real coarse slot
+the physical fluid region are excluded from candidate exchange families.
+After scalar analysis, only wet coarse cells with wet fine partners retain
+interface roles and exchange families. Each retained interface cell keeps its real coarse slot
 and gets four/eight fine-sized auxiliary slots covering that same volume.
 These are an exchange representation, not actual tree children or independent
 solving volume. At a flat interface their width is one coarse spacing, or two
@@ -696,8 +700,9 @@ contacts. Helpers are shared when a coarse cell touches several interfaces.
 
 `interfaces().blocks` maps coarse CellIndex to its contiguous auxiliary range
 and a range in `interfaces().fineCells`. This is geometric connectivity, not
-a streaming/interpolation matrix or a time-stepping implementation. Dry cells
-can be present in interface metadata and must not be treated as active fluid.
+a streaming/interpolation matrix or a time-stepping implementation. Real coarse
+and fine indices always refer to wet cells. Complete auxiliary families can
+include Dry children; these are exchange metadata, not active fluid cells.
 
 ### Physical analysis, edits, and partition handoff
 
@@ -719,21 +724,24 @@ distributed migration are not implemented.
 The partition module can read the cell/level ranges, node-to-cell relations,
 interface blocks, and `adjacentRealCells(cell)` (face/edge/corner neighbours).
 Adjacency is derived on demand instead of retaining a dense N-by-stencil table.
-Dry and auxiliary entries have no independent physical volume. No partition
+Topology-only Dry leaves and auxiliary entries have no independent solving volume. No partition
 rank, device ownership, or communication backend is assigned here.
 
-`maxNodes` and `maxCells` limit storage growth. `analysisTileWidth` bounds each
+`maxNodes` limits topology storage; `maxCells` limits the retained cell pool.
+During construction, temporary analysis candidates can include Dry leaves;
+they are removed before publishing indices, connectivity and boundary data.
+`analysisTileWidth` bounds each
 dense analysis tile; `analysisThreads` caps simultaneous tiles to bound memory.
 Selection, topology creation, balancing and interface-role detection also use
 OpenMP. Allocation and canonical sorting are deterministic serial stages.
 
 The automatic acceptance suite is split into seven `.cpp` files, each with its
 own executable and no case-selection arguments. Together they cover the same
-14 test points:
+15 test points:
 
 | Executable under `build/geometry/multilevel` | Coverage |
 | --- | --- |
-| `test_multilevel_topology` | Grid snapping, indexed topology, coarse/fine interface bands |
+| `test_multilevel_topology` | Grid snapping, indexed topology, coarse/fine interface bands, topology-only Dry storage |
 | `test_multilevel_regions` | Disconnected/nested regions and Boolean wall visibility |
 | `test_multilevel_primitive` | Curved walls, external flow, Cylinder Face bands |
 | `test_multilevel_edits` | Refine/derefine, stale views, invalid input and capacity |
@@ -741,9 +749,9 @@ own executable and no case-selection arguments. Together they cover the same
 | `test_multilevel_stl` | STL Face bands and arbitrary-depth STL refinement volumes |
 | `test_multilevel_determinism` | Identical 1/4-thread topology, storage, interfaces and Q |
 
-`multilevel_test_checks.cpp` supplies shared verification functions, linked
-through a test-support library; tests do not include another `.cpp` or require
-a test-only helper header. `test_multilevel_acceptance` is now a build-only
+`test_multilevel_checks.hpp` supplies shared verification functions and fixtures
+included by the seven automatic tests. Every test `.cpp` has its own executable;
+shared helpers live in this header. `test_multilevel_acceptance` is a build-only
 aggregate target, not an executable. Use:
 
 ```bash
@@ -829,7 +837,7 @@ Two geometry shell runners are provided in the project root:
 | Script | Programs invoked |
 | --- | --- |
 | `run_geometry_stl_tests.sh` | STL construction/feature detection, containment, flow interpretation and translation with the listed fixture combinations |
-| `run_geometry_multilevel_tests.sh` | Seven independent multilevel automatic executables, covering 14 test points |
+| `run_geometry_multilevel_tests.sh` | Seven independent multilevel automatic executables, covering 15 test points |
 
 The primitive and STL boundary acceptance executables are run directly; the
 two scripts do not invoke them. Boolean currently has the five manual cases
@@ -856,7 +864,7 @@ applications set their own 4-thread baseline; the determinism application
 explicitly compares 1 and 4 threads.
 
 Across geometry there are 27 executable tests: 14 interactive and 13 automatic.
-`multilevel_test_checks.cpp` is shared verification code, not an additional
+`test_multilevel_checks.hpp` is shared verification code, not an additional
 program; `test_multilevel_acceptance` is a CMake aggregate build target.
 
 ## Current scope

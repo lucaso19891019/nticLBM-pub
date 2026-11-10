@@ -1,20 +1,26 @@
+#pragma once
+
 #include "multilevel/multilevel_grid.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <functional>
-#include <iostream>
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
+#include <vector>
 
 namespace geo=ntic::lbm::geometry;
 namespace lat=ntic::lbm::lattice;
 
 namespace ntic::lbm::geometry::test
 {
-void require(bool condition,const char* message)
+inline void require(bool condition,const char* message)
 { if(!condition) throw std::runtime_error(message); }
 
-namespace
+namespace multilevel_check_detail
 {
 template<std::size_t D,lat::LatticeType Type>
 void topology(const geo::MultilevelGrid<D,Type>& grid)
@@ -38,7 +44,8 @@ void topology(const geo::MultilevelGrid<D,Type>& grid)
             }
         else
         {
-            require(node.cell<cells.size() && cells.sourceNode[node.cell]==n,"Leaf has no unique data index");
+            if(node.cell!=geo::invalidIndex)
+                require(node.cell<cells.size() && cells.sourceNode[node.cell]==n,"Leaf has no unique data index");
             volume+=std::pow(grid.spacing(node.level),D);
         }
     }
@@ -54,6 +61,8 @@ void topology(const geo::MultilevelGrid<D,Type>& grid)
             require(!cells.computes(c),"Auxiliary counted as independent solving volume");
         }
         else
+        {
+            require(cells.cellType[c]!=geo::CellType::Dry,"Dry real leaf occupies a data slot");
             for(const auto neighbour:grid.adjacentRealCells(c))
             {
                 require(!cells.isAuxiliary(neighbour),"Partition adjacency contains auxiliary cell");
@@ -61,6 +70,7 @@ void topology(const geo::MultilevelGrid<D,Type>& grid)
                 const auto reverse=grid.adjacentRealCells(neighbour);
                 require(std::binary_search(reverse.begin(),reverse.end(),c),"Nonreciprocal partition adjacency");
             }
+        }
     }
     std::size_t end=0;
     for(unsigned l=0; l<grid.levels().size(); ++l)
@@ -138,10 +148,21 @@ void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geo
             }
             require(actual.emplace(Key{face,cell},q).second,"Duplicate Face/cell entry");
         }
-    for(unsigned l=0; l<grid.levels().size(); ++l)
+    unsigned treeLevels=1;
+    for(const auto& node:grid.nodes()) if(node.leaf()) treeLevels=std::max(treeLevels,node.level+1);
+    for(unsigned l=0; l<treeLevels; ++l)
     {
-        if(grid.levels()[l].all.size()==0) continue;
         Analysis reference(grid.spacing(l)); reference.domainBounds=grid.domain(); geometry.analysis(reference);
+        for(const auto& node:grid.nodes())
+        {
+            if(!node.leaf() || node.level!=l) continue;
+            const auto& p=node.coordinate;
+            std::size_t id=p[0]+reference.nx*p[1];
+            if constexpr(D==3) id+=reference.nx*reference.ny*p[2];
+            require((node.cell==geo::invalidIndex)==(reference.scalar[id]==static_cast<double>(geo::CellType::Dry)),
+                    "Wet leaf omitted or Dry leaf given a data slot");
+        }
+        if(l>=grid.levels().size()) continue;
         std::map<Key,std::array<double,links>> expected;
         for(std::size_t face=0; face<reference.nBoundaries; ++face)
             for(auto entry=reference.boundaryOffsets[face]; entry<reference.boundaryOffsets[face+1]; ++entry)
@@ -177,33 +198,33 @@ struct AnalysisCallback
     const std::function<void(Analysis&)>& analyze;
     void analysis(Analysis& result) const { analyze(result); }
 };
-} // namespace
+} // namespace multilevel_check_detail
 
-void checkTopology(const geo::MultilevelGrid<2>& grid)
-{ topology(grid); }
+inline void checkTopology(const geo::MultilevelGrid<2>& grid)
+{ multilevel_check_detail::topology(grid); }
 
-void checkGeometry(const geo::MultilevelGrid<2>& grid, const std::function<void(geo::GeometryAnalysis2D<lat::LatticeType::D2Q9>&)>& analyze)
-{ compareGeometry(grid,AnalysisCallback<geo::GeometryAnalysis2D<lat::LatticeType::D2Q9>>{analyze}); }
+inline void checkGeometry(const geo::MultilevelGrid<2>& grid, const std::function<void(geo::GeometryAnalysis2D<lat::LatticeType::D2Q9>&)>& analyze)
+{ multilevel_check_detail::compareGeometry(grid,multilevel_check_detail::AnalysisCallback<geo::GeometryAnalysis2D<lat::LatticeType::D2Q9>>{analyze}); }
 
-void checkTopology(const geo::MultilevelGrid<3,lat::LatticeType::D3Q15>& grid)
-{ topology(grid); }
+inline void checkTopology(const geo::MultilevelGrid<3,lat::LatticeType::D3Q15>& grid)
+{ multilevel_check_detail::topology(grid); }
 
-void checkGeometry(const geo::MultilevelGrid<3,lat::LatticeType::D3Q15>& grid, const std::function<void(geo::GeometryAnalysis3D<lat::LatticeType::D3Q15>&)>& analyze)
-{ compareGeometry(grid,AnalysisCallback<geo::GeometryAnalysis3D<lat::LatticeType::D3Q15>>{analyze}); }
+inline void checkGeometry(const geo::MultilevelGrid<3,lat::LatticeType::D3Q15>& grid, const std::function<void(geo::GeometryAnalysis3D<lat::LatticeType::D3Q15>&)>& analyze)
+{ multilevel_check_detail::compareGeometry(grid,multilevel_check_detail::AnalysisCallback<geo::GeometryAnalysis3D<lat::LatticeType::D3Q15>>{analyze}); }
 
-void checkTopology(const geo::MultilevelGrid<3>& grid)
-{ topology(grid); }
+inline void checkTopology(const geo::MultilevelGrid<3>& grid)
+{ multilevel_check_detail::topology(grid); }
 
-void checkGeometry(const geo::MultilevelGrid<3>& grid, const std::function<void(geo::GeometryAnalysis3D<lat::LatticeType::D3Q19>&)>& analyze)
-{ compareGeometry(grid,AnalysisCallback<geo::GeometryAnalysis3D<lat::LatticeType::D3Q19>>{analyze}); }
+inline void checkGeometry(const geo::MultilevelGrid<3>& grid, const std::function<void(geo::GeometryAnalysis3D<lat::LatticeType::D3Q19>&)>& analyze)
+{ multilevel_check_detail::compareGeometry(grid,multilevel_check_detail::AnalysisCallback<geo::GeometryAnalysis3D<lat::LatticeType::D3Q19>>{analyze}); }
 
-void checkTopology(const geo::MultilevelGrid<3,lat::LatticeType::D3Q27>& grid)
-{ topology(grid); }
+inline void checkTopology(const geo::MultilevelGrid<3,lat::LatticeType::D3Q27>& grid)
+{ multilevel_check_detail::topology(grid); }
 
-void checkGeometry(const geo::MultilevelGrid<3,lat::LatticeType::D3Q27>& grid, const std::function<void(geo::GeometryAnalysis3D<lat::LatticeType::D3Q27>&)>& analyze)
-{ compareGeometry(grid,AnalysisCallback<geo::GeometryAnalysis3D<lat::LatticeType::D3Q27>>{analyze}); }
+inline void checkGeometry(const geo::MultilevelGrid<3,lat::LatticeType::D3Q27>& grid, const std::function<void(geo::GeometryAnalysis3D<lat::LatticeType::D3Q27>&)>& analyze)
+{ multilevel_check_detail::compareGeometry(grid,multilevel_check_detail::AnalysisCallback<geo::GeometryAnalysis3D<lat::LatticeType::D3Q27>>{analyze}); }
 
-geo::MultilevelGrid<2> makeRegionGrid(int threads)
+inline geo::MultilevelGrid<2> makeRegionGrid(int threads)
 {
     const geo::BoundingBox2D domain{{0,0},{8,8}};
     const geo::Rectangle a({0,0},{5,8}),b({3,0},{8,8}); const auto physical=a|b;

@@ -1,4 +1,4 @@
-#include "multilevel/multilevel_grid.hpp"
+#include "test_multilevel_checks.hpp"
 
 #include <functional>
 #include <iostream>
@@ -6,17 +6,6 @@
 
 namespace geo=ntic::lbm::geometry;
 namespace lat=ntic::lbm::lattice;
-
-// Shared verification is implemented in multilevel_test_checks.cpp.
-namespace ntic::lbm::geometry::test
-{
-void require(bool condition,const char* message);
-geo::MultilevelGrid<2> makeRegionGrid(int threads);
-void checkTopology(const geo::MultilevelGrid<2>& grid);
-void checkGeometry(
-    const geo::MultilevelGrid<2>& grid,
-    const std::function<void(geo::GeometryAnalysis2D<lat::LatticeType::D2Q9>&)>& analyze);
-} // namespace ntic::lbm::geometry::test
 
 namespace
 {
