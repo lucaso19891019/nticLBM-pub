@@ -42,6 +42,7 @@ endfunction()
 
 set(GEOMETRY_BOOLEAN_INCLUDE_DIRS
     "${CMAKE_SOURCE_DIR}/src/geometry"
+    "${CMAKE_SOURCE_DIR}/src/geometry/primitive"
     "${CMAKE_SOURCE_DIR}/src/lattice"
     "${CMAKE_SOURCE_DIR}/src/input/stl"
     "${CMAKE_SOURCE_DIR}/src/geometry/stl"

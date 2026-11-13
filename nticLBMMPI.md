@@ -246,7 +246,7 @@ when topology permits further splitting.
 ## Basic use and indices
 
 ```cpp
-#include "mpi/partition/partition.hpp"
+#include "partition.hpp"
 
 namespace part = ntic::lbm::mpi;
 part::PartitionOptions options;

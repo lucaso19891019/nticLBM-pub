@@ -1,4 +1,4 @@
-#include "multilevel/multilevel_grid.hpp"
+#include "multilevel_grid.hpp"
 #include "vtk_output_3d.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"

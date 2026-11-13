@@ -1,4 +1,4 @@
-#include "mpi/partition/partition.hpp"
+#include "partition.hpp"
 #include "vtk_output_2d.hpp"
 
 #include <algorithm>

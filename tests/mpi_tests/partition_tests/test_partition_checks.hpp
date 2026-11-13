@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mpi/partition/partition.hpp"
+#include "partition.hpp"
 #include <set>
 #include <stdexcept>
 

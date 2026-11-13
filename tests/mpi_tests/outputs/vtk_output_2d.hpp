@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mpi/partition/partition_types.hpp"
+#include "partition_types.hpp"
 #include "lattice_model.hpp"
 
 #include <algorithm>

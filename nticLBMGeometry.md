@@ -83,11 +83,11 @@ Primitive constructors default to `FlowType::Internal`. Their common trailing
 arguments are `FlowType` and an optional pointer to an open box.
 
 ```cpp
-#include "primitive/rectangle.hpp"
-#include "primitive/circle.hpp"
-#include "primitive/box.hpp"
-#include "primitive/sphere.hpp"
-#include "primitive/cylinder.hpp"
+#include "rectangle.hpp"
+#include "circle.hpp"
+#include "box.hpp"
+#include "sphere.hpp"
+#include "cylinder.hpp"
 
 const geo::Rectangle rectangle({0.0, 0.0}, {10.0, 6.0});
 const geo::Circle circle({5.0, 3.0}, 2.0);
@@ -143,7 +143,7 @@ Choose a lattice model compatible with the geometry dimension:
 A complete 3D primitive example is:
 
 ```cpp
-#include "primitive/box.hpp"
+#include "box.hpp"
 #include "geometry_analysis.hpp"
 
 const geo::Box box({0.0, 0.0, 0.0}, {6.0, 4.0, 5.0});
@@ -315,7 +315,7 @@ For cylinders, negative/positive refer to the selected X, Y, or Z axis.
 Read and fully validate the STL before constructing `STLGeometry`:
 
 ```cpp
-#include "stl/stl_geometry.hpp"
+#include "stl_geometry.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"
 #include <utility>
@@ -662,7 +662,7 @@ into four/eight children and halves the spacing. Geometry construction,
 selection, and physical scalar/Q analysis remain separate responsibilities.
 
 ```cpp
-#include "multilevel/multilevel_grid.hpp"
+#include "multilevel_grid.hpp"
 
 const geo::Box physical({0,0,0}, {12,12,12});
 const geo::Sphere selection({6,6,6}, 2);

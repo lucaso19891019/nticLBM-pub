@@ -46,8 +46,10 @@ endfunction()
 #====================================================
 
 set(MPI_PARTITION_TEST_INCLUDE_DIRS
-    "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src/mpi/partition"
     "${CMAKE_SOURCE_DIR}/src/geometry"
+    "${CMAKE_SOURCE_DIR}/src/geometry/primitive"
+    "${CMAKE_SOURCE_DIR}/src/geometry/multilevel"
     "${CMAKE_SOURCE_DIR}/src/geometry/stl"
     "${CMAKE_SOURCE_DIR}/src/lattice"
     "${CMAKE_SOURCE_DIR}/src/input/stl"

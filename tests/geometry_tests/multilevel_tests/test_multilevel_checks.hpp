@@ -1,6 +1,6 @@
 #pragma once
 
-#include "multilevel/multilevel_grid.hpp"
+#include "multilevel_grid.hpp"
 
 #include <algorithm>
 #include <array>

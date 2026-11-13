@@ -1,7 +1,7 @@
 #pragma once
 
 #include "partition_types.hpp"
-#include "geometry/multilevel/multilevel_grid.hpp"
+#include "multilevel_grid.hpp"
 
 #include <cmath>
 #include <cstdint>

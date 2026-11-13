@@ -1,11 +1,11 @@
 #pragma once
 
-#include "primitive/box.hpp"
-#include "primitive/circle.hpp"
-#include "primitive/cylinder.hpp"
-#include "primitive/rectangle.hpp"
-#include "primitive/sphere.hpp"
-#include "stl/stl_geometry.hpp"
+#include "box.hpp"
+#include "circle.hpp"
+#include "cylinder.hpp"
+#include "rectangle.hpp"
+#include "sphere.hpp"
+#include "stl_geometry.hpp"
 
 #include <algorithm>
 #include <array>

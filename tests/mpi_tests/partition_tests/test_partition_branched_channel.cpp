@@ -1,4 +1,4 @@
-#include "mpi/partition/partition.hpp"
+#include "partition.hpp"
 #include "vtk_output_3d.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"

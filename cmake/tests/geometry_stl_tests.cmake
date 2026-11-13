@@ -42,6 +42,7 @@ endfunction()
 
 set(GEOMETRY_STL_INCLUDE_DIRS
     "${CMAKE_SOURCE_DIR}/src/geometry"
+    "${CMAKE_SOURCE_DIR}/src/geometry/primitive"
     "${CMAKE_SOURCE_DIR}/src/geometry/stl"
     "${CMAKE_SOURCE_DIR}/src/lattice"
     "${CMAKE_SOURCE_DIR}/src/input/stl"
@@ -247,7 +248,6 @@ target_include_directories(
     test_stl_boundary_acceptance
     PRIVATE
     ${GEOMETRY_STL_INCLUDE_DIRS}
-    "${CMAKE_SOURCE_DIR}/src/geometry/primitive"
 )
 
 target_link_libraries(
