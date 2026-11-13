@@ -44,7 +44,8 @@ std::vector<double> canonical(const GeometryAnalysis3D<Type>& analysis)
 {
     constexpr std::size_t links=GeometryAnalysis3D<Type>::Lattice::nStencils-1;
     std::vector<double> result(analysis.scalar.size()*links,-1.0);
-    const std::size_t entries=analysis.boundaryX.size();
+    analysis.validateBoundaryCells();
+    const std::size_t entries=analysis.boundaryCells.size();
     require(analysis.nBoundaries>0 && analysis.boundaryOffsets.size()==analysis.nBoundaries+1,
             "Invalid Face count/offset size");
     require(analysis.boundaryOffsets.front()==0 && analysis.boundaryOffsets.back()==entries &&
@@ -58,14 +59,8 @@ std::vector<double> canonical(const GeometryAnalysis3D<Type>& analysis)
         std::size_t previous=0;
         for(std::size_t b=begin;b<end;++b)
         {
-            const auto i=static_cast<std::size_t>(std::llround(
-                (analysis.boundaryX[b]-analysis.domain.min[0])/analysis.gridSpacing-0.5));
-            const auto j=static_cast<std::size_t>(std::llround(
-                (analysis.boundaryY[b]-analysis.domain.min[1])/analysis.gridSpacing-0.5));
-            const auto k=static_cast<std::size_t>(std::llround(
-                (analysis.boundaryZ[b]-analysis.domain.min[2])/analysis.gridSpacing-0.5));
-            require(i<analysis.nx && j<analysis.ny && k<analysis.nz,"Entry outside grid");
-            const std::size_t id=i+analysis.nx*(j+analysis.ny*k);
+            const auto id=analysis.boundaryCells.at(b);
+            require(id<analysis.scalar.size(),"Entry outside grid");
             require(b==begin || previous<id,"Non-unique or unstable (Face, Cell)");
             previous=id;
             require(analysis.scalar[id]==static_cast<double>(CellType::Boundary),
@@ -97,14 +92,14 @@ void repeat(const STLGeometry& geometry,const GeometryAnalysis3D<Type>& baseline
     for(int threads:{1,4,4})
     {
         require(analysis.scalar==baseline.scalar && analysis.nBoundaries==baseline.nBoundaries &&
-                analysis.boundaryOffsets==baseline.boundaryOffsets &&
+                analysis.boundaryCells==baseline.boundaryCells && analysis.boundaryOffsets==baseline.boundaryOffsets &&
                 analysis.boundaryX==baseline.boundaryX && analysis.boundaryY==baseline.boundaryY &&
                 analysis.boundaryZ==baseline.boundaryZ && analysis.q==baseline.q,
                 "Repeated/threaded STL output differs");
         omp_set_num_threads(threads);
         geometry.analysis(analysis);
     }
-    require(analysis.scalar==baseline.scalar && analysis.boundaryOffsets==baseline.boundaryOffsets &&
+    require(analysis.scalar==baseline.scalar && analysis.boundaryCells==baseline.boundaryCells && analysis.boundaryOffsets==baseline.boundaryOffsets &&
             analysis.boundaryX==baseline.boundaryX && analysis.boundaryY==baseline.boundaryY &&
             analysis.boundaryZ==baseline.boundaryZ && analysis.q==baseline.q,
             "Final threaded STL output differs");
@@ -171,6 +166,7 @@ GeometryAnalysis3D<Type> probe(STLGeometry geometry,const Point& p,
     analysis.nx=analysis.ny=analysis.nz=1;
     analysis.domain={{p[0]-0.25,p[1]-0.25,p[2]-0.25},{p[0]+0.25,p[1]+0.25,p[2]+0.25}};
     analysis.scalar={static_cast<double>(CellType::Boundary)};
+    analysis.boundaryCells={0};
     analysis.boundaryX={p[0]}; analysis.boundaryY={p[1]}; analysis.boundaryZ={p[2]};
     geometry.boundaryQAnalysis(analysis);
     canonical(analysis);
@@ -181,7 +177,7 @@ GeometryAnalysis3D<Type> probe(STLGeometry geometry,const Point& p,
     std::reverse(geometry.boundaryFeatures.facetFaceIDs.begin(),geometry.boundaryFeatures.facetFaceIDs.end());
     omp_set_num_threads(4);
     geometry.boundaryQAnalysis(analysis);
-    require(analysis.boundaryOffsets==before.boundaryOffsets && analysis.q==before.q &&
+    require(analysis.boundaryCells==before.boundaryCells && analysis.boundaryOffsets==before.boundaryOffsets && analysis.q==before.q &&
             analysis.boundaryX==before.boundaryX && analysis.boundaryY==before.boundaryY &&
             analysis.boundaryZ==before.boundaryZ,"Facet traversal changed Q ownership");
     return analysis;

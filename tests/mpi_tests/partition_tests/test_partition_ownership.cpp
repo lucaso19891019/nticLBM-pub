@@ -12,7 +12,7 @@ int main()
         const geo::Rectangle physical({0,0},{8,8});
         geo::MultilevelOptions gridOptions; gridOptions.maxLevel=0;
         geo::MultilevelGrid<2> uniform(physical.bounds,1,gridOptions); uniform.generate(physical);
-        part::PartitionOptions options; options.ranks=4;
+        part::PartitionOptions options; options.ranks=4; options.boundaryExtraWeight=0;
         const auto equal=part::partition(uniform,options);
         part::test::checkOwnership(uniform,equal);
         for(auto count:equal.statistics.realCells) part::test::require(count==16,"Equal-cost uniform partition is unbalanced");
@@ -21,17 +21,34 @@ int main()
 
         const auto grid=part::test::annulus();
         const auto sourceNodes=grid.cells().sourceNode;
-        options.boundaryWeight=2; options.auxiliaryWeight=0.5; options.interfaceWeight=0; options.levelWeights={1,2,4};
+        options.wetWeight=2; options.boundaryExtraWeight=3;
+        options.auxiliaryWeight=0.5; options.interfaceWeight=0; options.levelWeights={1,2,4};
         const auto weighted=part::partition(grid,options);
         part::test::checkOwnership(grid,weighted);
         std::vector<double> expected(options.ranks,0);
+        std::vector<std::size_t> memberships(grid.cells().size(),0);
+        for(auto cell:grid.boundaries().cells) ++memberships[cell];
+        double boundaryExtra=0;
+        std::size_t boundaryCells=0;
         for(std::size_t c=0; c<grid.cells().size(); ++c)
         {
-            const double base=grid.cells().isAuxiliary(c) ? 0.5 : grid.cells().cellType[c]==geo::CellType::Boundary ? 2 : 1;
+            const bool boundary=!grid.cells().isAuxiliary(c) && grid.cells().cellType[c]==geo::CellType::Boundary;
+            const double extra=boundary ? 3*std::max(std::size_t{1},memberships[c]) : 0;
+            const double base=grid.cells().isAuxiliary(c) ? 0.5 : 2+extra;
             const auto level=grid.level(c)-(grid.cells().isAuxiliary(c) ? 1 : 0);
             expected[weighted.owner[c]]+=base*std::ldexp(1.0,static_cast<int>(level))*options.levelWeights[level];
+            if(boundary)
+            {
+                ++boundaryCells;
+                boundaryExtra+=extra*std::ldexp(1.0,static_cast<int>(level))*options.levelWeights[level];
+            }
         }
         part::test::require(expected==weighted.statistics.rankWeights,"Weighted load accounting differs");
+        part::test::require(boundaryCells>0,"Boundary load case contains no boundary cells");
+        auto noExtra=options; noExtra.boundaryExtraWeight=0;
+        const auto baseline=part::partition(grid,noExtra);
+        part::test::require(weighted.statistics.totalWeight-baseline.statistics.totalWeight==boundaryExtra,
+                            "Boundary extra work does not follow stored Face memberships");
         part::test::require(grid.cells().sourceNode==sourceNodes,"Partition reordered geometry storage");
         std::cout << "[PASS] weighted_multilevel_ownership\n";
         return 0;

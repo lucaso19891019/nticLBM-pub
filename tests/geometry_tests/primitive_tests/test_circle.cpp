@@ -1,7 +1,5 @@
 #include "circle.hpp"
 #include "geometry_analysis.hpp"
-#include "vtk_output.hpp"
-#include "vtk_output_boundary.hpp"
 #include "vtk_output_2d.hpp"
 
 #include <cmath>

@@ -38,6 +38,7 @@ void checkSingleBoundary(const Geometry& geometry, Analysis& analysis,
 {
     geometry.interiorAreaAnalysis(analysis);
     const auto scalar = analysis.scalar;
+    const auto boundaryCells = analysis.boundaryCells;
     const auto x = analysis.boundaryX;
     const auto y = analysis.boundaryY;
     const auto offsets = analysis.boundaryOffsets;
@@ -59,7 +60,8 @@ void checkSingleBoundary(const Geometry& geometry, Analysis& analysis,
     }
     require(analysis.q.size() == count * nLinks, "Invalid Q block count");
     require((count == 0) == expectEmpty, "Unexpected empty boundary");
-    require(analysis.scalar == scalar && analysis.boundaryX == x &&
+    analysis.validateBoundaryCells();
+    require(analysis.boundaryCells == boundaryCells && analysis.scalar == scalar && analysis.boundaryX == x &&
             analysis.boundaryY == y && analysis.boundaryOffsets == offsets,
             "Q analysis changed classification or grouping");
     require(static_cast<std::size_t>(std::count(
@@ -72,17 +74,7 @@ void checkSingleBoundary(const Geometry& geometry, Analysis& analysis,
     for(std::size_t b = 0; b < count; ++b)
     {
         const double h = analysis.gridSpacing;
-        const auto i = static_cast<std::size_t>(std::llround(
-            (analysis.boundaryX[b] - analysis.domain.min[0]) / h - 0.5));
-        const auto j = static_cast<std::size_t>(std::llround(
-            (analysis.boundaryY[b] - analysis.domain.min[1]) / h - 0.5));
-        std::size_t id = i + analysis.nx * j;
-        if constexpr(ThreeD)
-        {
-            const auto k = static_cast<std::size_t>(std::llround(
-                (analysis.boundaryZ[b] - analysis.domain.min[2]) / h - 0.5));
-            id += analysis.nx * analysis.ny * k;
-        }
+        const std::size_t id=analysis.boundaryCells.at(b);
         require(id < scalar.size(), "Boundary coordinate outside grid");
         require(!seen[id], "Duplicate entry within boundary ID 0");
         seen[id] = true;
@@ -241,14 +233,8 @@ void checkCase(const Rectangle& rectangle, double h,
         std::size_t previous = 0;
         for(std::size_t b = begin; b < end; ++b)
         {
-            const double x = analysis.boundaryX[b];
-            const double y = analysis.boundaryY[b];
-            const auto i = static_cast<std::size_t>(std::llround(
-                (x - analysis.domain.min[0]) / h - 0.5));
-            const auto j = static_cast<std::size_t>(std::llround(
-                (y - analysis.domain.min[1]) / h - 0.5));
-            require(i < analysis.nx && j < analysis.ny, "Entry outside grid");
-            const std::size_t id = i + analysis.nx * j;
+            const std::size_t id=analysis.boundaryCells.at(b);
+            require(id<cellCount,"Entry outside grid");
             require(b == begin || previous < id, "Edge order is not stable/unique");
             previous = id;
             entries[id][edge] = true;
@@ -570,14 +556,8 @@ void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage&
         std::size_t previous = 0;
         for(std::size_t b = begin; b < end; ++b)
         {
-            const auto i = static_cast<std::size_t>(std::llround(
-                (analysis.boundaryX[b] - analysis.domain.min[0]) / h - 0.5));
-            const auto j = static_cast<std::size_t>(std::llround(
-                (analysis.boundaryY[b] - analysis.domain.min[1]) / h - 0.5));
-            const auto k = static_cast<std::size_t>(std::llround(
-                (analysis.boundaryZ[b] - analysis.domain.min[2]) / h - 0.5));
-            require(i < analysis.nx && j < analysis.ny && k < analysis.nz, "Entry outside grid");
-            const std::size_t id = i + analysis.nx * (j + analysis.ny * k);
+            const std::size_t id=analysis.boundaryCells.at(b);
+            require(id<cellCount,"Entry outside grid");
             require(b == begin || previous < id, "Duplicate or unordered (Face, Cell)");
             previous = id;
             membership[id][face] = true;
@@ -1038,23 +1018,13 @@ Snapshot snapshot(const Analysis& analysis)
     require(analysis.boundaryX.size() == analysis.boundaryY.size(), "Mismatched XY sizes");
     if constexpr(ThreeD)
         require(analysis.boundaryX.size() == analysis.boundaryZ.size(), "Mismatched Z size");
-    require(analysis.q.size() == analysis.boundaryX.size() * nLinks, "Mismatched Q size");
+    analysis.validateBoundaryCells();
+    require(analysis.q.size() == analysis.boundaryCells.size() * nLinks, "Mismatched Q size");
     std::vector<double> canonical(analysis.scalar.size() * nLinks, -1.0);
     for(std::size_t b = 0; b < analysis.boundaryX.size(); ++b)
     {
-        const auto i = static_cast<std::size_t>(std::llround(
-            (analysis.boundaryX[b] - analysis.domain.min[0]) / analysis.gridSpacing - 0.5));
-        const auto j = static_cast<std::size_t>(std::llround(
-            (analysis.boundaryY[b] - analysis.domain.min[1]) / analysis.gridSpacing - 0.5));
-        require(i < analysis.nx && j < analysis.ny, "Invalid XY cell index");
-        std::size_t id = i + analysis.nx * j;
-        if constexpr(ThreeD)
-        {
-            const auto k = static_cast<std::size_t>(std::llround(
-                (analysis.boundaryZ[b] - analysis.domain.min[2]) / analysis.gridSpacing - 0.5));
-            require(k < analysis.nz, "Invalid Z cell index");
-            id += analysis.nx * analysis.ny * k;
-        }
+        const std::size_t id=analysis.boundaryCells.at(b);
+        require(id<analysis.scalar.size(),"Invalid boundary cell index");
         require(analysis.scalar[id] == static_cast<double>(CellType::Boundary),
                 "Boundary entry refers to a non-Boundary cell");
         for(std::size_t link = 0; link < nLinks; ++link)
@@ -1173,6 +1143,15 @@ void probe(const Geometry& geometry, const Position& p, const Position& delta,
     using Analysis = std::conditional_t<ThreeD, GeometryAnalysis3D<Type>, GeometryAnalysis2D<Type>>;
     using Lattice = typename Analysis::Lattice;
     Analysis analysis(0.5);
+    analysis.nx=analysis.ny=1;
+    if constexpr(ThreeD)
+    {
+        analysis.nz=1;
+        analysis.domain={{p[0]-0.25,p[1]-0.25,p[2]-0.25},{p[0]+0.25,p[1]+0.25,p[2]+0.25}};
+    }
+    else analysis.domain={{p[0]-0.25,p[1]-0.25},{p[0]+0.25,p[1]+0.25}};
+    analysis.scalar={static_cast<double>(CellType::Boundary)};
+    analysis.boundaryCells.assign(nFaces,0);
     analysis.nBoundaries = nFaces;
     analysis.boundaryOffsets.resize(nFaces + 1);
     for(std::size_t face = 0; face <= nFaces; ++face) analysis.boundaryOffsets[face] = face;

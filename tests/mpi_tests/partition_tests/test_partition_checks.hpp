@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mpi/partition.hpp"
+#include "mpi/partition/partition.hpp"
 #include <set>
 #include <stdexcept>
 
@@ -30,6 +30,12 @@ template<typename Grid>
 void checkOwnership(const Grid& grid,const PartitionPlan& plan)
 {
     require(plan.owner.size()==grid.cells().size(),"Incomplete owner map");
+    ntic::lbm::mpi::detail::validatePlan(grid,plan);
+    if(!plan.owner.empty())
+    {
+        require(plan.blocks.size()==static_cast<std::size_t>(plan.ranks()),"Rank does not own exactly one box");
+        for(auto count:plan.statistics.blocksPerRank) require(count==1,"Invalid per-rank box count");
+    }
     std::vector<unsigned> seen(grid.cells().size(),0);
     for(int rank=0; rank<plan.ranks(); ++rank)
         for(auto i=plan.offsets[rank]; i<plan.offsets[rank+1]; ++i)
@@ -61,6 +67,27 @@ void checkLocalPartitions(const Grid& grid,const PartitionPlan& plan)
                     require(local.localIndex(neighbour)!=invalidCellIndex,"Missing real neighbour ghost");
         }
         require(local.localIndex(invalidCellIndex)==invalidCellIndex,"Missing lookup did not return invalid index");
+        require(local.cellBlocks.size()==local.globalCells.size(),"Missing local block indices");
+        std::set<std::pair<GlobalCellIndex,GlobalCellIndex>> internal;
+        for(const auto& exchange:local.intraRankExchanges)
+        {
+            require(exchange.a<exchange.b && exchange.b<plan.blocks.size(),"Invalid internal block pair");
+            require(plan.blocks[exchange.a].owner==local.rank && plan.blocks[exchange.b].owner==local.rank,
+                    "Internal block exchange crosses rank ownership");
+            for(const auto& pair:exchange.dependencies)
+            {
+                require(pair.first<local.ownedCount && pair.second<local.ownedCount,"Internal exchange refers to a ghost");
+                require(local.cellBlocks[pair.first]==exchange.a && local.cellBlocks[pair.second]==exchange.b,
+                        "Internal dependency block indices differ");
+                const auto a=local.globalCells[pair.first],b=local.globalCells[pair.second];
+                require(internal.insert(std::minmax(a,b)).second,"Duplicate internal dependency");
+            }
+        }
+        for(std::size_t c=0; c<local.ownedCount; ++c)
+            if(!grid.cells().isAuxiliary(local.globalCells[c]))
+                for(auto neighbour:grid.adjacentRealCells(local.globalCells[c]))
+                    if(plan.owner[neighbour]==local.rank && plan.cellBlocks[neighbour]!=local.cellBlocks[c])
+                        require(internal.count(std::minmax(local.globalCells[c],neighbour))!=0,"Missing intra-rank neighbour dependency");
         for(const auto& peer:local.peers)
         {
             const auto& remote=locals[peer.rank];

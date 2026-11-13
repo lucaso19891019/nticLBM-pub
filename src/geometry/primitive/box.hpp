@@ -191,6 +191,8 @@ struct Box
                 "Grid spacing must be finite and positive.");
         }
     
+        analysis.validateBoundaryCells();
+
         analysis.q.assign(
             boundaryCount * nLinks, -1.0);
     
@@ -201,15 +203,16 @@ struct Box
         {
             const std::size_t b =
                 static_cast<std::size_t>(index);
+            const auto position=analysis.cellCenter(analysis.boundaryCells[b]);
             const std::size_t faceID = static_cast<std::size_t>(
                 std::upper_bound(analysis.boundaryOffsets.begin(),
                                  analysis.boundaryOffsets.end(), b) -
                 analysis.boundaryOffsets.begin() - 1);
     
             const double p[3] = {
-                analysis.boundaryX[b],
-                analysis.boundaryY[b],
-                analysis.boundaryZ[b]
+                position[0],
+                position[1],
+                position[2]
             };
     
             for(std::size_t i = 1;
@@ -343,6 +346,8 @@ struct Box
         analysis.nz = static_cast<std::size_t>(
             std::ceil(domain.depth() / h));
 
+        analysis.validateGridFrame();
+
         const std::size_t nx = analysis.nx;
         const std::size_t ny = analysis.ny;
         const std::size_t nz = analysis.nz;
@@ -374,12 +379,9 @@ struct Box
             const std::size_t k = tmp / ny;
 
             const Point center{
-                domain.min[0] +
-                    (static_cast<double>(i) + 0.5) * h,
-                domain.min[1] +
-                    (static_cast<double>(j) + 0.5) * h,
-                domain.min[2] +
-                    (static_cast<double>(k) + 0.5) * h
+                analysis.centerCoordinate(0,i),
+                analysis.centerCoordinate(1,j),
+                analysis.centerCoordinate(2,k)
             };
 
             const bool inside = pointInside(center);
@@ -449,6 +451,7 @@ struct Box
         }
         
         const std::size_t boundaryCount = analysis.boundaryOffsets.back();
+        analysis.boundaryCells.resize(boundaryCount);
         analysis.boundaryX.resize(boundaryCount);
         analysis.boundaryY.resize(boundaryCount);
         analysis.boundaryZ.resize(boundaryCount);
@@ -464,9 +467,10 @@ struct Box
                 const std::size_t i = id % nx;
                 const std::size_t j = (id / nx) % ny;
                 const std::size_t k = id / (nx * ny);
-                analysis.boundaryX[slot] = domain.min[0] + (i + 0.5) * h;
-                analysis.boundaryY[slot] = domain.min[1] + (j + 0.5) * h;
-                analysis.boundaryZ[slot] = domain.min[2] + (k + 0.5) * h;
+                analysis.boundaryCells[slot]=id;
+                analysis.boundaryX[slot] = analysis.centerCoordinate(0,i);
+                analysis.boundaryY[slot] = analysis.centerCoordinate(1,j);
+                analysis.boundaryZ[slot] = analysis.centerCoordinate(2,k);
                 ++slot;
             }
         }

@@ -1,7 +1,5 @@
 #include "boolean_geometry.hpp"
-#include "vtk_output.hpp"
 #include "vtk_output_3d.hpp"
-#include "vtk_output_boundary.hpp"
 
 #include <cmath>
 #include <exception>

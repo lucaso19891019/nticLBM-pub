@@ -181,6 +181,8 @@ struct Rectangle
                 "Grid spacing must be finite and positive.");
         }
     
+        analysis.validateBoundaryCells();
+
         analysis.q.assign(
             boundaryCount * nLinks, -1.0);
     
@@ -191,9 +193,10 @@ struct Rectangle
         {
             const std::size_t b =
                 static_cast<std::size_t>(index);
-    
-            const double px = analysis.boundaryX[b];
-            const double py = analysis.boundaryY[b];
+            const auto position=analysis.cellCenter(analysis.boundaryCells[b]);
+
+            const double px = position[0];
+            const double py = position[1];
             const std::size_t edgeID = static_cast<std::size_t>(
                 std::upper_bound(analysis.boundaryOffsets.begin(),
                                  analysis.boundaryOffsets.end(), b) -
@@ -332,6 +335,8 @@ struct Rectangle
         analysis.ny = static_cast<std::size_t>(
             std::ceil(domain.height() / gridSpacing));
 
+        analysis.validateGridFrame();
+
         const std::size_t nx = analysis.nx;
         const std::size_t ny = analysis.ny;
         const std::size_t cellCount = nx * ny;
@@ -358,13 +363,9 @@ struct Rectangle
 
             const Point2D point
             {
-                domain.min[0] +
-                    (static_cast<double>(i) + 0.5) *
-                    gridSpacing,
+                analysis.centerCoordinate(0,i),
 
-                domain.min[1] +
-                    (static_cast<double>(j) + 0.5) *
-                    gridSpacing
+                analysis.centerCoordinate(1,j)
             };
 
             const bool inside = pointInside(point);
@@ -424,6 +425,7 @@ struct Rectangle
         }
         
         const std::size_t boundaryCount = analysis.boundaryOffsets.back();
+        analysis.boundaryCells.resize(boundaryCount);
         boundaryX.resize(boundaryCount);
         boundaryY.resize(boundaryCount);
 
@@ -437,10 +439,9 @@ struct Rectangle
                 if(!edgeMembership[cellID][edge]) continue;
                 const std::size_t i = cellID % nx;
                 const std::size_t j = cellID / nx;
-                boundaryX[slot] = domain.min[0] +
-                    (static_cast<double>(i) + 0.5) * gridSpacing;
-                boundaryY[slot] = domain.min[1] +
-                    (static_cast<double>(j) + 0.5) * gridSpacing;
+                analysis.boundaryCells[slot]=cellID;
+                boundaryX[slot] = analysis.centerCoordinate(0,i);
+                boundaryY[slot] = analysis.centerCoordinate(1,j);
                 ++slot;
             }
         }

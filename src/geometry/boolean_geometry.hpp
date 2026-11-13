@@ -249,18 +249,8 @@ private:
     template<typename Analysis>
     static std::size_t entryCell(const Analysis& data,std::size_t b)
     {
-        const auto i=static_cast<std::size_t>(std::llround(
-            (data.boundaryX[b]-data.domain.min[0])/data.gridSpacing-0.5));
-        const auto j=static_cast<std::size_t>(std::llround(
-            (data.boundaryY[b]-data.domain.min[1])/data.gridSpacing-0.5));
-        std::size_t id=i+data.nx*j;
-        if constexpr(dimension==3)
-        {
-            const auto k=static_cast<std::size_t>(std::llround(
-                (data.boundaryZ[b]-data.domain.min[2])/data.gridSpacing-0.5));
-            id+=data.nx*data.ny*k;
-        }
-        if(id>=data.scalar.size()) throw std::logic_error("Invalid child Boundary coordinate.");
+        const auto id=data.boundaryCells.at(b);
+        if(id>=data.scalar.size()) throw std::logic_error("Invalid child Boundary index.");
         return id;
     }
 
@@ -268,18 +258,20 @@ private:
     static auto cellCenter(const Analysis& data,std::size_t id)
     {
         auto p=data.domain.min;
-        p[0]+=(id%data.nx+0.5)*data.gridSpacing;
-        p[1]+=((id/data.nx)%data.ny+0.5)*data.gridSpacing;
+        p[0]=data.centerCoordinate(0,id%data.nx);
+        p[1]=data.centerCoordinate(1,(id/data.nx)%data.ny);
         if constexpr(dimension==3)
-            p[2]+=(id/(data.nx*data.ny)+0.5)*data.gridSpacing;
+            p[2]=data.centerCoordinate(2,id/(data.nx*data.ny));
         return p;
     }
 
     template<typename Analysis>
     void completeBoundary(Analysis& result,bool complemented) const
     {
+        result.validateBoundaryCells();
         Analysis complete(result.gridSpacing);
         complete.domainBounds=result.domainBounds;
+        complete.gridFrame=result.gridFrame;
         complete.complemented=complemented;
         build(complete,result.domainBounds.value_or(flowType==FlowType::Internal ? bounds : openBox),
               complemented,true);
@@ -299,6 +291,7 @@ private:
         const std::size_t count=validateDomain(domain,result.gridSpacing);
         const std::size_t leftFaces=LeftQuery::faceCount(left),faces=geometricFaceCount();
         Analysis a(result.gridSpacing),b(result.gridSpacing);
+        a.gridFrame=result.gridFrame; b.gridFrame=result.gridFrame;
         // Child results live through the whole merge. Nested Boolean children
         // recursively complete their own results using this very same grid.
         // Face memberships are inherited from complete child outputs, including
@@ -313,9 +306,11 @@ private:
         const bool unite=isUnion(complemented);
         Analysis merged(result.gridSpacing);
         merged.domainBounds=result.domainBounds;
+        merged.gridFrame=result.gridFrame;
         merged.complemented=complemented;
         merged.domain=domain; merged.nx=a.nx; merged.ny=a.ny;
         if constexpr(dimension==3) merged.nz=a.nz;
+        merged.validateGridFrame();
         merged.scalar.resize(count);
 #pragma omp parallel for schedule(static)
         for(std::ptrdiff_t i=0;i<static_cast<std::ptrdiff_t>(count);++i)
@@ -338,6 +333,7 @@ private:
             if constexpr(dimension==3)
                 if(child.boundaryZ.size()!=child.boundaryX.size())
                     throw std::logic_error("Invalid child Z coordinate output.");
+            child.validateBoundaryCells();
             for(std::size_t face=0;face<expectedFaces;++face)
                 for(std::size_t entry=child.boundaryOffsets[face];entry<child.boundaryOffsets[face+1];++entry)
                 {
@@ -460,6 +456,7 @@ private:
             throw std::overflow_error("Boolean Q output size overflow.");
         merged.nBoundaries=faces;
         merged.boundaryOffsets.assign(faces+1,0);
+        merged.boundaryCells.resize(entries.size());
         merged.boundaryX.resize(entries.size()); merged.boundaryY.resize(entries.size());
         if constexpr(dimension==3) merged.boundaryZ.resize(entries.size());
         if(withQ) merged.q.assign(entries.size()*links,-1.0);
@@ -470,6 +467,7 @@ private:
         {
             const std::size_t b=static_cast<std::size_t>(index);
             const auto p=cellCenter(merged,entries[b].cell);
+            merged.boundaryCells[b]=entries[b].cell;
             merged.boundaryX[b]=p[0]; merged.boundaryY[b]=p[1];
             if constexpr(dimension==3) merged.boundaryZ[b]=p[2];
             if(withQ) std::copy(entries[b].q.begin(),entries[b].q.end(),merged.q.begin()+b*links);

@@ -171,6 +171,7 @@ For 2D, use `i + nx * j` and omit Z.
 | --- | --- |
 | `gridSpacing` | Uniform spacing used by this analysis |
 | `domainBounds` | Optional explicit input domain; otherwise use the geometry's default domain |
+| `gridFrame` | Optional `AnalysisGridFrame<2/3>` with a global origin and integer cell offsets for a cropped window |
 | `complemented` | Temporarily analyze the complementary fluid region; default `false` |
 | `domain` | Actual domain selected by the analysis |
 
@@ -186,8 +187,29 @@ box.analysis(result);
 `domainBounds` and `complemented` are analysis settings, not permanent shape
 properties. Boolean analysis uses them internally to align operands and
 evaluate complements. Keep the geometry, lattice, spacing, domain, and
-complement setting consistent between the separate interior and Q calls.
-After any change, recompute the analysis.
+complement and optional grid-frame settings consistent between the separate
+interior and Q calls. After any change, recompute the analysis.
+
+`centerCoordinate(axis, index)` constructs a cell-center coordinate using the
+analysis spacing. Without `gridFrame`, it retains the existing expression
+`domain.min[axis] + (double(index) + 0.5) * h`, preserving standalone historical
+results. With a frame, every window uses the same global integer index:
+
+```text
+globalIndex = gridFrame.offset[axis] + index
+center      = fma(double(globalIndex) + 0.5, h, gridFrame.origin[axis])
+```
+
+`domainBounds` still limits the analyzed window; the frame supplies its global
+lattice origin and the integer offset of its first cell. These inputs must
+describe the same grid. Multilevel analysis fills the frame automatically,
+and a whole-domain reference uses that origin with zero offsets. Primitive,
+STL and nested Boolean analyses use the same coordinate helper; Boolean
+children and temporary complements inherit the frame without changing shape
+state or function signatures. Frame validation precedes parallel cell loops;
+the metadata has fixed size rather than adding storage per cell. This keeps
+tile and whole-domain centers identical without relaxing exact Q ownership
+or shared-hit rules.
 
 ### Scalar map
 
@@ -228,7 +250,8 @@ The shared result uses structure-of-arrays storage:
 
 | Field | Meaning |
 | --- | --- |
-| `boundaryX`, `boundaryY`, `boundaryZ` | Boundary-entry cell centers; Z exists only in 3D |
+| `boundaryCells` | Window-local linear scalar index for each boundary entry |
+| `boundaryX`, `boundaryY`, `boundaryZ` | Corresponding cell centers; Z exists only in 3D |
 | `nBoundaries` | Number of geometric Face/edge groups, including empty groups |
 | `boundaryOffsets` | Group boundaries; size is `nBoundaries + 1` |
 | `q` | Entry-major Q values; size is `boundaryX.size() * (nStencils - 1)` |
@@ -262,7 +285,8 @@ for(std::size_t face = 0; face < result.nBoundaries; ++face)
 ```
 
 A physical boundary cell can occur in two or more groups. Consequently,
-`boundaryX.size()` counts **entries**, not unique boundary cells. An entry can
+`boundaryCells.size()` and the coordinate-array sizes count **entries**, not
+unique boundary cells. Repeated Face membership repeats the same integer ID. An entry can
 also have all Q values set to `-1`. Use the scalar map to identify physical
 boundary cells, and inspect valid Q values to determine link ownership.
 
@@ -313,6 +337,21 @@ input and validation are separate from flow interpretation; the input layer
 reconstructs normals from vertex winding without choosing a fluid side.
 See [STL input documentation](nticLBMSTLReader.md) for input-layer details;
 the example above uses the `FacetTopology` overload required by geometry.
+
+For cropped domains, every non-surface Interior cell is eligible for the
+facet-driven closed-StencilCell intersection test. A facet just outside the
+window can intersect its stencil; an initial Boundary voxel inside the window
+is not required. Facet ranges still restrict the actual intersection work.
+Interior analysis stores integer `boundaryCells` directly; Q evaluation uses
+those indices without reconstructing them from coordinates. The local scalar
+index is `i + nx*j` in 2D or `i + nx*(j + ny*k)` in 3D, relative to the current
+analysis window, including when `gridFrame` is set. Coordinates retained for
+output must exactly match `cellCenter(boundaryCells[entry])`; invalid indices,
+inconsistent coordinate arrays and non-Boundary references are rejected.
+`boundaryOffsets.back()` equals both the integer and coordinate entry counts.
+Boolean results rebuild indices in their result grid, and multilevel assembly
+maps window-local indices to final grid `CellIndex` values. Strict Wet/surface
+classification and exact nearest-Q tie rules remain unchanged.
 
 ### Initialization and component nesting
 
@@ -576,11 +615,29 @@ named output directories and refinement definitions are listed in the
 multilevel section below. Manual applications are not invoked by the automatic
 test runners.
 
-`vtk_output_boundary.hpp`, under the test output helper directory, provides
-`writeVTKBoundaryPoints(path, result)` for both 2D and 3D analysis. It writes
+The geometry test output directory contains two output headers:
+`vtk_output_2d.hpp` for 2D scalar maps, bounding boxes, multilevel cells and
+boundary-Q points, and `vtk_output_3d.hpp` for their 3D counterparts. Include
+the header matching the case dimension; the 3D header also includes the 2D
+header for callers supporting both dimensions. The existing writer APIs are
+used directly, for example `writeVTK2DCellScalar(...)`,
+`writeVTK3DCellScalar(...)`, `writeVTKMultilevelCells(...)` and
+`writeVTKBoundaryPoints(path, result)`.
+
+`writeVTKBoundaryPoints` writes
 only intersection points, with vertex cells for display, and no connecting
 lines. Coincident points with different source records remain separate.
 It also prints per-Face entry/link counts and the valid Q range.
+
+All geometry test VTK writers use legacy VTK 3.0 `BINARY` with big-endian
+payloads. Coordinates and scalar/Q values use 64-bit doubles; connectivity,
+cell types and signed metadata use 32-bit integers. `CellIndex`, `SourceNode`
+and `BlockIndex`, where present, use standard 32-bit `unsigned_int` instead of
+platform-dependent `unsigned_long`. Writers reject counts/connectivity beyond
+signed 32-bit limits and index metadata beyond unsigned 32-bit limits rather
+than truncating values. Bounding boxes retain line cells; Q files contain
+vertex cells only. Structured-grid origin/spacing headers retain sufficient
+decimal precision to recover double values.
 
 For ParaView:
 
@@ -839,8 +896,8 @@ Selection, topology creation, balancing and interface-role detection also use
 OpenMP. Allocation and canonical sorting are deterministic serial stages.
 
 The automatic acceptance suite is split into seven `.cpp` files, each with its
-own executable and no case-selection arguments. Together they cover the same
-15 test points:
+own executable and no case-selection arguments. Together they cover
+16 test points:
 
 | Executable under `build/geometry/multilevel` | Coverage |
 | --- | --- |
@@ -849,8 +906,18 @@ own executable and no case-selection arguments. Together they cover the same
 | `test_multilevel_primitive` | Curved walls, external flow, Cylinder Face bands |
 | `test_multilevel_edits` | Refine/derefine, stale views, invalid input and capacity |
 | `test_multilevel_lattice` | D3Q15/19/27 topology and physical Q |
-| `test_multilevel_stl` | STL Face bands and arbitrary-depth STL refinement volumes |
+| `test_multilevel_stl` | STL Face bands, arbitrary-depth refinement volumes and nonbinary-spacing tile scalar/Face/Q regression |
 | `test_multilevel_determinism` | Identical 1/4-thread topology, storage, interfaces and Q |
+
+Remote validation on 2026-11-11 passed all 306 historical primitive cases
+without changing their reference hashes, STL boundary acceptance, all 22
+STL-script invocations and all 16 multilevel checks. The multilevel regression
+checks integer boundary indices, rejects changed retained coordinates and
+compares cropped-window scalar/Face/Q results against the same geometry on
+the full anchored grid; corresponding Q values must match exactly.
+All 14 geometry manual programs completed. Their binary VTK output was read
+by ParaView 6.0.1 without errors or warnings and synchronized locally with
+per-file SHA256 verification.
 
 `test_multilevel_checks.hpp` supplies shared verification functions and fixtures
 included by the seven automatic tests. Every test `.cpp` has its own executable;
@@ -908,7 +975,7 @@ arguments, not interactive input.
 | `multilevel/test_multilevel_primitive` | None | Curved walls, external fluid domain and Cylinder Face selection |
 | `multilevel/test_multilevel_edits` | None | Refine/derefine, stale views, invalid input and capacity limits |
 | `multilevel/test_multilevel_lattice` | None | D3Q15/19/27 octrees, cell storage, adjacency and scalar/Q comparison |
-| `multilevel/test_multilevel_stl` | None | STL Face bands and arbitrary-depth STL refinement volumes |
+| `multilevel/test_multilevel_stl` | None | STL Face bands, arbitrary-depth refinement volumes and nonbinary-spacing tile scalar/Face/Q regression |
 | `multilevel/test_multilevel_determinism` | None | Identical 1/4-thread tree, cell order, interfaces and boundary Q |
 
 The existing STL command-line case names are:
@@ -940,7 +1007,7 @@ Two geometry shell runners are provided in the project root:
 | Script | Programs invoked |
 | --- | --- |
 | `run_geometry_stl_tests.sh` | STL construction/feature detection, containment, flow interpretation and translation with the listed fixture combinations |
-| `run_geometry_multilevel_tests.sh` | Seven independent multilevel automatic executables, covering 15 test points |
+| `run_geometry_multilevel_tests.sh` | Seven independent multilevel automatic executables, covering 16 test points |
 
 The primitive and STL boundary acceptance executables are run directly; the
 two scripts do not invoke them. Boolean currently has the five manual cases

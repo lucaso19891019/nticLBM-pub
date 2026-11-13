@@ -175,6 +175,8 @@ struct Circle
     
         // AoS: each Boundary Cell stores Q-1 values.
         // -1 means no intersection on the lattice link.
+        analysis.validateBoundaryCells();
+
         analysis.q.assign(
             boundaryCount * nLinks, -1.0);
     
@@ -185,12 +187,13 @@ struct Circle
         {
             const std::size_t b =
                 static_cast<std::size_t>(index);
-    
+            const auto position=analysis.cellCenter(analysis.boundaryCells[b]);
+
             const double px =
-                analysis.boundaryX[b] - center[0];
+                position[0] - center[0];
     
             const double py =
-                analysis.boundaryY[b] - center[1];
+                position[1] - center[1];
     
             const double C =
                 px * px + py * py - radius * radius;
@@ -290,6 +293,8 @@ struct Circle
         analysis.ny = static_cast<std::size_t>(
             std::ceil(domain.height() / gridSpacing));
 
+        analysis.validateGridFrame();
+
         const std::size_t nx = analysis.nx;
         const std::size_t ny = analysis.ny;
         const std::size_t cellCount = nx * ny;
@@ -310,13 +315,9 @@ struct Circle
 
             const Point2D point
             {
-                domain.min[0] +
-                    (static_cast<double>(i) + 0.5) *
-                    gridSpacing,
+                analysis.centerCoordinate(0,i),
 
-                domain.min[1] +
-                    (static_cast<double>(j) + 0.5) *
-                    gridSpacing
+                analysis.centerCoordinate(1,j)
             };
 
             const bool inside = pointInside(point);
@@ -378,6 +379,7 @@ struct Circle
         const std::size_t boundaryCount = offsets.back();
         auto& boundaryX = analysis.boundaryX;
         auto& boundaryY = analysis.boundaryY;
+        analysis.boundaryCells.resize(boundaryCount);
         boundaryX.resize(boundaryCount);
         boundaryY.resize(boundaryCount);
 
@@ -392,8 +394,9 @@ struct Circle
             for(std::size_t id = begin; id < end; ++id)
             {
                 if(cellTypes[id] != CellType::Boundary) continue;
-                boundaryX[slot] = domain.min[0] + (id % nx + 0.5) * gridSpacing;
-                boundaryY[slot] = domain.min[1] + (id / nx + 0.5) * gridSpacing;
+                analysis.boundaryCells[slot]=id;
+                boundaryX[slot] = analysis.centerCoordinate(0,id % nx);
+                boundaryY[slot] = analysis.centerCoordinate(1,id / nx);
                 ++slot;
             }
         }

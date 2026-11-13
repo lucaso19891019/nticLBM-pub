@@ -197,6 +197,8 @@ struct Cylinder
                 "Grid spacing must be finite and positive.");
         }
     
+        analysis.validateBoundaryCells();
+
         analysis.q.assign(
             boundaryCount * nLinks, -1.0);
     
@@ -233,6 +235,7 @@ struct Cylinder
         {
             const std::size_t b =
                 static_cast<std::size_t>(index);
+            const auto position=analysis.cellCenter(analysis.boundaryCells[b]);
             const std::size_t faceID = static_cast<std::size_t>(
                 std::upper_bound(analysis.boundaryOffsets.begin(),
                                  analysis.boundaryOffsets.end(), b) -
@@ -240,9 +243,9 @@ struct Cylinder
     
             // Position relative to the Cylinder center.
             const double p[3] = {
-                analysis.boundaryX[b] - center[0],
-                analysis.boundaryY[b] - center[1],
-                analysis.boundaryZ[b] - center[2]
+                position[0] - center[0],
+                position[1] - center[1],
+                position[2] - center[2]
             };
     
             const double pa = p[axialDimension];
@@ -405,6 +408,8 @@ struct Cylinder
         analysis.ny = static_cast<std::size_t>(std::ceil(domain.height() / h));
         analysis.nz = static_cast<std::size_t>(std::ceil(domain.depth() / h));
 
+        analysis.validateGridFrame();
+
         const std::size_t nx = analysis.nx;
         const std::size_t ny = analysis.ny;
         const std::size_t nz = analysis.nz;
@@ -425,9 +430,9 @@ struct Cylinder
             const std::size_t j = (id / nx) % ny;
             const std::size_t k = id / (nx * ny);
             const Point centerPoint{
-                domain.min[0] + (static_cast<double>(i) + 0.5) * h,
-                domain.min[1] + (static_cast<double>(j) + 0.5) * h,
-                domain.min[2] + (static_cast<double>(k) + 0.5) * h
+                analysis.centerCoordinate(0,i),
+                analysis.centerCoordinate(1,j),
+                analysis.centerCoordinate(2,k)
             };
 
             const bool inside = pointInside(centerPoint);
@@ -484,6 +489,7 @@ struct Cylinder
         }
         
         const std::size_t boundaryCount = analysis.boundaryOffsets.back();
+        analysis.boundaryCells.resize(boundaryCount);
         analysis.boundaryX.resize(boundaryCount);
         analysis.boundaryY.resize(boundaryCount);
         analysis.boundaryZ.resize(boundaryCount);
@@ -499,9 +505,10 @@ struct Cylinder
                 const std::size_t i = id % nx;
                 const std::size_t j = (id / nx) % ny;
                 const std::size_t k = id / (nx * ny);
-                analysis.boundaryX[slot] = domain.min[0] + (i + 0.5) * h;
-                analysis.boundaryY[slot] = domain.min[1] + (j + 0.5) * h;
-                analysis.boundaryZ[slot] = domain.min[2] + (k + 0.5) * h;
+                analysis.boundaryCells[slot]=id;
+                analysis.boundaryX[slot] = analysis.centerCoordinate(0,i);
+                analysis.boundaryY[slot] = analysis.centerCoordinate(1,j);
+                analysis.boundaryZ[slot] = analysis.centerCoordinate(2,k);
                 ++slot;
             }
         }

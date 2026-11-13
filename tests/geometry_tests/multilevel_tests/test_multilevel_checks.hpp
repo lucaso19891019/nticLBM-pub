@@ -152,7 +152,10 @@ void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geo
     for(const auto& node:grid.nodes()) if(node.leaf()) treeLevels=std::max(treeLevels,node.level+1);
     for(unsigned l=0; l<treeLevels; ++l)
     {
-        Analysis reference(grid.spacing(l)); reference.domainBounds=grid.domain(); geometry.analysis(reference);
+        Analysis reference(grid.spacing(l)); reference.domainBounds=grid.domain();
+        reference.gridFrame=geo::AnalysisGridFrame<D>{grid.domain().min,{}};
+        geometry.analysis(reference);
+        reference.validateBoundaryCells();
         for(const auto& node:grid.nodes())
         {
             if(!node.leaf() || node.level!=l) continue;
@@ -167,10 +170,7 @@ void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geo
         for(std::size_t face=0; face<reference.nBoundaries; ++face)
             for(auto entry=reference.boundaryOffsets[face]; entry<reference.boundaryOffsets[face+1]; ++entry)
             {
-                const auto i=static_cast<std::size_t>(std::llround((reference.boundaryX[entry]-reference.domain.min[0])/reference.gridSpacing-0.5));
-                const auto j=static_cast<std::size_t>(std::llround((reference.boundaryY[entry]-reference.domain.min[1])/reference.gridSpacing-0.5));
-                std::size_t id=i+reference.nx*j;
-                if constexpr(D==3) id+=reference.nx*reference.ny*static_cast<std::size_t>(std::llround((reference.boundaryZ[entry]-reference.domain.min[2])/reference.gridSpacing-0.5));
+                const auto id=reference.boundaryCells.at(entry);
                 std::array<double,links> q{}; std::copy_n(reference.q.begin()+entry*links,links,q.begin());
                 expected.emplace(Key{face,id},q);
             }
@@ -179,14 +179,16 @@ void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geo
             const auto p=grid.coordinate(cell);
             std::size_t id=p[0]+reference.nx*p[1];
             if constexpr(D==3) id+=reference.nx*reference.ny*p[2];
-            require(static_cast<double>(cells.cellType[cell])==reference.scalar[id],"Sparse tile scalar differs from uniform analysis");
+            require(static_cast<double>(cells.cellType[cell])==reference.scalar[id],
+                    "Sparse tile scalar differs from uniform analysis");
             for(std::size_t face=0; face<boundary.nBoundaries; ++face)
             {
                 const auto a=actual.find({face,cell}),b=expected.find({face,id});
                 require((a==actual.end())==(b==expected.end()),"Sparse tile Face membership differs from uniform analysis");
                 if(a!=actual.end())
                     for(std::size_t link=0; link<links; ++link)
-                        require(std::abs(a->second[link]-b->second[link])<1e-11,"Sparse tile Q differs from uniform analysis");
+                        require(a->second[link]==b->second[link],
+                                "Sparse tile Q differs from uniform analysis");
             }
         }
     }

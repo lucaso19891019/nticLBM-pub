@@ -181,15 +181,10 @@ bool facetCellIndexRange(double facetMin,
     return first<=last;
 }
 
-Point cellCenter(const BoundingBox& domain,
-                 double spacing,
-                 std::size_t i,
-                 std::size_t j,
-                 std::size_t k)
+template<typename Analysis>
+Point cellCenter(const Analysis& analysis,std::size_t i,std::size_t j,std::size_t k)
 {
-    return {domain.min[0]+(static_cast<double>(i)+0.5)*spacing,
-            domain.min[1]+(static_cast<double>(j)+0.5)*spacing,
-            domain.min[2]+(static_cast<double>(k)+0.5)*spacing};
+    return {analysis.centerCoordinate(0,i),analysis.centerCoordinate(1,j),analysis.centerCoordinate(2,k)};
 }
 
 struct FacetData
@@ -261,9 +256,11 @@ void STLGeometry::interiorAreaAnalysis(
        nx*ny>std::numeric_limits<std::size_t>::max()/nz)
         throw std::runtime_error("STL grid cell count overflow.");
 
+    analysis.validateGridFrame();
     const std::size_t xySize=nx*ny, cellCount=xySize*nz;
     const std::size_t facetCount=topology.geometry.facetVertexIDs.size();
     std::vector<CellType> cellTypes(cellCount,CellType::Dry);
+    analysis.boundaryCells.clear();
     boundaryX.clear(); boundaryY.clear(); boundaryZ.clear();
     analysis.nBoundaries=0;
     analysis.boundaryOffsets.assign(1,0);
@@ -299,7 +296,7 @@ void STLGeometry::interiorAreaAnalysis(
                     const std::size_t id=i+nx*(j+ny*k);
                     // Do not skip an already marked cell: another facet
                     // may pass exactly through its center.
-                    const Point c=cellCenter(domain,gridSpacing,i,j,k);
+                    const Point c=cellCenter(analysis,i,j,k);
                     if(!triangleIntersectsCell(c,0.5*gridSpacing,
                                                f.a,f.b,f.c)) continue;
                     atomicBoundary[id].store(1,std::memory_order_relaxed);
@@ -329,7 +326,7 @@ void STLGeometry::interiorAreaAnalysis(
     {
         if(initialBoundary[seed] || visited[seed]) continue;
         const std::size_t sk=seed/xySize, sj=(seed%xySize)/nx, si=seed%nx;
-        const bool wet=centerIsWet(*this,cellCenter(domain,gridSpacing,si,sj,sk),complemented);
+        const bool wet=centerIsWet(*this,cellCenter(analysis,si,sj,sk),complemented);
         const CellType type=wet ? CellType::Interior : CellType::Dry;
         queue.clear(); queue.push_back(seed); visited[seed]=1;
         for(std::size_t head=0; head<queue.size(); ++head)
@@ -355,31 +352,16 @@ void STLGeometry::interiorAreaAnalysis(
         }
     }
 
-    // Step 3.1: Generate unique Wet candidates from ALL initial Boundary
-    // voxels, before any strict-Wet filtering. The 3x3x3 closed-voxel
-    // neighborhood covers the half-width-h StencilCell of each Wet center.
+    // Step 3.1: Every Interior cell is eligible for the facet-driven StencilCell
+    // test below. A clipped analysis tile may omit the initial Boundary voxel
+    // just outside its domain, even though that facet intersects a Wet cell's
+    // stencil. Facet ranges in Step 3.3 bound the actual SAT work spatially.
     std::vector<std::atomic<std::uint8_t>> candidates(cellCount);
-#pragma omp parallel for schedule(static)
-    for(std::ptrdiff_t index=0; index<static_cast<std::ptrdiff_t>(cellCount); ++index)
-        candidates[static_cast<std::size_t>(index)].store(0,std::memory_order_relaxed);
-
 #pragma omp parallel for schedule(static)
     for(std::ptrdiff_t index=0; index<static_cast<std::ptrdiff_t>(cellCount); ++index)
     {
         const std::size_t id=static_cast<std::size_t>(index);
-        if(!initialBoundary[id]) continue;
-        const std::size_t k=id/xySize, j=(id%xySize)/nx, i=id%nx;
-        const std::size_t i0=(i>0)?i-1:i, i1=std::min(i+1,nx-1);
-        const std::size_t j0=(j>0)?j-1:j, j1=std::min(j+1,ny-1);
-        const std::size_t k0=(k>0)?k-1:k, k1=std::min(k+1,nz-1);
-        for(std::size_t kk=k0; kk<=k1; ++kk)
-            for(std::size_t jj=j0; jj<=j1; ++jj)
-                for(std::size_t ii=i0; ii<=i1; ++ii)
-                {
-                    const std::size_t neighbor=ii+nx*(jj+ny*kk);
-                    if(cellTypes[neighbor]==CellType::Interior)
-                        candidates[neighbor].store(1,std::memory_order_relaxed);
-                }
+        candidates[id].store(cellTypes[id]==CellType::Interior,std::memory_order_relaxed);
     }
 
     // Step 3.2: Initial Boundary is final Boundary only for a STRICT Wet
@@ -396,7 +378,7 @@ void STLGeometry::interiorAreaAnalysis(
             continue;
         }
         const std::size_t k=id/xySize, j=(id%xySize)/nx, i=id%nx;
-        const Point c=cellCenter(domain,gridSpacing,i,j,k);
+        const Point c=cellCenter(analysis,i,j,k);
         cellTypes[id]=centerIsWet(*this,c,complemented) ? CellType::Boundary : CellType::Dry;
     }
 
@@ -425,7 +407,7 @@ void STLGeometry::interiorAreaAnalysis(
                     const std::size_t id=i+nx*(j+ny*k);
                     if(!candidates[id].load(std::memory_order_relaxed) ||
                        atomicHits[id].load(std::memory_order_relaxed)) continue;
-                    const Point c=cellCenter(domain,gridSpacing,i,j,k);
+                    const Point c=cellCenter(analysis,i,j,k);
                     if(triangleIntersectsCell(c,gridSpacing,f.a,f.b,f.c))
                         atomicHits[id].store(1,std::memory_order_relaxed);
                 }
@@ -441,6 +423,7 @@ void STLGeometry::interiorAreaAnalysis(
     }
 
     // Output: preserve the existing SoA boundary-coordinate and scalar API.
+    analysis.boundaryCells.resize(cellCount);
     boundaryX.resize(cellCount);
     boundaryY.resize(cellCount);
     boundaryZ.resize(cellCount);
@@ -454,9 +437,11 @@ void STLGeometry::interiorAreaAnalysis(
         std::size_t slot=0;
 #pragma omp atomic capture
         slot=boundaryCount++;
-        const Point c=cellCenter(domain,gridSpacing,i,j,k);
+        const Point c=cellCenter(analysis,i,j,k);
+        analysis.boundaryCells[slot]=id;
         boundaryX[slot]=c[0]; boundaryY[slot]=c[1]; boundaryZ[slot]=c[2];
     }
+    analysis.boundaryCells.resize(boundaryCount);
     boundaryX.resize(boundaryCount);
     boundaryY.resize(boundaryCount);
     boundaryZ.resize(boundaryCount);
@@ -621,6 +606,7 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
        nx>std::numeric_limits<std::size_t>::max()/ny ||
        nx*ny>std::numeric_limits<std::size_t>::max()/nz)
         throw std::invalid_argument("STL Q requires a valid interior analysis grid.");
+    analysis.validateGridFrame();
     const std::size_t cellCount=nx*ny*nz;
     const std::size_t facetCount=topology.geometry.facetVertexIDs.size();
     const bool internal=flowType==FlowType::Internal;
@@ -636,35 +622,15 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
         throw std::overflow_error("STL Face count overflow.");
     const std::size_t faceCount=internal ? boundaryFeatures.nPlanarFaces+1 : 1;
 
-    // Consume interior coordinates, canonicalizing repeated calls on already
+    // Consume interior indices, canonicalizing repeated calls on already
     // Face-expanded output back to unique physical cells. Do not reclassify.
-    std::vector<std::size_t> cells;
-    cells.reserve(analysis.boundaryX.size());
-    for(std::size_t b=0;b<analysis.boundaryX.size();++b)
-    {
-        const Point p{analysis.boundaryX[b],analysis.boundaryY[b],analysis.boundaryZ[b]};
-        std::array<std::size_t,3> index{};
-        const std::array<std::size_t,3> dimensions{{nx,ny,nz}};
-        for(std::size_t axis=0;axis<3;++axis)
-        {
-            const double value=(p[axis]-analysis.domain.min[axis])/h-0.5;
-            const double rounded=std::round(value);
-            if(!std::isfinite(value) || rounded<0.0 || rounded>=dimensions[axis] ||
-               std::abs(value-rounded)>64.0*std::numeric_limits<double>::epsilon()*
-                                           std::max(1.0,std::abs(value)))
-                throw std::invalid_argument("STL boundary coordinate is not a grid center.");
-            index[axis]=static_cast<std::size_t>(rounded);
-        }
-        const std::size_t id=index[0]+nx*(index[1]+ny*index[2]);
-        if(analysis.scalar[id]!=static_cast<double>(CellType::Boundary))
-            throw std::invalid_argument("STL boundary entry is not a Boundary cell.");
-        cells.push_back(id);
-    }
+    analysis.validateBoundaryCells();
+    std::vector<std::size_t> cells=analysis.boundaryCells;
     std::sort(cells.begin(),cells.end());
     cells.erase(std::unique(cells.begin(),cells.end()),cells.end());
     if(static_cast<std::size_t>(std::count(analysis.scalar.begin(),analysis.scalar.end(),
                               static_cast<double>(CellType::Boundary)))!=cells.size())
-        throw std::invalid_argument("STL boundary coordinates do not cover interior Boundary cells.");
+        throw std::invalid_argument("STL boundary indices do not cover interior Boundary cells.");
 
     // Validate malformed topology on the calling thread before entering OpenMP.
     std::vector<unsigned char> active(facetCount,0);
@@ -695,6 +661,7 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
     {
         analysis.nBoundaries=faceCount;
         analysis.boundaryOffsets.assign(faceCount+1,0);
+        analysis.boundaryCells.clear();
         analysis.boundaryX.clear(); analysis.boundaryY.clear(); analysis.boundaryZ.clear();
         analysis.q.clear();
         return;
@@ -727,7 +694,7 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
                     {
                         const std::size_t id=i+nx*(j+ny*k);
                         if(analysis.scalar[id]!=static_cast<double>(CellType::Boundary)) continue;
-                        const Point p=cellCenter(analysis.domain,h,i,j,k);
+                        const Point p=cellCenter(analysis,i,j,k);
                         if(triangleIntersectsCell(p,h,triangle.a,triangle.b,triangle.c))
                             local.emplace_back(id,facet);
                     }
@@ -770,7 +737,7 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
         for(std::ptrdiff_t index=0;index<static_cast<std::ptrdiff_t>(cells.size());++index)
         {
             const std::size_t b=static_cast<std::size_t>(index),id=cells[b];
-            const Point p=cellCenter(analysis.domain,h,id%nx,(id/nx)%ny,id/(nx*ny));
+            const Point p=cellCenter(analysis,id%nx,(id/nx)%ny,id/(nx*ny));
             std::array<double,links> nearest;
             nearest.fill(-1.0);
             std::array<std::size_t,links> owners,winningFacets;
@@ -818,6 +785,7 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
     });
     if(entries.size()>std::numeric_limits<std::size_t>::max()/links)
         throw std::overflow_error("STL Q output size overflow.");
+    std::vector<std::size_t> boundaryCells(entries.size());
     std::vector<double> x(entries.size()),y(entries.size()),z(entries.size());
     std::vector<double> q(entries.size()*links,-1.0);
     std::vector<std::size_t> boundaryOffsets(faceCount+1,0);
@@ -828,12 +796,14 @@ void STLGeometry::boundaryQAnalysis(GeometryAnalysis3D<Type>& analysis) const
     for(std::ptrdiff_t index=0;index<static_cast<std::ptrdiff_t>(entries.size());++index)
     {
         const std::size_t b=static_cast<std::size_t>(index),id=entries[b].cell;
-        const Point p=cellCenter(analysis.domain,h,id%nx,(id/nx)%ny,id/(nx*ny));
+        const Point p=cellCenter(analysis,id%nx,(id/nx)%ny,id/(nx*ny));
+        boundaryCells[b]=id;
         x[b]=p[0]; y[b]=p[1]; z[b]=p[2];
         std::copy(entries[b].q.begin(),entries[b].q.end(),q.begin()+b*links);
     }
     analysis.nBoundaries=faceCount;
     analysis.boundaryOffsets.swap(boundaryOffsets);
+    analysis.boundaryCells.swap(boundaryCells);
     analysis.boundaryX.swap(x); analysis.boundaryY.swap(y); analysis.boundaryZ.swap(z);
     analysis.q.swap(q);
 }

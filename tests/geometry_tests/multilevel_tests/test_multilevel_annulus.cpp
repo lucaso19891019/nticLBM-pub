@@ -1,6 +1,5 @@
 #include "multilevel/multilevel_grid.hpp"
-#include "vtk_output.hpp"
-#include "vtk_output_multilevel.hpp"
+#include "vtk_output_2d.hpp"
 
 #include <cmath>
 #include <exception>

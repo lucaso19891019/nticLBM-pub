@@ -317,7 +317,10 @@ private:
                     box.max[d]=domain_.min[d]+static_cast<double>(last[d])*h;
                 }
                 Analysis analysis(h); analysis.domainBounds=box;
+                analysis.gridFrame=AnalysisGridFrame<D>{domain_.min,{}};
+                for(std::size_t d=0; d<D; ++d) analysis.gridFrame->offset[d]=start[d];
                 geometry.analysis(analysis); // Reuse primitive/STL/Boolean scalar, Face and Q contracts.
+                analysis.validateBoundaryCells();
                 if(analysis.nBoundaries!=detail::GeometryQuery<Geometry>::faceCount(geometry))
                     throw std::logic_error("Geometry analysis returned inconsistent Face groups.");
                 std::vector<CellIndex> map(analysis.scalar.size(),invalidIndex);
@@ -336,12 +339,9 @@ private:
                 for(std::size_t face=0; face<analysis.nBoundaries; ++face)
                     for(std::size_t entry=analysis.boundaryOffsets[face]; entry<analysis.boundaryOffsets[face+1]; ++entry)
                     {
-                        Coordinate p{};
-                        p[0]=start[0]+static_cast<std::uint32_t>(std::llround((analysis.boundaryX[entry]-box.min[0])/h-0.5));
-                        p[1]=start[1]+static_cast<std::uint32_t>(std::llround((analysis.boundaryY[entry]-box.min[1])/h-0.5));
-                        if constexpr(D==3) p[2]=start[2]+static_cast<std::uint32_t>(std::llround((analysis.boundaryZ[entry]-box.min[2])/h-0.5));
-                        const auto id=linear(p);
-                        if(id>=map.size() || map[id]==invalidIndex) continue;
+                        const auto id=analysis.boundaryCells[entry];
+                        if(id>=map.size()) throw std::logic_error("Boundary index exceeds its analysis tile.");
+                        if(map[id]==invalidIndex) continue;
                         BoundaryEntry record{face,map[id],{}};
                         std::copy_n(analysis.q.begin()+entry*links,links,record.q.begin());
                         entries.push_back(record);
@@ -563,7 +563,7 @@ public:
     Position<D> center(CellIndex cell) const
     {
         const auto p=coordinate(cell); const auto h=spacing(level(cell)); Position<D> result{};
-        for(std::size_t d=0; d<D; ++d) result[d]=domain_.min[d]+(p[d]+0.5)*h;
+        for(std::size_t d=0; d<D; ++d) result[d]=detail::gridCenterCoordinate(domain_.min[d],p[d],h);
         return result;
     }
     RegionBox<D> nodeBox(NodeIndex index) const
