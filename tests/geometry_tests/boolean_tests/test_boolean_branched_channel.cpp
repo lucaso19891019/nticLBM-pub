@@ -15,7 +15,7 @@
 #include <vector>
 
 using namespace ntic::lbm::geometry;
-using namespace ntic::lbm::geometry::test;
+
 
 namespace
 {

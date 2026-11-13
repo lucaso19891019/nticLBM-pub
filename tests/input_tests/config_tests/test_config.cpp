@@ -933,7 +933,7 @@ int main()
     testTransactionalParse();
     testParseFile();
 
-    ntic::lbm::test::printSummary();
+    printSummary();
 
     return 0;
 }

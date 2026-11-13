@@ -151,8 +151,7 @@ int main()
         parser.parse("1 m^(1/0)"),
         std::runtime_error);
 
-    ntic::lbm::test::printSummary();
+    printSummary();
 
     return 0;
 }
-

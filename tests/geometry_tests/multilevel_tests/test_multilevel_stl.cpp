@@ -14,13 +14,13 @@ namespace lat=ntic::lbm::lattice;
 
 namespace
 {
-using geo::test::require;
+
 
 template<std::size_t D,lat::LatticeType Type,typename Geometry>
 void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geometry)
 {
     using Analysis=std::conditional_t<D==2,geo::GeometryAnalysis2D<Type>,geo::GeometryAnalysis3D<Type>>;
-    geo::test::checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
+    checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
 }
 
 void stlWall()
@@ -31,13 +31,13 @@ void stlWall()
     ntic::lbm::stl::validate(data,"full",topologyData);
     {
         const auto raw=geo::volumeRegion(topologyData);
-        require(raw.classify(geo::BoundingBox{{0.5,0.5,0.5},{0.75,0.75,0.75}})==geo::BoxRelation::Inside,"Raw STL volume selector failed");
+        requireMultilevel(raw.classify(geo::BoundingBox{{0.5,0.5,0.5},{0.75,0.75,0.75}})==geo::BoxRelation::Inside,"Raw STL volume selector failed");
     }
     geo::STLGeometry geometry(std::move(topologyData),geo::FlowType::Internal);
     geo::MultilevelOptions options; options.maxLevel=2; options.analysisTileWidth=2;
     geo::MultilevelGrid<3> grid(geometry.bounds,0.5,options);
     grid.generate(geometry,{geo::RefinementRule<3>::surface(geo::fluidRegion(geometry),1,0.15,{1})});
-    geo::test::checkTopology(grid); compareGeometry(grid,geometry);
+    checkTopology(grid); compareGeometry(grid,geometry);
 }
 
 void stlNonbinaryGridCenters()
@@ -52,33 +52,33 @@ void stlNonbinaryGridCenters()
     const double h=4.858944032554682/25.0;
     geo::GeometryAnalysis3D<lat::LatticeType::D3Q19> analysis(h);
     geometry.interiorAreaAnalysis(analysis);
-    require(!analysis.boundaryX.empty(),"Nonbinary-spacing fixture has no boundary cells");
+    requireMultilevel(!analysis.boundaryX.empty(),"Nonbinary-spacing fixture has no boundary cells");
     analysis.validateBoundaryCells();
     auto interiorCells=analysis.boundaryCells;
     std::sort(interiorCells.begin(),interiorCells.end());
     const auto scalar=analysis.scalar;
     geometry.boundaryQAnalysis(analysis);
-    require(analysis.scalar==scalar,"STL Q changed scalar classification");
+    requireMultilevel(analysis.scalar==scalar,"STL Q changed scalar classification");
     auto expandedCells=analysis.boundaryCells;
     std::sort(expandedCells.begin(),expandedCells.end());
     expandedCells.erase(std::unique(expandedCells.begin(),expandedCells.end()),expandedCells.end());
-    require(expandedCells==interiorCells,"Face expansion changed physical boundary cell indices");
+    requireMultilevel(expandedCells==interiorCells,"Face expansion changed physical boundary cell indices");
     const auto baseline=analysis;
     geometry.boundaryQAnalysis(analysis);
-    require(analysis.boundaryCells==baseline.boundaryCells && analysis.q==baseline.q,
+    requireMultilevel(analysis.boundaryCells==baseline.boundaryCells && analysis.q==baseline.q,
             "Repeated Q changed boundary indices or links");
     const auto rejects=[&](auto invalid,const char* message) {
         bool rejected=false;
         try { geometry.boundaryQAnalysis(invalid); }
         catch(const std::invalid_argument&) { rejected=true; }
-        require(rejected,message);
+        requireMultilevel(rejected,message);
     };
     auto invalid=analysis;
     invalid.boundaryCells.front()=invalid.scalar.size();
     rejects(invalid,"Out-of-range boundary index was accepted");
     const auto other=std::find_if(analysis.boundaryCells.begin(),analysis.boundaryCells.end(),
         [&](auto id) { return id!=analysis.boundaryCells.front(); });
-    require(other!=analysis.boundaryCells.end(),"Index fixture has no second Boundary cell");
+    requireMultilevel(other!=analysis.boundaryCells.end(),"Index fixture has no second Boundary cell");
     invalid=analysis; invalid.boundaryCells.front()=*other;
     rejects(invalid,"A different valid boundary index with mismatched coordinates was accepted");
     invalid=analysis; invalid.boundaryCells.pop_back();
@@ -95,8 +95,8 @@ void stlNonbinaryGridCenters()
     options.maxLevel=3; options.analysisTileWidth=2; options.analysisThreads=4;
     geo::MultilevelGrid<3> grid(geometry.bounds,8*h,options);
     grid.generate(geometry,{geo::RefinementRule<3>::surface(geo::fluidRegion(geometry),3,h)});
-    require(grid.levels().size()==4 && grid.levels()[3].all.size()>0,"Nonbinary-spacing case did not reach level 3");
-    geo::test::checkTopology(grid); compareGeometry(grid,geometry);
+    requireMultilevel(grid.levels().size()==4 && grid.levels()[3].all.size()>0,"Nonbinary-spacing case did not reach level 3");
+    checkTopology(grid); compareGeometry(grid,geometry);
 
     // The same anchor must propagate through primitive and nested Boolean
     // analyses, including the temporary complement used by subtraction.
@@ -104,7 +104,7 @@ void stlNonbinaryGridCenters()
     const auto check=[&](const auto& shape) {
         geo::MultilevelGrid<3> other(shape.bounds,8*h,options);
         other.generate(shape,{geo::RefinementRule<3>::surface(geo::fluidRegion(shape),3,h)});
-        geo::test::checkTopology(other); compareGeometry(other,shape);
+        checkTopology(other); compareGeometry(other,shape);
     };
     check(box);
     const geo::Point center{origin[0]+1,origin[1]+1,origin[2]+1};
@@ -123,7 +123,7 @@ void stlNested()
     const geo::Box enclosing({-12,-12,-12},{12,12,12});
     geo::MultilevelGrid<3> selectorGrid(enclosing.bounds,4,options);
     selectorGrid.generate(enclosing,{geo::RefinementRule<3>::volume(deep,1)});
-    geo::test::checkTopology(selectorGrid);
+    checkTopology(selectorGrid);
 }
 
 } // namespace

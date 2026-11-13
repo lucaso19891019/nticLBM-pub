@@ -450,7 +450,7 @@ NTIC_EXPECT_THROW(
 
 //----------------------------------------------------------
 
-ntic::lbm::test::printSummary();
+printSummary();
 
 return 0;
 

@@ -9,14 +9,14 @@ namespace lat=ntic::lbm::lattice;
 
 namespace
 {
-using geo::test::require;
+
 
 template<typename Function>
 void rejects(Function function)
 {
     bool rejected=false;
     try { function(); } catch(const std::exception&) { rejected=true; }
-    require(rejected,"Invalid input was accepted");
+    requireMultilevel(rejected,"Invalid input was accepted");
 }
 
 void topologyEdits()
@@ -24,10 +24,10 @@ void topologyEdits()
     const geo::BoundingBox2D domain{{0,0},{4,4}}; const geo::Rectangle physical(domain.min,domain.max);
     geo::MultilevelOptions options; options.maxLevel=2; options.analysisTileWidth=2;
     geo::MultilevelGrid<2> grid(domain,1,options); grid.generate(physical);
-    grid.refine(0); rejects([&] { grid.cells(); }); grid.finalize(physical); geo::test::checkTopology(grid);
-    require(grid.nodes()[0].cell==geo::invalidIndex,"Refined parent still has data");
-    grid.derefine(0); grid.finalize(physical); geo::test::checkTopology(grid);
-    require(grid.cells().size()==16 && grid.interfaces().blocks.empty(),"derefine failed to restore coarse leaves");
+    grid.refine(0); rejects([&] { grid.cells(); }); grid.finalize(physical); checkTopology(grid);
+    requireMultilevel(grid.nodes()[0].cell==geo::invalidIndex,"Refined parent still has data");
+    grid.derefine(0); grid.finalize(physical); checkTopology(grid);
+    requireMultilevel(grid.cells().size()==16 && grid.interfaces().blocks.empty(),"derefine failed to restore coarse leaves");
 }
 
 void invalidInput()

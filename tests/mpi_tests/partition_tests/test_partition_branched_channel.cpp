@@ -243,7 +243,7 @@ int main()
                     << "Face 0 is the only wall-band seed; planar port caps are excluded as seeds.\n"
                     << "Cells at port rims may refine through side-wall proximity and 2:1 balancing.\n"
                     << "The entire port cap is not guaranteed to remain coarse.";
-        part::test::writePartitionOutputs(MPI_TEST_OUTPUT_DIR,"test_partition_branched_channel_vtks",
+        writePartitionOutputs(MPI_TEST_OUTPUT_DIR,"test_partition_branched_channel_vtks",
             grid,plan,options,description.str(),gridOptions.analysisThreads);
         return 0;
     }

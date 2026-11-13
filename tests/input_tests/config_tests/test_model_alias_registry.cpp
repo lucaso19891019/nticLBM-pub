@@ -37,6 +37,6 @@ int main()
     NTIC_EXPECT_THROW(r.resolveCollisionModel("entropic"), std::runtime_error);
     NTIC_EXPECT_THROW(r.resolveWallBoundary("bounce back"), std::runtime_error);
 
-    ntic::lbm::test::printSummary();
+    printSummary();
     return 0;
 }

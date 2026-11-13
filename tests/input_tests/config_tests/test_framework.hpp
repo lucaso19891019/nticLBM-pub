@@ -15,7 +15,7 @@
     {                                                  \
         caught = true;                                 \
     }                                                  \
-    ntic::lbm::test::expectTrue(                       \
+    ::expectTrue(                                      \
         caught,                                        \
         #expr,                                         \
         __FILE__,                                      \
@@ -23,8 +23,7 @@
 }
 
 
-namespace ntic::lbm::test
-{
+
 
 inline int totalTests = 0;
 inline int passedTests = 0;
@@ -93,10 +92,10 @@ inline void printSummary()
         << "\n=================================\n";
 }
 
-}
+
 
 #define NTIC_EXPECT_TRUE(expr) \
-    ntic::lbm::test::expectTrue((expr), #expr, __FILE__, __LINE__)
+    ::expectTrue((expr), #expr, __FILE__, __LINE__)
 
 #define NTIC_EXPECT_EQ(a,b) \
-    ntic::lbm::test::expectEqual((a),(b),#a,#b,__FILE__,__LINE__)
+    ::expectEqual((a),(b),#a,#b,__FILE__,__LINE__)

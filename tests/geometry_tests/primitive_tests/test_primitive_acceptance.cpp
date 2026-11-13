@@ -19,15 +19,14 @@
 #include <utility>
 #include <vector>
 
-namespace single_boundary_suite
+namespace
 {
 using namespace ntic::lbm;
 using namespace ntic::lbm::geometry;
 
-namespace
-{
 
-void require(bool condition, const char* message)
+
+void requireSingleBoundary(bool condition, const char* message)
 {
     if(!condition) throw std::runtime_error(message);
 }
@@ -49,22 +48,22 @@ void checkSingleBoundary(const Geometry& geometry, Analysis& analysis,
     using Lattice = typename Analysis::Lattice;
     constexpr std::size_t nLinks = Lattice::nStencils - 1;
     const std::size_t count = analysis.boundaryX.size();
-    require(analysis.nBoundaries == 1, "Expected one geometric boundary");
-    require(analysis.boundaryOffsets == std::vector<std::size_t>{0, count},
+    requireSingleBoundary(analysis.nBoundaries == 1, "Expected one geometric boundary");
+    requireSingleBoundary(analysis.boundaryOffsets == std::vector<std::size_t>{0, count},
             "Invalid single-boundary offsets");
-    require(analysis.boundaryY.size() == count, "Invalid Y coordinate count");
+    requireSingleBoundary(analysis.boundaryY.size() == count, "Invalid Y coordinate count");
     if constexpr(ThreeD)
     {
-        require(analysis.boundaryZ.size() == count, "Invalid Z coordinate count");
-        require(analysis.boundaryZ == z, "Q analysis changed Z coordinates");
+        requireSingleBoundary(analysis.boundaryZ.size() == count, "Invalid Z coordinate count");
+        requireSingleBoundary(analysis.boundaryZ == z, "Q analysis changed Z coordinates");
     }
-    require(analysis.q.size() == count * nLinks, "Invalid Q block count");
-    require((count == 0) == expectEmpty, "Unexpected empty boundary");
+    requireSingleBoundary(analysis.q.size() == count * nLinks, "Invalid Q block count");
+    requireSingleBoundary((count == 0) == expectEmpty, "Unexpected empty boundary");
     analysis.validateBoundaryCells();
-    require(analysis.boundaryCells == boundaryCells && analysis.scalar == scalar && analysis.boundaryX == x &&
+    requireSingleBoundary(analysis.boundaryCells == boundaryCells && analysis.scalar == scalar && analysis.boundaryX == x &&
             analysis.boundaryY == y && analysis.boundaryOffsets == offsets,
             "Q analysis changed classification or grouping");
-    require(static_cast<std::size_t>(std::count(
+    requireSingleBoundary(static_cast<std::size_t>(std::count(
                 scalar.begin(), scalar.end(),
                 static_cast<double>(CellType::Boundary))) == count,
             "Boundary entries do not cover the classified cells");
@@ -75,16 +74,16 @@ void checkSingleBoundary(const Geometry& geometry, Analysis& analysis,
     {
         const double h = analysis.gridSpacing;
         const std::size_t id=analysis.boundaryCells.at(b);
-        require(id < scalar.size(), "Boundary coordinate outside grid");
-        require(!seen[id], "Duplicate entry within boundary ID 0");
+        requireSingleBoundary(id < scalar.size(), "Boundary coordinate outside grid");
+        requireSingleBoundary(!seen[id], "Duplicate entry within boundary ID 0");
         seen[id] = true;
-        require(scalar[id] == static_cast<double>(CellType::Boundary),
+        requireSingleBoundary(scalar[id] == static_cast<double>(CellType::Boundary),
                 "Entry is not a Boundary cell");
 
         for(std::size_t direction = 1; direction < Lattice::nStencils; ++direction)
         {
             const double q = analysis.q[b * nLinks + direction - 1];
-            require(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0),
+            requireSingleBoundary(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0),
                     "Invalid Q range");
             if(q == -1.0) continue;
             ++validLinks;
@@ -99,12 +98,12 @@ void checkSingleBoundary(const Geometry& geometry, Analysis& analysis,
                                   q * h * Lattice::ez[direction];
                 squaredRadius += dz * dz;
             }
-            require(std::abs(squaredRadius - geometry.radius * geometry.radius)
+            requireSingleBoundary(std::abs(squaredRadius - geometry.radius * geometry.radius)
                         <= 1.0e-11 * geometry.radius * geometry.radius,
                     "Q block does not intersect the circular/spherical surface");
         }
     }
-    require(expectEmpty || validLinks > 0, "Expected valid boundary links");
+    requireSingleBoundary(expectEmpty || validLinks > 0, "Expected valid boundary links");
 }
 
 template<lattice::LatticeType Type>
@@ -122,9 +121,9 @@ void checkSpheres()
     }
 }
 
-} // namespace
 
-int run()
+
+int runSingleBoundary()
 {
     try
     {
@@ -150,19 +149,17 @@ int run()
         return 1;
     }
 }
-} // namespace single_boundary_suite
 
-namespace rectangle_suite
-{
+
+
 using namespace ntic::lbm;
 using namespace ntic::lbm::geometry;
 using Analysis = GeometryAnalysis2D<lattice::LatticeType::D2Q9>;
 using Lattice = Analysis::Lattice;
 
-namespace
-{
 
-void require(bool condition, const char* message)
+
+void requireRectangle(bool condition, const char* message)
 {
     if(!condition) throw std::runtime_error(message);
 }
@@ -197,7 +194,7 @@ std::pair<double, std::size_t> nearestLink(
     return {nearest, owner};
 }
 
-void checkCase(const Rectangle& rectangle, double h,
+void checkRectangleCase(const Rectangle& rectangle, double h,
                bool& sawDuplicateCell, bool& sawEmpty, bool& sawCornerTie,
                bool& sawBoundaryWithoutQ)
 {
@@ -206,18 +203,18 @@ void checkCase(const Rectangle& rectangle, double h,
     rectangle.interiorAreaAnalysis(analysis);
     const auto originalScalar = analysis.scalar;
     rectangle.boundaryQAnalysis(analysis);
-    require(analysis.scalar == originalScalar, "Q changed CellType");
+    requireRectangle(analysis.scalar == originalScalar, "Q changed CellType");
     const std::size_t count = analysis.boundaryX.size();
-    require(analysis.nBoundaries == 4, "Rectangle must have four edges");
-    require(analysis.boundaryOffsets.size() == 5 &&
+    requireRectangle(analysis.nBoundaries == 4, "Rectangle must have four edges");
+    requireRectangle(analysis.boundaryOffsets.size() == 5 &&
             analysis.boundaryOffsets.front() == 0 &&
             analysis.boundaryOffsets.back() == count,
             "Invalid edge offsets");
-    require(analysis.boundaryY.size() == count && analysis.q.size() == count * 8,
+    requireRectangle(analysis.boundaryY.size() == count && analysis.q.size() == count * 8,
             "Invalid coordinate/Q lengths");
 
     const std::size_t cellCount = analysis.nx * analysis.ny;
-    require(analysis.scalar.size() == cellCount, "Invalid scalar size");
+    requireRectangle(analysis.scalar.size() == cellCount, "Invalid scalar size");
     std::vector<std::array<bool, 4>> entries(cellCount);
     std::vector<std::array<int, 8>> validCount(cellCount);
     std::vector<std::array<double, 8>> actualQ(cellCount);
@@ -228,23 +225,23 @@ void checkCase(const Rectangle& rectangle, double h,
     {
         const std::size_t begin = analysis.boundaryOffsets[edge];
         const std::size_t end = analysis.boundaryOffsets[edge + 1];
-        require(begin <= end, "Offsets must be monotone");
+        requireRectangle(begin <= end, "Offsets must be monotone");
         sawEmpty = sawEmpty || begin == end;
         std::size_t previous = 0;
         for(std::size_t b = begin; b < end; ++b)
         {
             const std::size_t id=analysis.boundaryCells.at(b);
-            require(id<cellCount,"Entry outside grid");
-            require(b == begin || previous < id, "Edge order is not stable/unique");
+            requireRectangle(id<cellCount,"Entry outside grid");
+            requireRectangle(b == begin || previous < id, "Edge order is not stable/unique");
             previous = id;
             entries[id][edge] = true;
             for(std::size_t link = 1; link < Lattice::nStencils; ++link)
             {
                 const double q = analysis.q[b * 8 + link - 1];
-                require(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0),
+                requireRectangle(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0),
                         "Invalid Q range");
                 if(q == -1.0) continue;
-                require(++validCount[id][link - 1] == 1, "Duplicate (Cell, Link) Q");
+                requireRectangle(++validCount[id][link - 1] == 1, "Duplicate (Cell, Link) Q");
                 actualQ[id][link - 1] = q;
                 actualOwner[id][link - 1] = edge;
             }
@@ -276,9 +273,9 @@ void checkCase(const Rectangle& rectangle, double h,
         for(const bool member : expected) if(member) ++memberships;
         const CellType expectedType = !wet ? CellType::Dry :
             (memberships != 0 ? CellType::Boundary : CellType::Interior);
-        require(analysis.scalar[id] == static_cast<double>(expectedType),
+        requireRectangle(analysis.scalar[id] == static_cast<double>(expectedType),
                 "Cell classification differs from closed-stencil semantics");
-        require(entries[id] == expected, "Incorrect finite-edge membership");
+        requireRectangle(entries[id] == expected, "Incorrect finite-edge membership");
         sawDuplicateCell = sawDuplicateCell || memberships > 1;
         bool hasQ = false;
         for(std::size_t link = 1; link < Lattice::nStencils; ++link)
@@ -286,11 +283,11 @@ void checkCase(const Rectangle& rectangle, double h,
             if(expectedType != CellType::Boundary) continue;
             const auto hit = nearestLink(rectangle, x, y, h, link);
             const double actual = actualQ[id][link - 1];
-            require(std::abs(actual - hit.first) <= 1.0e-12,
+            requireRectangle(std::abs(actual - hit.first) <= 1.0e-12,
                     "Q differs from nearest finite-edge intersection");
             if(hit.first < 0.0) continue;
             hasQ = true;
-            require(actualOwner[id][link - 1] == hit.second, "Incorrect Q Edge ID");
+            requireRectangle(actualOwner[id][link - 1] == hit.second, "Incorrect Q Edge ID");
             const double ix = x + hit.first * h * Lattice::ex[link];
             const double iy = y + hit.first * h * Lattice::ey[link];
             sawCornerTie = sawCornerTie ||
@@ -305,16 +302,16 @@ void checkCase(const Rectangle& rectangle, double h,
     const Analysis baseline = analysis;
     omp_set_num_threads(4);
     rectangle.analysis(analysis);
-    require(analysis.scalar == baseline.scalar &&
+    requireRectangle(analysis.scalar == baseline.scalar &&
             analysis.boundaryX == baseline.boundaryX &&
             analysis.boundaryY == baseline.boundaryY &&
             analysis.boundaryOffsets == baseline.boundaryOffsets &&
             analysis.q == baseline.q, "Thread count changed Rectangle output");
 }
 
-} // namespace
 
-int run()
+
+int runRectangle()
 {
     try
     {
@@ -327,18 +324,18 @@ int run()
             // Binary-exact fixtures include endpoint/tangent corner hits,
             // surface-centered Dry cells, empty edges, and coarse grids.
             for(const double h : {0.125, 0.25, 0.5, 1.0, 4.0})
-                checkCase(rectangle, h, sawDuplicateCell, sawEmpty, sawCornerTie,
+                checkRectangleCase(rectangle, h, sawDuplicateCell, sawEmpty, sawCornerTie,
                           sawBoundaryWithoutQ);
         }
-        require(sawDuplicateCell && sawEmpty && sawCornerTie,
+        requireRectangle(sawDuplicateCell && sawEmpty && sawCornerTie,
                 "Fixtures did not exercise duplicate cells, empty edges, and corners");
         // A stencil can touch the surface without a discrete link hitting it.
         const BoundingBox2D thinOpenBox{{-0.75, -0.75}, {1.25, 1.25}};
         const Rectangle thin{{0.0625, 0.0625}, {0.125, 0.125},
                              FlowType::External, &thinOpenBox};
-        checkCase(thin, 0.5, sawDuplicateCell, sawEmpty, sawCornerTie,
+        checkRectangleCase(thin, 0.5, sawDuplicateCell, sawEmpty, sawCornerTie,
                   sawBoundaryWithoutQ);
-        require(sawBoundaryWithoutQ, "Missing stencil-only Boundary fixture");
+        requireRectangle(sawBoundaryWithoutQ, "Missing stencil-only Boundary fixture");
         std::cout << "Rectangle boundary contract checks passed\n";
         return 0;
     }
@@ -348,17 +345,15 @@ int run()
         return 1;
     }
 }
-} // namespace rectangle_suite
 
-namespace box_cylinder_suite
-{
+
+
 using namespace ntic::lbm;
 using namespace ntic::lbm::geometry;
 
-namespace
-{
 
-void require(bool condition, const char* message)
+
+void requireBoxCylinder(bool condition, const char* message)
 {
     if(!condition) throw std::runtime_error(message);
 }
@@ -522,7 +517,7 @@ struct Coverage
 };
 
 template<lattice::LatticeType Type, typename Geometry>
-void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage& coverage)
+void checkBoxCylinderCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage& coverage)
 {
     using Analysis = GeometryAnalysis3D<Type>;
     using Lattice = typename Analysis::Lattice;
@@ -532,16 +527,16 @@ void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage&
     geometry.interiorAreaAnalysis(analysis);
     const auto scalar = analysis.scalar;
     geometry.boundaryQAnalysis(analysis);
-    require(scalar == analysis.scalar, "Q changed classification");
+    requireBoxCylinder(scalar == analysis.scalar, "Q changed classification");
     const std::size_t count = analysis.boundaryX.size();
-    require(analysis.nBoundaries == nFaces && analysis.boundaryOffsets.size() == nFaces + 1,
+    requireBoxCylinder(analysis.nBoundaries == nFaces && analysis.boundaryOffsets.size() == nFaces + 1,
             "Incorrect Face count");
-    require(analysis.boundaryOffsets.front() == 0 && analysis.boundaryOffsets.back() == count,
+    requireBoxCylinder(analysis.boundaryOffsets.front() == 0 && analysis.boundaryOffsets.back() == count,
             "Invalid offsets endpoints");
-    require(analysis.boundaryY.size() == count && analysis.boundaryZ.size() == count &&
+    requireBoxCylinder(analysis.boundaryY.size() == count && analysis.boundaryZ.size() == count &&
             analysis.q.size() == count * nLinks, "Invalid coordinate/Q size");
     const std::size_t cellCount = analysis.nx * analysis.ny * analysis.nz;
-    require(scalar.size() == cellCount, "Invalid scalar size");
+    requireBoxCylinder(scalar.size() == cellCount, "Invalid scalar size");
     std::vector<std::vector<bool>> membership(cellCount, std::vector<bool>(nFaces, false));
     std::vector<std::array<double, nLinks>> qValues(cellCount);
     std::vector<std::array<std::size_t, nLinks>> owners(cellCount);
@@ -551,22 +546,22 @@ void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage&
     {
         const std::size_t begin = analysis.boundaryOffsets[face];
         const std::size_t end = analysis.boundaryOffsets[face + 1];
-        require(begin <= end, "Offsets are not monotone");
+        requireBoxCylinder(begin <= end, "Offsets are not monotone");
         coverage.empty = coverage.empty || begin == end;
         std::size_t previous = 0;
         for(std::size_t b = begin; b < end; ++b)
         {
             const std::size_t id=analysis.boundaryCells.at(b);
-            require(id<cellCount,"Entry outside grid");
-            require(b == begin || previous < id, "Duplicate or unordered (Face, Cell)");
+            requireBoxCylinder(id<cellCount,"Entry outside grid");
+            requireBoxCylinder(b == begin || previous < id, "Duplicate or unordered (Face, Cell)");
             previous = id;
             membership[id][face] = true;
             for(std::size_t link = 0; link < nLinks; ++link)
             {
                 const double q = analysis.q[b * nLinks + link];
-                require(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0), "Invalid Q");
+                requireBoxCylinder(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0), "Invalid Q");
                 if(q == -1.0) continue;
-                require(qValues[id][link] == -1.0, "Duplicate (Cell, Link) Q");
+                requireBoxCylinder(qValues[id][link] == -1.0, "Duplicate (Cell, Link) Q");
                 qValues[id][link] = q;
                 owners[id][link] = face;
             }
@@ -585,8 +580,8 @@ void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage&
         for(bool member : expected.faces) if(member) ++nMemberships;
         const CellType type = !expected.wet ? CellType::Dry :
             (nMemberships ? CellType::Boundary : CellType::Interior);
-        require(scalar[id] == static_cast<double>(type), "CellType differs from reference");
-        require(membership[id] == expected.faces, "Incorrect finite Face membership");
+        requireBoxCylinder(scalar[id] == static_cast<double>(type), "CellType differs from reference");
+        requireBoxCylinder(membership[id] == expected.faces, "Incorrect finite Face membership");
         coverage.duplicate = coverage.duplicate || nMemberships > 1;
         if(type != CellType::Boundary) continue;
         bool hasQ = false;
@@ -594,11 +589,11 @@ void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage&
         {
             const Point delta{h * Lattice::ex[link], h * Lattice::ey[link], h * Lattice::ez[link]};
             const Hit hit = intersect(geometry, p, delta);
-            require(std::abs(static_cast<long double>(qValues[id][link - 1]) - hit.q) <= 1.0e-12L,
+            requireBoxCylinder(std::abs(static_cast<long double>(qValues[id][link - 1]) - hit.q) <= 1.0e-12L,
                     "Q differs from nearest finite-surface intersection");
             if(hit.q < 0.0L) continue;
             hasQ = true;
-            require(owners[id][link - 1] == hit.face, "Incorrect nearest Face/tie ownership");
+            requireBoxCylinder(owners[id][link - 1] == hit.face, "Incorrect nearest Face/tie ownership");
             coverage.tie = coverage.tie || hit.tied;
         }
         coverage.stencilOnly = coverage.stencilOnly || !hasQ;
@@ -607,7 +602,7 @@ void checkCase(const Geometry& geometry, double h, std::size_t nFaces, Coverage&
     const Analysis baseline = analysis;
     omp_set_num_threads(4);
     geometry.analysis(analysis);
-    require(analysis.nBoundaries == baseline.nBoundaries && analysis.scalar == baseline.scalar &&
+    requireBoxCylinder(analysis.nBoundaries == baseline.nBoundaries && analysis.scalar == baseline.scalar &&
             analysis.boundaryOffsets == baseline.boundaryOffsets &&
             analysis.boundaryX == baseline.boundaryX && analysis.boundaryY == baseline.boundaryY &&
             analysis.boundaryZ == baseline.boundaryZ && analysis.q == baseline.q,
@@ -623,35 +618,35 @@ void checkModel()
     {
         const Box box{{0.0, 0.0, 0.0}, {2.0, 2.0, 2.0}, flow, &openBox};
         for(double h : {0.25, 0.5, 1.0, 4.0, 8.0})
-            checkCase<Type>(box, h, 6, boxCoverage);
+            checkBoxCylinderCase<Type>(box, h, 6, boxCoverage);
         for(const auto axis : {Axis::X, Axis::Y, Axis::Z})
         {
             const Cylinder cylinder{{0.25, 0.25, 0.25}, 1.25, 2.5, axis, flow, &openBox};
             for(double h : {0.25, 0.5, 1.0, 4.0, 8.0})
-                checkCase<Type>(cylinder, h, 3, cylinderCoverage);
+                checkBoxCylinderCase<Type>(cylinder, h, 3, cylinderCoverage);
         }
     }
-    require(boxCoverage.duplicate && boxCoverage.empty && boxCoverage.tie,
+    requireBoxCylinder(boxCoverage.duplicate && boxCoverage.empty && boxCoverage.tie,
             "Missing Box edge/corner or empty Face coverage");
-    require(cylinderCoverage.duplicate && cylinderCoverage.empty,
+    requireBoxCylinder(cylinderCoverage.duplicate && cylinderCoverage.empty,
             "Missing Cylinder rim or empty Face coverage");
     // D3Q19/27 have the face diagonals used by these exact rim-tie fixtures.
     if constexpr(Type != lattice::LatticeType::D3Q15)
-        require(cylinderCoverage.tie, "Missing exact Cylinder rim-tie coverage");
+        requireBoxCylinder(cylinderCoverage.tie, "Missing exact Cylinder rim-tie coverage");
 
     const Box thinBox{{0.0625, 0.0625, 0.0625}, {0.125, 0.125, 0.125},
                       FlowType::External, &openBox};
-    checkCase<Type>(thinBox, 0.5, 6, boxCoverage);
+    checkBoxCylinderCase<Type>(thinBox, 0.5, 6, boxCoverage);
     const Cylinder thinCylinder{{0.0625, 0.0625, 0.0625}, 0.03125, 0.0625,
                                 Axis::Z, FlowType::External, &openBox};
-    checkCase<Type>(thinCylinder, 0.5, 3, cylinderCoverage);
-    require(boxCoverage.stencilOnly && cylinderCoverage.stencilOnly,
+    checkBoxCylinderCase<Type>(thinCylinder, 0.5, 3, cylinderCoverage);
+    requireBoxCylinder(boxCoverage.stencilOnly && cylinderCoverage.stencilOnly,
             "Missing stencil-only Boundary coverage");
 }
 
-} // namespace
 
-int run()
+
+int runBoxCylinder()
 {
     try
     {
@@ -667,10 +662,9 @@ int run()
         return 1;
     }
 }
-} // namespace box_cylinder_suite
 
-namespace acceptance_audit
-{
+
+
 // Historical validation data from pre-refactor commit
 // 26819215034af3f1aeb16273c4b72b0186427c58, generated on Donau/Metax.
 // Fingerprints cover CellType and physical (Cell, Link) Q, independent of grouping.
@@ -990,7 +984,7 @@ using namespace ntic::lbm;
 using namespace ntic::lbm::geometry;
 namespace shapes = ntic::lbm::geometry;
 
-void require(bool condition, const char* message)
+void requireAcceptance(bool condition, const char* message)
 {
     if(!condition) throw std::runtime_error(message);
 }
@@ -1015,25 +1009,25 @@ Snapshot snapshot(const Analysis& analysis)
 {
     using Lattice = typename Analysis::Lattice;
     constexpr std::size_t nLinks = Lattice::nStencils - 1;
-    require(analysis.boundaryX.size() == analysis.boundaryY.size(), "Mismatched XY sizes");
+    requireAcceptance(analysis.boundaryX.size() == analysis.boundaryY.size(), "Mismatched XY sizes");
     if constexpr(ThreeD)
-        require(analysis.boundaryX.size() == analysis.boundaryZ.size(), "Mismatched Z size");
+        requireAcceptance(analysis.boundaryX.size() == analysis.boundaryZ.size(), "Mismatched Z size");
     analysis.validateBoundaryCells();
-    require(analysis.q.size() == analysis.boundaryCells.size() * nLinks, "Mismatched Q size");
+    requireAcceptance(analysis.q.size() == analysis.boundaryCells.size() * nLinks, "Mismatched Q size");
     std::vector<double> canonical(analysis.scalar.size() * nLinks, -1.0);
     for(std::size_t b = 0; b < analysis.boundaryX.size(); ++b)
     {
         const std::size_t id=analysis.boundaryCells.at(b);
-        require(id<analysis.scalar.size(),"Invalid boundary cell index");
-        require(analysis.scalar[id] == static_cast<double>(CellType::Boundary),
+        requireAcceptance(id<analysis.scalar.size(),"Invalid boundary cell index");
+        requireAcceptance(analysis.scalar[id] == static_cast<double>(CellType::Boundary),
                 "Boundary entry refers to a non-Boundary cell");
         for(std::size_t link = 0; link < nLinks; ++link)
         {
             const double q = analysis.q[b * nLinks + link];
-            require(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0), "Invalid Q range");
+            requireAcceptance(q == -1.0 || (std::isfinite(q) && q > 0.0 && q <= 1.0), "Invalid Q range");
             if(q < 0.0) continue;
             double& slot = canonical[id * nLinks + link];
-            require(slot == -1.0, "Duplicate valid physical (Cell, Link)");
+            requireAcceptance(slot == -1.0, "Duplicate valid physical (Cell, Link)");
             slot = q;
         }
     }
@@ -1061,13 +1055,13 @@ void repeat(const Geometry& geometry, Analysis& analysis)
     {
         omp_set_num_threads(threads);
         geometry.analysis(analysis);
-        require(analysis.nBoundaries == baseline.nBoundaries &&
+        requireAcceptance(analysis.nBoundaries == baseline.nBoundaries &&
                 analysis.scalar == baseline.scalar && analysis.boundaryX == baseline.boundaryX &&
                 analysis.boundaryY == baseline.boundaryY &&
                 analysis.boundaryOffsets == baseline.boundaryOffsets && analysis.q == baseline.q,
                 "Repeated/threaded output differs");
         if constexpr(ThreeD)
-            require(analysis.boundaryZ == baseline.boundaryZ, "Repeated Z output differs");
+            requireAcceptance(analysis.boundaryZ == baseline.boundaryZ, "Repeated Z output differs");
     }
 }
 
@@ -1131,7 +1125,7 @@ void historicalRegression()
             baseline3D<lattice::LatticeType::D3Q27>(shift, flow, open3D);
         }
     }
-    require(caseNumber == primitiveBaseline.size(), "Historical case count differs");
+    requireAcceptance(caseNumber == primitiveBaseline.size(), "Historical case count differs");
     std::cout << "Historical CellType/Q regression and repeated 1/4-thread output: "
               << caseNumber << " cases passed\n";
 }
@@ -1166,11 +1160,11 @@ void probe(const Geometry& geometry, const Position& p, const Position& delta,
         if constexpr(ThreeD) match = match && Lattice::ez[i] == delta[2];
         if(match) direction = i;
     }
-    require(direction != 0, "Probe direction missing");
+    requireAcceptance(direction != 0, "Probe direction missing");
     for(std::size_t face = 0; face < nFaces; ++face)
     {
         const double q = analysis.q[face * (Lattice::nStencils - 1) + direction - 1];
-        require(face == expectedFace ? q > 0.0 && q <= 1.0 : q == -1.0,
+        requireAcceptance(face == expectedFace ? q > 0.0 && q <= 1.0 : q == -1.0,
                 "Exact/perturbed shared-hit ownership failed");
     }
 }
@@ -1199,23 +1193,23 @@ void multiBlockCircle()
     const Circle circle{{0.25, 0.25}, 1.25, FlowType::External, &domain};
     GeometryAnalysis2D<lattice::LatticeType::D2Q9> analysis(0.05);
     omp_set_num_threads(1);
-    single_boundary_suite::checkSingleBoundary<false>(circle, analysis, false);
-    require(analysis.scalar.size() > 2 * 4096, "Circle fixture must span multiple blocks");
+    checkSingleBoundary<false>(circle, analysis, false);
+    requireAcceptance(analysis.scalar.size() > 2 * 4096, "Circle fixture must span multiple blocks");
     repeat<false>(circle, analysis);
     std::cout << "Multi-block Circle compaction checks passed\n";
 }
-} // namespace acceptance_audit
+} // namespace
 
 int main()
 {
     omp_set_dynamic(0);
     try
     {
-        if(single_boundary_suite::run() != 0 || rectangle_suite::run() != 0 ||
-           box_cylinder_suite::run() != 0) return 1;
-        acceptance_audit::sharedHitPerturbations();
-        acceptance_audit::multiBlockCircle();
-        acceptance_audit::historicalRegression();
+        if(runSingleBoundary() != 0 || runRectangle() != 0 ||
+           runBoxCylinder() != 0) return 1;
+        sharedHitPerturbations();
+        multiBlockCircle();
+        historicalRegression();
         std::cout << "Primitive stage acceptance passed\n";
         return 0;
     }

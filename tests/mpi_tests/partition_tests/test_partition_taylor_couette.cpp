@@ -60,7 +60,7 @@ int main()
                     << "Level-1 wall band=" << wideBand << ", level-2 wall band=" << narrowBand
                     << " (" << bandCells << " finest cells).\n"
                     << "Refinement selectors are conservative; transition balancing can add nearby cells.";
-        part::test::writePartitionOutputs(MPI_TEST_OUTPUT_DIR,"test_partition_taylor_couette_vtks",
+        writePartitionOutputs(MPI_TEST_OUTPUT_DIR,"test_partition_taylor_couette_vtks",
             grid,plan,options,description.str(),gridOptions.analysisThreads);
         return 0;
     }

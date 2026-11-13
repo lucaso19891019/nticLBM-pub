@@ -9,20 +9,20 @@ namespace lat=ntic::lbm::lattice;
 
 namespace
 {
-using geo::test::require;
+
 
 template<std::size_t D,lat::LatticeType Type,typename Geometry>
 void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geometry)
 {
     using Analysis=std::conditional_t<D==2,geo::GeometryAnalysis2D<Type>,geo::GeometryAnalysis3D<Type>>;
-    geo::test::checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
+    checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
 }
 
 void regionsAndNesting()
 {
     const auto physical=geo::Rectangle({0,0},{5,8}) | geo::Rectangle({3,0},{8,8});
-    const auto grid=geo::test::makeRegionGrid(4);
-    geo::test::checkTopology(grid); compareGeometry(grid,physical);
+    const auto grid=makeRegionGrid(4);
+    checkTopology(grid); compareGeometry(grid,physical);
     bool third=false,coarseGap=false;
     for(std::size_t c=0; c<grid.cells().size(); ++c)
     {
@@ -30,7 +30,7 @@ void regionsAndNesting()
         third=third || grid.level(c)==3;
         const auto p=grid.center(c); coarseGap=coarseGap || (grid.level(c)==0 && p[0]>3 && p[0]<5);
     }
-    require(third && coarseGap,"Nested/disconnected refinement was not preserved");
+    requireMultilevel(third && coarseGap,"Nested/disconnected refinement was not preserved");
 }
 
 void booleanWall()
@@ -39,9 +39,9 @@ void booleanWall()
     const auto physical=geo::Rectangle({0,0},{5,8}) | geo::Rectangle({3,0},{8,8});
     geo::MultilevelOptions options; options.maxLevel=3; options.analysisTileWidth=4;
     const auto region=geo::fluidRegion(geo::Rectangle({0,0},{4,4}) | geo::Rectangle({2,0},{6,4}));
-    require(!region.nearSurface(geo::BoundingBox2D{{3.9,1.5},{4.1,2.5}},0.1,{1}),"Hidden Boolean Face selected for wall refinement");
+    requireMultilevel(!region.nearSurface(geo::BoundingBox2D{{3.9,1.5},{4.1,2.5}},0.1,{1}),"Hidden Boolean Face selected for wall refinement");
     const auto exposed=geo::RefinementRule<2>::surface(geo::fluidRegion(physical),2,0.3,{0});
-    geo::MultilevelGrid<2> wall(domain,1,options); wall.generate(physical,{exposed}); geo::test::checkTopology(wall);
+    geo::MultilevelGrid<2> wall(domain,1,options); wall.generate(physical,{exposed}); checkTopology(wall);
     compareGeometry(wall,physical);
 }
 

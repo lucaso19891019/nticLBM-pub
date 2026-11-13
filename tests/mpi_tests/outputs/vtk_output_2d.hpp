@@ -22,14 +22,9 @@
 #include <functional>
 #include <string>
 
-namespace ntic::lbm::geometry
-{
-template<std::size_t D,lattice::LatticeType Type>
-class MultilevelGrid;
-}
+namespace lat=ntic::lbm::lattice;
+namespace part=ntic::lbm::mpi;
 
-namespace ntic::lbm::geometry::test
-{
 
 inline void recreateOutputDirectory(
     const std::filesystem::path& path)
@@ -78,8 +73,6 @@ inline void recreateOutputDirectory(
 }
 
 
-namespace detail
-{
 // Legacy VTK binary arrays use big-endian fixed-width values.
 inline std::size_t vtkProduct(std::size_t a,std::size_t b)
 {
@@ -161,57 +154,58 @@ void vtkScalar(std::ostream& output,const char* name,std::size_t count,Getter va
     output << "SCALARS " << name << ' ' << type << " 1\nLOOKUP_TABLE default\n";
     vtkArray<T>(output,count,value);
 }
-} // namespace detail
+
 
 // Optional fields use the same selected CellIndex order as the base fields.
 using MultilevelCellDataWriter=
     std::function<void(std::ostream&,const std::vector<std::size_t>&)>;
 
-namespace detail
-{
-template<std::size_t D,lattice::LatticeType Type>
-void writeVTKMultilevelCells(const std::filesystem::path& path,
-    const MultilevelGrid<D,Type>& grid,bool auxiliary=false,
+
+template<typename Grid>
+void vtkWriteMultilevelCells(const std::filesystem::path& path,
+    const Grid& grid,bool auxiliary=false,
     const MultilevelCellDataWriter& writeAdditionalCellData={})
 {
+    constexpr auto D=Grid::dimension;
     const auto& cells=grid.cells();
     std::vector<std::size_t> selected;
     for(std::size_t c=0; c<cells.size(); ++c) if(cells.isAuxiliary(c)==auxiliary) selected.push_back(c);
     constexpr std::size_t corners=std::size_t{1}<<D;
     constexpr std::array<unsigned,8> order{{0,1,3,2,4,5,7,6}};
-    const auto pointCount=detail::vtkCount(detail::vtkProduct(selected.size(),corners));
-    const auto connectivityCount=detail::vtkCount(detail::vtkProduct(selected.size(),corners+1));
-    auto out=detail::vtkOpen(path);
+    const auto pointCount=vtkCount(vtkProduct(selected.size(),corners));
+    const auto connectivityCount=vtkCount(vtkProduct(selected.size(),corners+1));
+    auto out=vtkOpen(path);
     out << "# vtk DataFile Version 3.0\nnticLBM multilevel cells\nBINARY\n"
         << "DATASET UNSTRUCTURED_GRID\nPOINTS " << pointCount << " double\n";
-    detail::vtkArray<double>(out,detail::vtkProduct(pointCount,3),[&](std::size_t i) {
+    vtkArray<double>(out,vtkProduct(pointCount,3),[&](std::size_t i) {
         const auto cell=selected[i/(3*corners)];
         const auto corner=(i/3)%corners,axis=i%3;
         const auto p=grid.coordinate(cell); const double h=grid.spacing(grid.level(cell));
         return axis<D ? grid.domain().min[axis]+(p[axis]+((order[corner]>>axis)&1U))*h : 0;
     });
     out << "CELLS " << selected.size() << ' ' << connectivityCount << '\n';
-    detail::vtkArray<std::int32_t>(out,connectivityCount,[&](std::size_t i) {
+    vtkArray<std::int32_t>(out,connectivityCount,[&](std::size_t i) {
         const auto offset=i%(corners+1);
-        return detail::vtkInteger<std::int32_t>(offset==0 ? corners : (i/(corners+1))*corners+offset-1);
+        return vtkInteger<std::int32_t>(offset==0 ? corners : (i/(corners+1))*corners+offset-1);
     });
     out << "CELL_TYPES " << selected.size() << '\n';
-    detail::vtkArray<std::int32_t>(out,selected.size(),[](std::size_t) { return D==2 ? 9 : 12; });
+    vtkArray<std::int32_t>(out,selected.size(),[](std::size_t) { return D==2 ? 9 : 12; });
     out << "CELL_DATA " << selected.size() << '\n';
-    detail::vtkScalar<std::int32_t>(out,"scalar",selected.size(),[&](std::size_t i) { return static_cast<int>(cells.cellType[selected[i]]); });
-    detail::vtkScalar<std::int32_t>(out,"level",selected.size(),[&](std::size_t i) { return grid.level(selected[i]); });
-    detail::vtkScalar<std::int32_t>(out,"role",selected.size(),[&](std::size_t i) { return static_cast<unsigned>(cells.role[selected[i]]); });
-    detail::vtkScalar<std::uint32_t>(out,"CellIndex",selected.size(),[&](std::size_t i) { return selected[i]; });
-    detail::vtkScalar<std::uint32_t>(out,"SourceNode",selected.size(),[&](std::size_t i) { return cells.sourceNode[selected[i]]; });
+    vtkScalar<std::int32_t>(out,"scalar",selected.size(),[&](std::size_t i) { return static_cast<int>(cells.cellType[selected[i]]); });
+    vtkScalar<std::int32_t>(out,"level",selected.size(),[&](std::size_t i) { return grid.level(selected[i]); });
+    vtkScalar<std::int32_t>(out,"role",selected.size(),[&](std::size_t i) { return static_cast<unsigned>(cells.role[selected[i]]); });
+    vtkScalar<std::uint32_t>(out,"CellIndex",selected.size(),[&](std::size_t i) { return selected[i]; });
+    vtkScalar<std::uint32_t>(out,"SourceNode",selected.size(),[&](std::size_t i) { return cells.sourceNode[selected[i]]; });
     if(writeAdditionalCellData) writeAdditionalCellData(out,selected);
-    detail::vtkFinish(out,path);
+    vtkFinish(out,path);
 }
 
-template<std::size_t D,lattice::LatticeType Type>
-void writeVTKMultilevelBoundaryPoints(const std::filesystem::path& path,
-    const MultilevelGrid<D,Type>& grid)
+template<typename Grid>
+void vtkWriteMultilevelBoundaryPoints(const std::filesystem::path& path,
+    const Grid& grid)
 {
-    using Lattice=lattice::Model<Type>;
+    constexpr auto D=Grid::dimension;
+    using Lattice=lat::Model<Grid::latticeType>;
     constexpr auto links=Lattice::nStencils-1;
     const auto& boundary=grid.boundaries();
     struct Hit { std::size_t entry,face,direction; };
@@ -225,12 +219,12 @@ void writeVTKMultilevelBoundaryPoints(const std::filesystem::path& path,
                 if(!(q>0 && q<=1)) throw std::runtime_error("Invalid multilevel boundary Q.");
                 hits.push_back({e,face,i});
             }
-    detail::vtkCount(hits.size());
-    const auto connectivityCount=detail::vtkCount(detail::vtkProduct(hits.size(),2));
-    auto out=detail::vtkOpen(path);
+    vtkCount(hits.size());
+    const auto connectivityCount=vtkCount(vtkProduct(hits.size(),2));
+    auto out=vtkOpen(path);
     out << "# vtk DataFile Version 3.0\nMultilevel Q intersections\nBINARY\n"
         << "DATASET POLYDATA\nPOINTS " << hits.size() << " double\n";
-    detail::vtkArray<double>(out,detail::vtkProduct(hits.size(),3),[&](std::size_t i) {
+    vtkArray<double>(out,vtkProduct(hits.size(),3),[&](std::size_t i) {
         const auto& hit=hits[i/3]; const auto axis=i%3;
         const auto c=boundary.cells[hit.entry]; auto p=grid.center(c);
         const double distance=boundary.q[hit.entry*links+hit.direction-1]*grid.spacing(grid.level(c));
@@ -239,42 +233,36 @@ void writeVTKMultilevelBoundaryPoints(const std::filesystem::path& path,
         return axis<D ? p[axis] : 0;
     });
     out << "VERTICES " << hits.size() << ' ' << connectivityCount << '\n';
-    detail::vtkArray<std::int32_t>(out,connectivityCount,[](std::size_t i) { return detail::vtkInteger<std::int32_t>(i%2==0 ? 1 : i/2); });
+    vtkArray<std::int32_t>(out,connectivityCount,[](std::size_t i) { return vtkInteger<std::int32_t>(i%2==0 ? 1 : i/2); });
     out << "POINT_DATA " << hits.size() << '\n';
-    detail::vtkScalar<double>(out,"Q",hits.size(),[&](std::size_t i) { return boundary.q[hits[i].entry*links+hits[i].direction-1]; });
-    detail::vtkScalar<std::int32_t>(out,"FaceID",hits.size(),[&](std::size_t i) { return hits[i].face; });
-    detail::vtkScalar<std::int32_t>(out,"LinkID",hits.size(),[&](std::size_t i) { return hits[i].direction; });
-    detail::vtkScalar<std::uint32_t>(out,"CellIndex",hits.size(),[&](std::size_t i) { return boundary.cells[hits[i].entry]; });
-    detail::vtkScalar<std::int32_t>(out,"level",hits.size(),[&](std::size_t i) { return grid.level(boundary.cells[hits[i].entry]); });
-    detail::vtkScalar<std::int32_t>(out,"role",hits.size(),[&](std::size_t i) { return static_cast<unsigned>(grid.cells().role[boundary.cells[hits[i].entry]]); });
-    detail::vtkFinish(out,path);
-}
+    vtkScalar<double>(out,"Q",hits.size(),[&](std::size_t i) { return boundary.q[hits[i].entry*links+hits[i].direction-1]; });
+    vtkScalar<std::int32_t>(out,"FaceID",hits.size(),[&](std::size_t i) { return hits[i].face; });
+    vtkScalar<std::int32_t>(out,"LinkID",hits.size(),[&](std::size_t i) { return hits[i].direction; });
+    vtkScalar<std::uint32_t>(out,"CellIndex",hits.size(),[&](std::size_t i) { return boundary.cells[hits[i].entry]; });
+    vtkScalar<std::int32_t>(out,"level",hits.size(),[&](std::size_t i) { return grid.level(boundary.cells[hits[i].entry]); });
+    vtkScalar<std::int32_t>(out,"role",hits.size(),[&](std::size_t i) { return static_cast<unsigned>(grid.cells().role[boundary.cells[hits[i].entry]]); });
+    vtkFinish(out,path);
 }
 
-template<lattice::LatticeType Type>
+
+template<typename Grid,std::enable_if_t<Grid::dimension==2,int> =0>
 void writeVTKMultilevelCells(const std::filesystem::path& path,
-    const MultilevelGrid<2,Type>& grid,bool auxiliary=false,
+    const Grid& grid,bool auxiliary=false,
     const MultilevelCellDataWriter& writeAdditionalCellData={})
-{ detail::writeVTKMultilevelCells(path,grid,auxiliary,writeAdditionalCellData); }
+{ vtkWriteMultilevelCells(path,grid,auxiliary,writeAdditionalCellData); }
 
-template<lattice::LatticeType Type>
+template<typename Grid,std::enable_if_t<Grid::dimension==2,int> =0>
 void writeVTKMultilevelBoundaryPoints(const std::filesystem::path& path,
-    const MultilevelGrid<2,Type>& grid)
-{ detail::writeVTKMultilevelBoundaryPoints(path,grid); }
+    const Grid& grid)
+{ vtkWriteMultilevelBoundaryPoints(path,grid); }
 
-} // namespace ntic::lbm::geometry::test
 
-namespace ntic::lbm::mpi::test
-{
-
-namespace detail
-{
-inline int partitionNode(const HardwareProfile& hardware,int rank)
+inline int vtkPartitionNode(const part::HardwareProfile& hardware,int rank)
 {
     return hardware.nodeIds.empty() ? -1 : hardware.nodeIds.at(static_cast<std::size_t>(rank));
 }
 
-inline std::filesystem::path preparePartitionOutputDirectory(
+inline std::filesystem::path vtkPreparePartitionOutputDirectory(
     const std::filesystem::path& root,const std::string& caseName)
 {
     if(caseName!="test_partition_taylor_couette_vtks" &&
@@ -285,61 +273,61 @@ inline std::filesystem::path preparePartitionOutputDirectory(
     // Refuse links or aliases to another output location before removing data.
     if(directory.parent_path()!=outputRoot || std::filesystem::weakly_canonical(directory)!=directory)
         throw std::runtime_error("Manual partition output resolves outside its dedicated directory.");
-    geometry::test::recreateOutputDirectory(directory);
+    recreateOutputDirectory(directory);
     return directory;
 }
 
-template<std::size_t D,lattice::LatticeType Type>
-void writeVTKPartitionCells(const std::filesystem::path& path,
-    const geometry::MultilevelGrid<D,Type>& grid,const PartitionPlan& plan,
-    const HardwareProfile& hardware,bool auxiliary=false)
+template<typename Grid>
+void vtkWritePartitionCells(const std::filesystem::path& path,
+    const Grid& grid,const part::PartitionPlan& plan,
+    const part::HardwareProfile& hardware,bool auxiliary=false)
 {
     if(plan.owner.size()!=grid.cells().size() || plan.cellBlocks.size()!=grid.cells().size())
         throw std::invalid_argument("Partition output does not match the grid.");
-    geometry::test::detail::writeVTKMultilevelCells(path,grid,auxiliary,
+    vtkWriteMultilevelCells(path,grid,auxiliary,
         [&](std::ostream& out,const std::vector<std::size_t>& selected) {
-            geometry::test::detail::vtkScalar<std::int32_t>(out,"rank",selected.size(),[&](std::size_t i) { return plan.owner[selected[i]]; });
-            geometry::test::detail::vtkScalar<std::int32_t>(out,"node",selected.size(),[&](std::size_t i) { return partitionNode(hardware,plan.owner[selected[i]]); });
-            geometry::test::detail::vtkScalar<std::uint32_t>(out,"BlockIndex",selected.size(),[&](std::size_t i) { return plan.cellBlocks[selected[i]]; });
+            vtkScalar<std::int32_t>(out,"rank",selected.size(),[&](std::size_t i) { return plan.owner[selected[i]]; });
+            vtkScalar<std::int32_t>(out,"node",selected.size(),[&](std::size_t i) { return vtkPartitionNode(hardware,plan.owner[selected[i]]); });
+            vtkScalar<std::uint32_t>(out,"BlockIndex",selected.size(),[&](std::size_t i) { return plan.cellBlocks[selected[i]]; });
         });
 }
 
-inline void writeVTKPartitionBlocks(const std::filesystem::path& path,
-    const PartitionPlan& plan,const HardwareProfile& hardware)
+inline void vtkWritePartitionBlocks(const std::filesystem::path& path,
+    const part::PartitionPlan& plan,const part::HardwareProfile& hardware)
 {
     if(plan.dimension!=2 && plan.dimension!=3)
         throw std::invalid_argument("Partition block output requires two or three dimensions.");
     const std::size_t corners=std::size_t{1}<<plan.dimension;
     constexpr std::array<unsigned,8> order{{0,1,3,2,4,5,7,6}};
-    const auto pointCount=geometry::test::detail::vtkCount(geometry::test::detail::vtkProduct(plan.blocks.size(),corners));
-    const auto connectivityCount=geometry::test::detail::vtkCount(geometry::test::detail::vtkProduct(plan.blocks.size(),corners+1));
-    auto out=geometry::test::detail::vtkOpen(path);
+    const auto pointCount=vtkCount(vtkProduct(plan.blocks.size(),corners));
+    const auto connectivityCount=vtkCount(vtkProduct(plan.blocks.size(),corners+1));
+    auto out=vtkOpen(path);
     out << "# vtk DataFile Version 3.0\nnticLBM rank partition boxes\nBINARY\n"
         << "DATASET UNSTRUCTURED_GRID\nPOINTS " << pointCount << " double\n";
-    geometry::test::detail::vtkArray<double>(out,geometry::test::detail::vtkProduct(pointCount,3),[&](std::size_t i) {
+    vtkArray<double>(out,vtkProduct(pointCount,3),[&](std::size_t i) {
         const auto& block=plan.blocks[i/(3*corners)];
         const auto corner=(i/3)%corners,axis=i%3;
         const auto index=((order[corner]>>axis)&1U)!=0 ? block.upper[axis] : block.lower[axis];
         return axis<plan.dimension ? plan.domainMin[axis]+index*plan.blockSpacing : 0;
     });
     out << "CELLS " << plan.blocks.size() << ' ' << connectivityCount << '\n';
-    geometry::test::detail::vtkArray<std::int32_t>(out,connectivityCount,[&](std::size_t i) {
+    vtkArray<std::int32_t>(out,connectivityCount,[&](std::size_t i) {
         const auto offset=i%(corners+1);
-        return geometry::test::detail::vtkInteger<std::int32_t>(offset==0 ? corners : (i/(corners+1))*corners+offset-1);
+        return vtkInteger<std::int32_t>(offset==0 ? corners : (i/(corners+1))*corners+offset-1);
     });
     out << "CELL_TYPES " << plan.blocks.size() << '\n';
-    geometry::test::detail::vtkArray<std::int32_t>(out,plan.blocks.size(),[&](std::size_t) { return plan.dimension==2 ? 9 : 12; });
+    vtkArray<std::int32_t>(out,plan.blocks.size(),[&](std::size_t) { return plan.dimension==2 ? 9 : 12; });
     out << "CELL_DATA " << plan.blocks.size() << '\n';
-    geometry::test::detail::vtkScalar<std::int32_t>(out,"rank",plan.blocks.size(),[&](std::size_t i) { return plan.blocks[i].owner; });
-    geometry::test::detail::vtkScalar<std::int32_t>(out,"node",plan.blocks.size(),[&](std::size_t i) { return partitionNode(hardware,plan.blocks[i].owner); });
-    geometry::test::detail::vtkScalar<std::uint32_t>(out,"BlockIndex",plan.blocks.size(),[](std::size_t i) { return i; });
-    geometry::test::detail::vtkScalar<double>(out,"work",plan.blocks.size(),[&](std::size_t i) { return plan.blocks[i].work; });
-    geometry::test::detail::vtkFinish(out,path);
+    vtkScalar<std::int32_t>(out,"rank",plan.blocks.size(),[&](std::size_t i) { return plan.blocks[i].owner; });
+    vtkScalar<std::int32_t>(out,"node",plan.blocks.size(),[&](std::size_t i) { return vtkPartitionNode(hardware,plan.blocks[i].owner); });
+    vtkScalar<std::uint32_t>(out,"BlockIndex",plan.blocks.size(),[](std::size_t i) { return i; });
+    vtkScalar<double>(out,"work",plan.blocks.size(),[&](std::size_t i) { return plan.blocks[i].work; });
+    vtkFinish(out,path);
 }
 
-template<std::size_t D,lattice::LatticeType Type>
-void writePartitionSummary(std::ostream& out,const geometry::MultilevelGrid<D,Type>& grid,
-    const PartitionPlan& plan,const PartitionOptions& options,const std::string& description,unsigned analysisThreads)
+template<typename Grid>
+void vtkWritePartitionSummary(std::ostream& out,const Grid& grid,
+    const part::PartitionPlan& plan,const part::PartitionOptions& options,const std::string& description,unsigned analysisThreads)
 {
     const auto& stats=plan.statistics;
     out << std::setprecision(10) << description << '\n'
@@ -358,7 +346,7 @@ void writePartitionSummary(std::ostream& out,const geometry::MultilevelGrid<D,Ty
     for(int rank=0; rank<options.ranks; ++rank)
     {
         const double rate=options.hardware.computeRates.empty() ? 1 : options.hardware.computeRates[rank];
-        out << "Rank " << rank << ": node=" << partitionNode(options.hardware,rank)
+        out << "Rank " << rank << ": node=" << vtkPartitionNode(options.hardware,rank)
             << ", computeRate=" << rate << ", wet=" << stats.realCells[rank]
             << ", auxiliary=" << stats.auxiliaryCells[rank] << ", blocks=" << stats.blocksPerRank[rank]
             << ", work=" << stats.rankWeights[rank] << ", interfaceWork=" << stats.interfaceWork[rank]
@@ -382,45 +370,43 @@ void writePartitionSummary(std::ostream& out,const geometry::MultilevelGrid<D,Ty
         << "\nRank boxes: " << plan.blocks.size() << '\n';
 }
 
-template<std::size_t D,lattice::LatticeType Type>
-void writePartitionOutputs(const std::filesystem::path& root,const std::string& caseName,
-    const geometry::MultilevelGrid<D,Type>& grid,const PartitionPlan& plan,
-    const PartitionOptions& options,const std::string& description,unsigned analysisThreads)
+template<typename Grid>
+void vtkWritePartitionOutputs(const std::filesystem::path& root,const std::string& caseName,
+    const Grid& grid,const part::PartitionPlan& plan,
+    const part::PartitionOptions& options,const std::string& description,unsigned analysisThreads)
 {
-    const auto directory=preparePartitionOutputDirectory(root,caseName);
-    writeVTKPartitionCells(directory/"partition.vtk",grid,plan,options.hardware);
-    writeVTKPartitionCells(directory/"auxiliary.vtk",grid,plan,options.hardware,true);
-    writeVTKPartitionBlocks(directory/"blocks.vtk",plan,options.hardware);
-    geometry::test::detail::writeVTKMultilevelBoundaryPoints(directory/"boundary_q.vtk",grid);
-    writePartitionSummary(std::cout,grid,plan,options,description,analysisThreads);
+    const auto directory=vtkPreparePartitionOutputDirectory(root,caseName);
+    vtkWritePartitionCells(directory/"partition.vtk",grid,plan,options.hardware);
+    vtkWritePartitionCells(directory/"auxiliary.vtk",grid,plan,options.hardware,true);
+    vtkWritePartitionBlocks(directory/"blocks.vtk",plan,options.hardware);
+    vtkWriteMultilevelBoundaryPoints(directory/"boundary_q.vtk",grid);
+    vtkWritePartitionSummary(std::cout,grid,plan,options,description,analysisThreads);
     std::ofstream report(directory/"partition_stats.txt");
     if(!report) throw std::runtime_error("Cannot open partition statistics output.");
-    writePartitionSummary(report,grid,plan,options,description,analysisThreads);
+    vtkWritePartitionSummary(report,grid,plan,options,description,analysisThreads);
     if(!report) throw std::runtime_error("Failed to write partition statistics output.");
     std::cout << "Output directory: " << directory << '\n';
 }
-}
 
-template<lattice::LatticeType Type>
+
+template<typename Grid,std::enable_if_t<Grid::dimension==2,int> =0>
 void writeVTKPartitionCells(const std::filesystem::path& path,
-    const geometry::MultilevelGrid<2,Type>& grid,const PartitionPlan& plan,
-    const HardwareProfile& hardware,bool auxiliary=false)
-{ detail::writeVTKPartitionCells(path,grid,plan,hardware,auxiliary); }
+    const Grid& grid,const part::PartitionPlan& plan,
+    const part::HardwareProfile& hardware,bool auxiliary=false)
+{ vtkWritePartitionCells(path,grid,plan,hardware,auxiliary); }
 
-template<lattice::LatticeType Type>
-void writePartitionSummary(std::ostream& out,const geometry::MultilevelGrid<2,Type>& grid,
-    const PartitionPlan& plan,const PartitionOptions& options,const std::string& description,unsigned analysisThreads)
-{ detail::writePartitionSummary(out,grid,plan,options,description,analysisThreads); }
+template<typename Grid,std::enable_if_t<Grid::dimension==2,int> =0>
+void writePartitionSummary(std::ostream& out,const Grid& grid,
+    const part::PartitionPlan& plan,const part::PartitionOptions& options,const std::string& description,unsigned analysisThreads)
+{ vtkWritePartitionSummary(out,grid,plan,options,description,analysisThreads); }
 
-template<lattice::LatticeType Type>
+template<typename Grid,std::enable_if_t<Grid::dimension==2,int> =0>
 void writePartitionOutputs(const std::filesystem::path& root,const std::string& caseName,
-    const geometry::MultilevelGrid<2,Type>& grid,const PartitionPlan& plan,
-    const PartitionOptions& options,const std::string& description,unsigned analysisThreads)
-{ detail::writePartitionOutputs(root,caseName,grid,plan,options,description,analysisThreads); }
+    const Grid& grid,const part::PartitionPlan& plan,
+    const part::PartitionOptions& options,const std::string& description,unsigned analysisThreads)
+{ vtkWritePartitionOutputs(root,caseName,grid,plan,options,description,analysisThreads); }
 
 // PartitionPlan stores its dimension at runtime; preserve its direct writer API.
 inline void writeVTKPartitionBlocks(const std::filesystem::path& path,
-    const PartitionPlan& plan,const HardwareProfile& hardware)
-{ detail::writeVTKPartitionBlocks(path,plan,hardware); }
-
-} // namespace ntic::lbm::mpi::test
+    const part::PartitionPlan& plan,const part::HardwareProfile& hardware)
+{ vtkWritePartitionBlocks(path,plan,hardware); }

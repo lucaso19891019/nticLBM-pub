@@ -329,7 +329,7 @@ int main()
         registry.find("dynamic+viscosity"),
         std::invalid_argument);
 
-    ntic::lbm::test::printSummary();
+    printSummary();
 
     return 0;
 }

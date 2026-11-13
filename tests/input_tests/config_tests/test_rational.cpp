@@ -143,7 +143,7 @@ int main()
 
     //----------------------------------------------------------
 
-    ntic::lbm::test::printSummary();
+    printSummary();
 
     return 0;
 }

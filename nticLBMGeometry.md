@@ -619,7 +619,10 @@ The geometry test output directory contains two output headers:
 `vtk_output_2d.hpp` for 2D scalar maps, bounding boxes, multilevel cells and
 boundary-Q points, and `vtk_output_3d.hpp` for their 3D counterparts. Include
 the header matching the case dimension; the 3D header also includes the 2D
-header for callers supporting both dimensions. The existing writer APIs are
+header for callers supporting both dimensions. These are namespace-free test
+utilities: call their writer functions directly. Multilevel writers accept
+a grid type exposing the required indexed data and dimension, without
+opening or forward-declaring a production geometry namespace. The existing writer APIs are
 used directly, for example `writeVTK2DCellScalar(...)`,
 `writeVTK3DCellScalar(...)`, `writeVTKMultilevelCells(...)` and
 `writeVTKBoundaryPoints(path, result)`.

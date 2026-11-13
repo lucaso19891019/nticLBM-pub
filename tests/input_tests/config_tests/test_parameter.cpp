@@ -337,7 +337,7 @@ NTIC_EXPECT_TRUE(
 
 //----------------------------------------------------------
 
-ntic::lbm::test::printSummary();
+printSummary();
 
 return 0;
 

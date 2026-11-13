@@ -10,17 +10,17 @@ template<typename Grid>
 void checkBlocks(const Grid& grid,const part::PartitionPlan& plan)
 {
     constexpr auto dimensions=Grid::dimension;
-    part::test::require(plan.blocks.size()==static_cast<std::size_t>(plan.ranks()),"Expected one box per rank");
+    requirePartition(plan.blocks.size()==static_cast<std::size_t>(plan.ranks()),"Expected one box per rank");
     std::vector<unsigned> owners(plan.ranks(),0);
     for(std::size_t b=0; b<plan.blocks.size(); ++b)
     {
         const auto& block=plan.blocks[b];
-        part::test::require(block.owner>=0 && block.owner<plan.ranks(),"Invalid spatial owner");
-        part::test::require(owners[block.owner]++==0,"Rank owns multiple boxes");
+        requirePartition(block.owner>=0 && block.owner<plan.ranks(),"Invalid spatial owner");
+        requirePartition(owners[block.owner]++==0,"Rank owns multiple boxes");
         for(std::size_t d=0; d<dimensions; ++d)
         {
-            part::test::require(block.upper[d]>block.lower[d],"Degenerate spatial block");
-            part::test::require(block.upper[d]<=(grid.domain().max[d]-grid.domain().min[d])/plan.blockSpacing,
+            requirePartition(block.upper[d]>block.lower[d],"Degenerate spatial block");
+            requirePartition(block.upper[d]<=(grid.domain().max[d]-grid.domain().min[d])/plan.blockSpacing,
                                 "Spatial block exceeds domain");
         }
         for(std::size_t a=0; a<b; ++a)
@@ -28,7 +28,7 @@ void checkBlocks(const Grid& grid,const part::PartitionPlan& plan)
             bool separated=false;
             for(std::size_t d=0; d<dimensions; ++d)
                 separated=separated || block.upper[d]<=plan.blocks[a].lower[d] || plan.blocks[a].upper[d]<=block.lower[d];
-            part::test::require(separated,"Spatial blocks overlap");
+            requirePartition(separated,"Spatial blocks overlap");
         }
     }
     for(std::size_t c=0; c<grid.cells().size(); ++c)
@@ -45,9 +45,9 @@ void checkBlocks(const Grid& grid,const part::PartitionPlan& plan)
                 contains=contains && (static_cast<std::uint64_t>(block.lower[d])<<(common-plan.blockLevel))<=low &&
                     (static_cast<std::uint64_t>(block.upper[d])<<(common-plan.blockLevel))>=high;
             }
-            if(contains) { ++matches; part::test::require(block.owner==plan.owner[c],"Cell owner differs from spatial block"); }
+            if(contains) { ++matches; requirePartition(block.owner==plan.owner[c],"Cell owner differs from spatial block"); }
         }
-        part::test::require(matches==1,"A cell is cut by a plane or has no unique spatial block");
+        requirePartition(matches==1,"A cell is cut by a plane or has no unique spatial block");
     }
 }
 
@@ -77,11 +77,11 @@ void checkGlobalSearch()
     const auto quadrants=part::partitionGraph(ring,options);
     for(const auto& box:quadrants.blocks)
         for(unsigned d=0;d<2;++d)
-            part::test::require((box.lower[d]==0 || box.lower[d]==4) && box.upper[d]==box.lower[d]+4,
+            requirePartition((box.lower[d]==0 || box.lower[d]==4) && box.upper[d]==box.lower[d]+4,
                                 "Balanced square ring did not select central quadrants");
-    part::test::require(quadrants.statistics.cutWeight==8,"Square-ring cut edge count differs");
+    requirePartition(quadrants.statistics.cutWeight==8,"Square-ring cut edge count differs");
     for(int rank=0;rank<4;++rank)
-        part::test::require(quadrants.statistics.rankWeights[rank]==12 && quadrants.statistics.communicationTimes[rank]==4,
+        requirePartition(quadrants.statistics.rankWeights[rank]==12 && quadrants.statistics.communicationTimes[rank]==4,
                             "Independent square-ring load/communication calculation differs");
 
     // Root/child cuts share the middle rank: moving both produces a
@@ -91,7 +91,7 @@ void checkGlobalSearch()
     for(std::size_t x=0;x<8;++x) chain.edges.push_back({x,x+1,1,8,1});
     auto chainOptions=options;chainOptions.ranks=3;
     const auto compensated=part::partitionGraph(chain,chainOptions);
-    part::test::require(compensated.statistics.jointCutCandidates>0 && compensated.statistics.maxComputeTime==3,
+    requirePartition(compensated.statistics.jointCutCandidates>0 && compensated.statistics.maxComputeTime==3,
                         "Three-rank ancestor/child compensation was not evaluated or harmed load balance");
 
     // METIS weights prefer four compact clusters. Physical byte costs instead
@@ -110,15 +110,15 @@ void checkGlobalSearch()
     const auto initial=part::partitionGraph(weighted,options);
     options.refinementRounds=8;
     const auto refined=part::partitionGraph(weighted,options);
-    part::test::require(refined.statistics.maxComputeTime<=initial.statistics.maxComputeTime*(1+options.loadSlack),
+    requirePartition(refined.statistics.maxComputeTime<=initial.statistics.maxComputeTime*(1+options.loadSlack),
                         "Global refinement exceeded the initial load budget");
     const auto maxCommunication=[](const auto& plan)
     {return *std::max_element(plan.statistics.communicationTimes.begin(),plan.statistics.communicationTimes.end());};
-    part::test::require(maxCommunication(refined)<maxCommunication(initial),"Grouped search did not improve physical interface cost");
+    requirePartition(maxCommunication(refined)<maxCommunication(initial),"Grouped search did not improve physical interface cost");
     std::set<int> changed;
     for(std::size_t i=0;i<initial.owner.size();++i) if(initial.owner[i]!=refined.owner[i])
     {changed.insert(initial.owner[i]);changed.insert(refined.owner[i]);}
-    part::test::require(changed.size()>=3 && refined.statistics.evaluatedCandidates>initial.statistics.evaluatedCandidates,
+    requirePartition(changed.size()>=3 && refined.statistics.evaluatedCandidates>initial.statistics.evaluatedCandidates,
                         "Refinement did not exercise a multi-rank compensated change");
 }
 
@@ -129,13 +129,13 @@ int main()
     try
     {
         omp_set_num_threads(4);
-        const auto grid=part::test::annulus();
+        const auto grid=makePartitionAnnulus();
         part::PartitionOptions options; options.ranks=4; options.blockLevel=1;
         const auto plan=part::partition(grid,options);
-        checkBlocks(grid,plan); part::test::checkOwnership(grid,plan); part::test::checkLocalPartitions(grid,plan);
+        checkBlocks(grid,plan); checkOwnership(grid,plan); checkLocalPartitions(grid,plan);
         auto explicitFrequency=options; explicitFrequency.levelWeights={1,1,1};
         const auto explicitPlan=part::partition(grid,explicitFrequency);
-        part::test::require(plan.owner==explicitPlan.owner && plan.statistics.totalWeight==explicitPlan.statistics.totalWeight,
+        requirePartition(plan.owner==explicitPlan.owner && plan.statistics.totalWeight==explicitPlan.statistics.totalWeight,
                             "Default level frequencies are not 2^level");
         std::cout << "[PASS] rectangular_wet_cover_and_level_frequency\n";
 
@@ -146,10 +146,10 @@ int main()
         options.hardware.computeRates={1,2}; options.hardware.nodeIds={0,1};
         options.hardware.interNodeLatency=0.01; options.hardware.interNodeBandwidth=1000;
         const auto hardware=part::partition(uniform,options); checkBlocks(uniform,hardware);
-        part::test::require(hardware.statistics.rankWeights[1]>hardware.statistics.rankWeights[0],"Faster rank not assigned more work");
-        part::test::require(hardware.statistics.maxToMean<1.15,"Hardware-normalized load is unbalanced");
-        part::test::require(hardware.statistics.communicationTimes[0]>0,"Cross-node communication cost not evaluated");
-        part::test::require(hardware.blocks.size()==2,"Hardware partition must have one box per rank");
+        requirePartition(hardware.statistics.rankWeights[1]>hardware.statistics.rankWeights[0],"Faster rank not assigned more work");
+        requirePartition(hardware.statistics.maxToMean<1.15,"Hardware-normalized load is unbalanced");
+        requirePartition(hardware.statistics.communicationTimes[0]>0,"Cross-node communication cost not evaluated");
+        requirePartition(hardware.blocks.size()==2,"Hardware partition must have one box per rank");
         checkGlobalSearch();
         std::cout << "[PASS] hardware_capacity_and_single_boxes\n";
         return 0;

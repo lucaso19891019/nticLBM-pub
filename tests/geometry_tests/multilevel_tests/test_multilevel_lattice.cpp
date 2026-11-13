@@ -9,13 +9,13 @@ namespace lat=ntic::lbm::lattice;
 
 namespace
 {
-using geo::test::require;
+
 
 template<std::size_t D,lat::LatticeType Type,typename Geometry>
 void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geometry)
 {
     using Analysis=std::conditional_t<D==2,geo::GeometryAnalysis2D<Type>,geo::GeometryAnalysis3D<Type>>;
-    geo::test::checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
+    checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
 }
 
 template<lat::LatticeType Type>
@@ -27,7 +27,7 @@ void threeDimensions()
     geo::MultilevelOptions options; options.maxLevel=2; options.analysisTileWidth=2;
     geo::MultilevelGrid<3,Type> grid(domain,1,options);
     grid.generate(physical,{geo::RefinementRule<3>::volume(geo::volumeRegion(selection),2)});
-    geo::test::checkTopology(grid); compareGeometry(grid,physical);
+    checkTopology(grid); compareGeometry(grid,physical);
 }
 
 } // namespace

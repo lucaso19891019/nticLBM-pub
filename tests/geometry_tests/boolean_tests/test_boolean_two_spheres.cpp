@@ -8,7 +8,7 @@
 #include <stdexcept>
 
 using namespace ntic::lbm::geometry;
-using namespace ntic::lbm::geometry::test;
+
 
 int main()
 {

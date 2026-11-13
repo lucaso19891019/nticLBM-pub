@@ -644,8 +644,7 @@ int main()
     testInvalidBuiltinData();
     testInfoPointersReferenceRegistry();
 
-    ntic::lbm::test::printSummary();
+    printSummary();
 
     return 0;
 }
-

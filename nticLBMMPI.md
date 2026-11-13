@@ -81,8 +81,8 @@ MPI-owned STL fixtures are in `tests/mpi_tests/stls/`. The complete
 `vtk_output_2d.hpp` and `vtk_output_3d.hpp` in
 `tests/mpi_tests/outputs/` are maintained independently within the MPI tests.
 The Taylor-Couette case includes the 2D header; the branched-channel case
-includes the 3D header, which also includes its local 2D header. They provide
-the existing multilevel-cell, boundary-Q and partition-block writer APIs;
+includes the 3D header, which also includes its local 2D header. The namespace-free test headers provide
+the existing multilevel-cell, boundary-Q and partition-block writer functions;
 the cell writer retains its additional-cell-data callback for partition
 fields. Test headers and fixtures are not loaded from other test modules. `MPI_PARTITION_TEST_OUTPUT_DIR` names the build executable directory;
 the `MPI_TEST_OUTPUT_DIR` compile definition names the separate generated-results

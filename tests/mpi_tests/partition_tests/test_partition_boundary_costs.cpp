@@ -15,36 +15,36 @@ int main()
         geo::MultilevelOptions gridOptions; gridOptions.maxLevel=0;
         geo::MultilevelGrid<3> grid(physical.bounds,1,gridOptions); grid.generate(physical);
         constexpr std::size_t wetCells=216,interiorCells=64,boundaryCells=152,faceRecords=216;
-        part::test::require(grid.cells().size()==wetCells,"Boundary fixture wet-cell count differs");
+        requirePartition(grid.cells().size()==wetCells,"Boundary fixture wet-cell count differs");
         const auto countedBoundary=std::count(grid.cells().cellType.begin(),grid.cells().cellType.end(),geo::CellType::Boundary);
         const auto countedInterior=std::count(grid.cells().cellType.begin(),grid.cells().cellType.end(),geo::CellType::Interior);
-        part::test::require(static_cast<std::size_t>(countedBoundary)==boundaryCells &&
+        requirePartition(static_cast<std::size_t>(countedBoundary)==boundaryCells &&
                             static_cast<std::size_t>(countedInterior)==interiorCells,"Boundary fixture layer counts differ");
         const auto& boundary=grid.boundaries();
-        part::test::require(boundary.nBoundaries==6 && boundary.cells.size()==faceRecords,"Boundary fixture Face counts differ");
+        requirePartition(boundary.nBoundaries==6 && boundary.cells.size()==faceRecords,"Boundary fixture Face counts differ");
         std::vector<std::size_t> memberships(wetCells,0);
         for(auto cell:boundary.cells) ++memberships[cell];
-        part::test::require(std::any_of(memberships.begin(),memberships.end(),[](auto n) { return n>1; }),
+        requirePartition(std::any_of(memberships.begin(),memberships.end(),[](auto n) { return n>1; }),
                             "Boundary fixture has no multi-Face cell");
 
         part::PartitionOptions options; options.wetWeight=2; options.boundaryExtraWeight=3;
         const auto weighted=part::partition(grid,options);
         // Charge ordinary work for 216 unique wet cells and extra work for
         // all 216 Face memberships, including repeated boundary-cell indices.
-        part::test::require(weighted.statistics.totalWeight==2*wetCells+3*faceRecords,
+        requirePartition(weighted.statistics.totalWeight==2*wetCells+3*faceRecords,
                             "Boundary work is not ordinary wet work plus stored Face access costs");
-        part::test::require(weighted.statistics.totalWeight>2*wetCells+3*boundaryCells,
+        requirePartition(weighted.statistics.totalWeight>2*wetCells+3*boundaryCells,
                             "Multi-Face cells did not receive multiple boundary surcharges");
-        part::test::checkLocalPartitions(grid,weighted);
+        checkLocalPartitions(grid,weighted);
 
         options.boundaryExtraWeight=0;
         const auto noExtra=part::partition(grid,options);
-        part::test::require(noExtra.statistics.totalWeight==2*wetCells,"Zero surcharge changed ordinary wet work");
-        part::test::require(weighted.statistics.totalWeight-noExtra.statistics.totalWeight==3*faceRecords,
+        requirePartition(noExtra.statistics.totalWeight==2*wetCells,"Zero surcharge changed ordinary wet work");
+        requirePartition(weighted.statistics.totalWeight-noExtra.statistics.totalWeight==3*faceRecords,
                             "Boundary surcharge does not follow all Face memberships");
         options.wetWeight=4; options.boundaryExtraWeight=3;
         const auto moreWet=part::partition(grid,options);
-        part::test::require(moreWet.statistics.totalWeight-weighted.statistics.totalWeight==2*wetCells,
+        requirePartition(moreWet.statistics.totalWeight-weighted.statistics.totalWeight==2*wetCells,
                             "Ordinary wet work was omitted or duplicated at boundary cells");
         std::cout << "[PASS] boundary_face_membership_costs\n";
         return 0;

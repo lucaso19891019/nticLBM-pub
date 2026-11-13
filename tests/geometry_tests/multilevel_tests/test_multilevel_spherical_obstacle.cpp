@@ -35,10 +35,10 @@ int main()
 
         const auto directory=std::filesystem::path(GEOMETRY_TEST_OUTPUT_DIR) /
             "test_multilevel_spherical_obstacle_vtks";
-        geo::test::recreateOutputDirectory(directory);
-        geo::test::writeVTKMultilevelCells(directory / "geometry.vtk",grid);
-        geo::test::writeVTKMultilevelCells(directory / "auxiliary.vtk",grid,true);
-        geo::test::writeVTKMultilevelBoundaryPoints(directory / "boundary_q.vtk",grid);
+        recreateOutputDirectory(directory);
+        writeVTKMultilevelCells(directory / "geometry.vtk",grid);
+        writeVTKMultilevelCells(directory / "auxiliary.vtk",grid,true);
+        writeVTKMultilevelBoundaryPoints(directory / "boundary_q.vtk",grid);
 
         for(unsigned level=0; level<grid.levels().size(); ++level)
         {

@@ -9,31 +9,31 @@ namespace lat=ntic::lbm::lattice;
 
 namespace
 {
-using geo::test::require;
+
 
 void determinism()
 {
-    const auto serial=geo::test::makeRegionGrid(1),parallel=geo::test::makeRegionGrid(4);
-    geo::test::checkTopology(serial); geo::test::checkTopology(parallel);
-    require(serial.cells().sourceNode==parallel.cells().sourceNode &&
+    const auto serial=makeRegionGrid(1),parallel=makeRegionGrid(4);
+    checkTopology(serial); checkTopology(parallel);
+    requireMultilevel(serial.cells().sourceNode==parallel.cells().sourceNode &&
             serial.cells().auxiliaryChild==parallel.cells().auxiliaryChild &&
             serial.cells().role==parallel.cells().role && serial.cells().cellType==parallel.cells().cellType &&
             serial.boundaries().offsets==parallel.boundaries().offsets &&
             serial.boundaries().q==parallel.boundaries().q && serial.boundaries().cells==parallel.boundaries().cells,
             "1/4-thread cell/Face/Q output differs");
-    require(serial.nodes().size()==parallel.nodes().size(),"1/4-thread topology size differs");
+    requireMultilevel(serial.nodes().size()==parallel.nodes().size(),"1/4-thread topology size differs");
     for(std::size_t i=0; i<serial.nodes().size(); ++i)
     {
         const auto& a=serial.nodes()[i]; const auto& b=parallel.nodes()[i];
-        require(a.coordinate==b.coordinate && a.parent==b.parent && a.firstChild==b.firstChild &&
+        requireMultilevel(a.coordinate==b.coordinate && a.parent==b.parent && a.firstChild==b.firstChild &&
                 a.cell==b.cell && a.level==b.level && a.active==b.active,"1/4-thread topology differs");
     }
-    require(serial.interfaces().fineCells==parallel.interfaces().fineCells &&
+    requireMultilevel(serial.interfaces().fineCells==parallel.interfaces().fineCells &&
             serial.interfaces().blocks.size()==parallel.interfaces().blocks.size(),"1/4-thread interface connectivity differs");
     for(std::size_t i=0; i<serial.interfaces().blocks.size(); ++i)
     {
         const auto& a=serial.interfaces().blocks[i]; const auto& b=parallel.interfaces().blocks[i];
-        require(a.coarse==b.coarse && a.auxiliary.begin==b.auxiliary.begin && a.auxiliary.end==b.auxiliary.end &&
+        requireMultilevel(a.coarse==b.coarse && a.auxiliary.begin==b.auxiliary.begin && a.auxiliary.end==b.auxiliary.end &&
                 a.fine.begin==b.fine.begin && a.fine.end==b.fine.end,"1/4-thread interface ranges differ");
     }
 }

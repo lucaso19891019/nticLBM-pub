@@ -9,13 +9,13 @@ namespace lat=ntic::lbm::lattice;
 
 namespace
 {
-using geo::test::require;
+
 
 template<std::size_t D,lat::LatticeType Type,typename Geometry>
 void compareGeometry(const geo::MultilevelGrid<D,Type>& grid,const Geometry& geometry)
 {
     using Analysis=std::conditional_t<D==2,geo::GeometryAnalysis2D<Type>,geo::GeometryAnalysis3D<Type>>;
-    geo::test::checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
+    checkGeometry(grid,[&](Analysis& result) { geometry.analysis(result); });
 }
 
 void curvedWall()
@@ -24,7 +24,7 @@ void curvedWall()
     geo::MultilevelOptions options; options.maxLevel=2; options.analysisTileWidth=3;
     geo::MultilevelGrid<2> grid(annulus.bounds,1,options);
     grid.generate(annulus,{geo::RefinementRule<2>::surface(geo::fluidRegion(annulus),2,0.4)});
-    geo::test::checkTopology(grid); compareGeometry(grid,annulus);
+    checkTopology(grid); compareGeometry(grid,annulus);
 }
 
 void externalFlow()
@@ -35,15 +35,15 @@ void externalFlow()
     const geo::Cylinder zone({0,0,0},1.2,3,geo::Axis::Z);
     geo::MultilevelGrid<3> external(open,1,options);
     external.generate(obstacle,{geo::RefinementRule<3>::volume(geo::volumeRegion(zone),1)});
-    geo::test::checkTopology(external); compareGeometry(external,obstacle);
+    checkTopology(external); compareGeometry(external,obstacle);
 }
 
 void cylinderFaces()
 {
     const geo::Cylinder zone({0,0,0},1.2,3,geo::Axis::Z);
     const auto caps=geo::RefinementRule<3>::surface(geo::fluidRegion(zone),1,0.1,{1,2});
-    require(caps.intersects(geo::BoundingBox{{-0.1,-0.1,1.4},{0.1,0.1,1.5}}),"Cylinder cap selector missed cap");
-    require(!caps.intersects(geo::BoundingBox{{-0.1,-0.1,-0.1},{0.1,0.1,0.1}}),"Cylinder cap selector selected deep interior");
+    requireMultilevel(caps.intersects(geo::BoundingBox{{-0.1,-0.1,1.4},{0.1,0.1,1.5}}),"Cylinder cap selector missed cap");
+    requireMultilevel(!caps.intersects(geo::BoundingBox{{-0.1,-0.1,-0.1},{0.1,0.1,0.1}}),"Cylinder cap selector selected deep interior");
 }
 
 } // namespace

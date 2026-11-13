@@ -175,6 +175,6 @@ int main()
         registry.resolve("unknown_parameter"),
         std::runtime_error);
 
-    ntic::lbm::test::printSummary();
+    printSummary();
     return 0;
 }

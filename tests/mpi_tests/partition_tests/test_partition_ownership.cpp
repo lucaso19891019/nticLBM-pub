@@ -14,17 +14,17 @@ int main()
         geo::MultilevelGrid<2> uniform(physical.bounds,1,gridOptions); uniform.generate(physical);
         part::PartitionOptions options; options.ranks=4; options.boundaryExtraWeight=0;
         const auto equal=part::partition(uniform,options);
-        part::test::checkOwnership(uniform,equal);
-        for(auto count:equal.statistics.realCells) part::test::require(count==16,"Equal-cost uniform partition is unbalanced");
-        part::test::require(equal.statistics.maxToMean==1,"Uniform weight statistics incorrect");
+        checkOwnership(uniform,equal);
+        for(auto count:equal.statistics.realCells) requirePartition(count==16,"Equal-cost uniform partition is unbalanced");
+        requirePartition(equal.statistics.maxToMean==1,"Uniform weight statistics incorrect");
         std::cout << "[PASS] uniform_ownership\n";
 
-        const auto grid=part::test::annulus();
+        const auto grid=makePartitionAnnulus();
         const auto sourceNodes=grid.cells().sourceNode;
         options.wetWeight=2; options.boundaryExtraWeight=3;
         options.auxiliaryWeight=0.5; options.interfaceWeight=0; options.levelWeights={1,2,4};
         const auto weighted=part::partition(grid,options);
-        part::test::checkOwnership(grid,weighted);
+        checkOwnership(grid,weighted);
         std::vector<double> expected(options.ranks,0);
         std::vector<std::size_t> memberships(grid.cells().size(),0);
         for(auto cell:grid.boundaries().cells) ++memberships[cell];
@@ -43,13 +43,13 @@ int main()
                 boundaryExtra+=extra*std::ldexp(1.0,static_cast<int>(level))*options.levelWeights[level];
             }
         }
-        part::test::require(expected==weighted.statistics.rankWeights,"Weighted load accounting differs");
-        part::test::require(boundaryCells>0,"Boundary load case contains no boundary cells");
+        requirePartition(expected==weighted.statistics.rankWeights,"Weighted load accounting differs");
+        requirePartition(boundaryCells>0,"Boundary load case contains no boundary cells");
         auto noExtra=options; noExtra.boundaryExtraWeight=0;
         const auto baseline=part::partition(grid,noExtra);
-        part::test::require(weighted.statistics.totalWeight-baseline.statistics.totalWeight==boundaryExtra,
+        requirePartition(weighted.statistics.totalWeight-baseline.statistics.totalWeight==boundaryExtra,
                             "Boundary extra work does not follow stored Face memberships");
-        part::test::require(grid.cells().sourceNode==sourceNodes,"Partition reordered geometry storage");
+        requirePartition(grid.cells().sourceNode==sourceNodes,"Partition reordered geometry storage");
         std::cout << "[PASS] weighted_multilevel_ownership\n";
         return 0;
     }
