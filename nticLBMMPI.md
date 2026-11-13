@@ -18,7 +18,7 @@ tests/
     mpi_tests/
         partition_tests/      six automatic tests, two interactive cases and shared checks
         stls/                 MPI-owned STL fixtures
-        outputs/              MPI-local VTK helpers and ignored per-case *_vtks results
+        outputs/              MPI-local VTK helpers and untracked per-case *_vtks results
 cmake/
     tests/mpi_tests.cmake      current test targets and their shared implementation
     3rdparties/
@@ -423,8 +423,7 @@ test_partition_branched_channel_vtks/
 ```
 
 The directory names are checked before deletion, and links/aliases to another
-case or location are rejected. Generated `*_vtks/` directories are ignored by
-Git; the reusable output header remains source code. Each directory contains:
+case or location are rejected. Generated `*_vtks/` directories are left untracked without ignore rules; the reusable output header remains source code. Each directory contains:
 
 | File | Contents |
 | --- | --- |
