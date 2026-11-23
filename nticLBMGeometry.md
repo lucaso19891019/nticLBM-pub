@@ -561,6 +561,21 @@ make_hpcc -C build -j 16
 All build artifacts remain under `build/`. Use `cmake_hpcc` and `make_hpcc` in
 this environment even for the current CPU/OpenMP geometry implementation.
 
+For performance measurements, explicitly configure the existing build as
+Release and rebuild the targets being measured:
+
+```bash
+cmake_hpcc -S . -B build -DCMAKE_BUILD_TYPE=Release
+```
+
+Record the actual compiler flags, thread count, and OpenMP waiting policy.
+Compare algorithm or scheduling changes using the same build configuration;
+an unset build type must not be assumed to enable compiler optimization.
+For GNU/Clang C++ builds, the project disables implicit floating-point
+multiply-add contraction so separately written operations retain their rounding
+steps in optimized builds. Explicit `std::fma` calls remain fused. This keeps
+the historical exact Q checks without adding geometric tolerances.
+
 ## Manual tests and ParaView output
 
 There are 14 interactive manual applications. Primitive, STL and Boolean
@@ -713,6 +728,10 @@ Standalone open surface meshes are not accepted as volume selectors.
 STL selectors build a shared read-only triangle BVH for distance queries and
 borrow the original validated topology/geometry. Those objects must outlive
 the rules and must not be moved or mutated while the rules are in use.
+For STL box classification, a center-to-surface distance no greater than the
+box half-diagonal already implies Mixed, so no inside/outside query is needed.
+Surface rules reject boxes outside the selected surface band before classifying
+the fluid region. These shortcuts preserve the existing selection rules.
 Primitive parameters are copied into their lightweight region representation.
 
 ### Topology, cell data, and access order

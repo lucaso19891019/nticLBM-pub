@@ -370,8 +370,7 @@ inline RefinementRegion<3> volumeRegion(const stl::FacetTopology& topology)
     auto distance=std::make_shared<detail::STLDistance>(topology,std::move(facets),
         std::vector<std::size_t>(topology.geometry.facetVertexIDs.size(),0));
     auto node=std::make_shared<detail::Leaf<3>>(); node->faces=1;
-    node->signedDistance=[distance,&topology](const Point& p) {
-        const double d=distance->distance(p); if(d==0) return 0.0;
+    const auto contains=[&topology](const Point& p) {
         bool inside=false;
         for(std::size_t c=0; c<topology.components.size(); ++c)
         {
@@ -380,7 +379,19 @@ inline RefinementRegion<3> volumeRegion(const stl::FacetTopology& topology)
             for(std::size_t axis=0; axis<3; ++axis) contained=contained && p[axis]>=box.min[axis] && p[axis]<=box.max[axis];
             if(contained && detail::pointInClosedComponent(topology,c,p)) inside=!inside;
         }
-        return inside ? -d : d;
+        return inside;
+    };
+    node->signedDistance=[distance,contains](const Point& p) {
+        const double d=distance->distance(p); if(d==0) return 0.0;
+        return contains(p) ? -d : d;
+    };
+    node->boxClassification=[distance,contains](const BoundingBox& box) {
+        const auto p=detail::center<3>(box);
+        const double d=distance->distance(p),r=detail::radius<3>(box);
+        // Either sign lies in [-r,r], so the original signed-distance test
+        // is Mixed without needing a component containment query.
+        if(!(d>r)) return BoxRelation::Mixed;
+        return contains(p) ? BoxRelation::Inside : BoxRelation::Outside;
     };
     node->distance=[distance](const Point& p,const auto& selected,std::size_t base) { return distance->distance(p,selected,base); };
     return RefinementRegion<3>(std::move(node));
@@ -404,6 +415,12 @@ inline RefinementRegion<3> fluidRegion(const STLGeometry& g)
         // The nearest-surface query already excluded on-surface points. Reuse
         // STL fluid semantics without scanning every triangle a second time.
         return detail::fluidContainsPoint(g,p) ? -d : d;
+    };
+    node->boxClassification=[distance,&g](const BoundingBox& box) {
+        const auto p=detail::center<3>(box);
+        const double d=distance->distance(p),r=detail::radius<3>(box);
+        if(!(d>r)) return BoxRelation::Mixed;
+        return detail::fluidContainsPoint(g,p) ? BoxRelation::Inside : BoxRelation::Outside;
     };
     node->distance=[distance](const Point& p,const auto& selected,std::size_t base) { return distance->distance(p,selected,base); };
     return RefinementRegion<3>(std::move(node));
@@ -455,7 +472,7 @@ struct RefinementRule
     {
         if(!surfaceBand) return region.classify(box)!=BoxRelation::Outside;
         // Restrict the band to the selected fluid region; never flip wall normals.
-        return region.classify(box)!=BoxRelation::Outside && region.nearSurface(box,thickness,faces);
+        return region.nearSurface(box,thickness,faces) && region.classify(box)!=BoxRelation::Outside;
     }
 };
 

@@ -35,6 +35,19 @@ endif()
 
 
 #====================================================
+# Floating-point evaluation
+#====================================================
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+    # Keep separate multiply/add expressions separately rounded. Explicit
+    # std::fma calls still request a single rounded fused operation.
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>"
+    )
+endif()
+
+
+#====================================================
 # Third-party libraries
 #====================================================
 
