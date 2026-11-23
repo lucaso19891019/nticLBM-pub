@@ -123,20 +123,6 @@ private:
     GridBoundaryData boundaries_;
     bool finalized_=false;
 
-    static bool mortonLess(const Coordinate& a,const Coordinate& b)
-    {
-        // Compare interleaved bits without a fixed-width packed Morton key.
-        std::uint32_t difference=0;
-        for(std::size_t d=0; d<D; ++d) difference|=a[d]^b[d];
-        if(difference==0) return false;
-        unsigned bit=0; while(difference>>1U) { difference>>=1U; ++bit; }
-        for(std::size_t axis=D; axis-->0;)
-        {
-            const auto x=(a[axis]>>bit)&1U,y=(b[axis]>>bit)&1U;
-            if(x!=y) return x<y;
-        }
-        return false;
-    }
     void invalidate()
     {
         finalized_=false; cells_=CellPool{}; levels_.clear();
@@ -405,12 +391,12 @@ private:
                 return typeOrder(cells_.cellType[a])<typeOrder(cells_.cellType[b]);
             if(cells_.isAuxiliary(a))
             {
-                const auto& x=nodes_[cells_.sourceNode[a]].coordinate;
-                const auto& y=nodes_[cells_.sourceNode[b]].coordinate;
-                if(x!=y) return mortonLess(x,y);
+                const auto x=cells_.sourceNode[a],y=cells_.sourceNode[b];
+                if(x!=y) return x<y;
                 return cells_.auxiliaryChild[a]<cells_.auxiliaryChild[b];
             }
-            return mortonLess(coordinate(a),coordinate(b));
+            // Preserve generation order within each real role/type group.
+            return a<b;
         });
         CellPool sorted;
         sorted.sourceNode.reserve(order.size()); sorted.role.reserve(order.size());

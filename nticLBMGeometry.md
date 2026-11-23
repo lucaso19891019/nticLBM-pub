@@ -728,8 +728,8 @@ It stores source-node indices, role, auxiliary-child number, and physical
 they occupy no persistent cell slot. `computes(cell)` is true for every real
 cell and false for auxiliary cells. No LBM distribution arrays are allocated.
 
-Cell data are ordered by level, role, physical type (Interior/Boundary),
-then Morton spatial order. `levels()` exposes contiguous ranges. Real roles
+Cell data are ordered by level, role, and physical type (Interior/Boundary).
+Real cells retain generation order within each subgroup. `levels()` exposes contiguous ranges. Real roles
 are Ordinary, FineInterface, CoarseInterface, and BothInterfaces. A real leaf
 may participate in both adjacent-level interfaces without being duplicated.
 Physical types are independent of interface roles. Auxiliary groups follow
@@ -760,10 +760,10 @@ Ordinary:        Interior, Boundary
 FineInterface:   Interior, Boundary
 CoarseInterface: Interior, Boundary
 BothInterfaces:  Interior, Boundary
-Auxiliary:      source coarse cell in Morton order, then child ID
+Auxiliary:       source coarse node ID, then child ID
 ```
 
-Each real role/type subgroup uses Morton spatial order. This is the geometry
+No Morton spatial ordering is applied. This is the geometry
 storage order; it does not prescribe the MPI partition algorithm. Auxiliary
 cells belong to the fine-sized level returned by `level(cell)`, one greater
 than their source coarse node's level. Their families remain contiguous even
