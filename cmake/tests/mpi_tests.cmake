@@ -16,10 +16,30 @@ set(MPI_TEST_SOURCE_DIR
 
 
 #====================================================
+# MPI runtime for distributed initialization tests
+#====================================================
+
+find_package(MPI REQUIRED COMPONENTS CXX)
+
+
+#====================================================
 # Manual partition test configuration
 #====================================================
 
 function(configure_mpi_partition_manual_test TARGET_NAME)
+    target_link_libraries(
+        ${TARGET_NAME}
+        PRIVATE
+        MPI::MPI_CXX
+    )
+
+    target_compile_definitions(
+        ${TARGET_NAME}
+        PRIVATE
+        OMPI_SKIP_MPICXX=1
+        MPICH_SKIP_MPICXX=1
+    )
+
     target_include_directories(
         ${TARGET_NAME}
         PRIVATE
@@ -242,6 +262,35 @@ target_link_libraries(
 
 set_target_properties(
     test_partition_intra_rank
+    PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${MPI_PARTITION_TEST_OUTPUT_DIR}"
+)
+
+
+#====================================================
+# test_partition_layout
+#====================================================
+
+add_executable(test_partition_layout
+    tests/mpi_tests/partition_tests/test_partition_layout.cpp
+)
+
+target_link_libraries(
+    test_partition_layout
+    PRIVATE
+    mpi_partition_test_support
+    MPI::MPI_CXX
+)
+
+target_compile_definitions(
+    test_partition_layout
+    PRIVATE
+    OMPI_SKIP_MPICXX=1
+    MPICH_SKIP_MPICXX=1
+)
+
+set_target_properties(
+    test_partition_layout
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${MPI_PARTITION_TEST_OUTPUT_DIR}"
 )

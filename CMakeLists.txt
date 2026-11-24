@@ -39,9 +39,11 @@ endif()
 #====================================================
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
+    # Preserve finite-value validation even with unsafe compiler defaults.
     # Keep separate multiply/add expressions separately rounded. Explicit
     # std::fma calls still request a single rounded fused operation.
     add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-fast-math>"
         "$<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>"
     )
 endif()

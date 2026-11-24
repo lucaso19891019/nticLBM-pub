@@ -1,9 +1,13 @@
 #include "partition.hpp"
+#include "partition_mpi.hpp"
 #include "vtk_output_3d.hpp"
 #include "stl_reader.hpp"
 #include "stl_validator.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <memory>
+#include <optional>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -163,93 +167,150 @@ std::vector<PortDimensions> measurePorts(const geo::STLGeometry& geometry)
 
 } // namespace
 
-int main()
+int main(int argc,char** argv)
 {
+    int provided=0;
+    if(MPI_Init_thread(&argc,&argv,MPI_THREAD_FUNNELED,&provided)!=MPI_SUCCESS) return 1;
+    int mainThread=0;MPI_Is_thread_main(&mainThread);
+    if(provided<MPI_THREAD_FUNNELED || !mainThread) MPI_Abort(MPI_COMM_WORLD,1);
+    int rank=0,size=0;MPI_Comm_rank(MPI_COMM_WORLD,&rank);MPI_Comm_size(MPI_COMM_WORLD,&size);int result=0;
     try
     {
-        std::cout << "STL branched channel: multilevel partition metadata\n"
-                  << "Four topology levels (0,1,2,3), eight equal-capacity logical ranks.\n"
-                  << "Ranks 0..3 on node 0, 4..7 on node 1; no actual MPI processes are launched.\n"
-                  << "Resolution is fixed at 25 cells across the minimum port Feret width.\n"
-                  << "Only Other Surface (Face 0) seeds wall bands. Port-rim cells may still refine.\n\n";
+        using Grid=geo::MultilevelGrid<3>;
+        using Links=geo::NeighborLinks<3,Grid::latticeType>;
+        using Builder=part::LocalLayoutBuilder<3,Grid::latticeType>;
+        MPI_Comm shared=MPI_COMM_NULL;MPI_Comm_split_type(MPI_COMM_WORLD,MPI_COMM_TYPE_SHARED,rank,MPI_INFO_NULL,&shared);
+        int localRanks=1;MPI_Comm_size(shared,&localRanks);MPI_Comm_free(&shared);
+        const int localThreads=std::getenv("OMP_NUM_THREADS") ? std::max(1,omp_get_max_threads()) :
+            std::max(1,omp_get_num_procs()/localRanks);
+        const int globalThreads=std::max(1,std::min(128,omp_get_num_procs()));
+        omp_set_dynamic(0);
+        std::unique_ptr<Grid> globalGrid;std::optional<Links> globalLinks;std::optional<part::PartitionPlan> globalPlan;
+        std::unique_ptr<Builder> builder;part::PartitionOptions options;
+        std::string rootError,rootDescription;unsigned rootAnalysisThreads=1;
+        if(rank==0)
+        {
+            try
+            {
+                if(size!=8) throw std::invalid_argument("This manual case requires mpiexec -n 8.");
+                omp_set_num_threads(globalThreads);
 
-        const int threads=std::max(1,std::min(128,omp_get_max_threads()));
-        omp_set_num_threads(threads);
-        const auto file=std::filesystem::path(MPI_TEST_SOURCE_DIR)/
-            "stls"/"smooth_irregular_branched_channel.stl";
-        std::cout << "Reading and validating STL: " << file << '\n' << std::flush;
-        auto data=ntic::lbm::stl::read(file.string());
-        ntic::lbm::stl::FacetTopology topology;
-        ntic::lbm::stl::validate(data,"full",topology);
-        const geo::STLGeometry geometry(std::move(topology),geo::FlowType::Internal);
-        const auto ports=measurePorts(geometry);
-        const auto smallest=std::min_element(ports.begin(),ports.end(),[](const auto& a,const auto& b) {
-            return a.minimumFeretWidth<b.minimumFeretWidth;
-        });
-        constexpr unsigned cellsAcrossMinimumPort=25;
-        const double minimumDiameter=smallest->minimumFeretWidth;
-        const double finestSpacing=minimumDiameter/cellsAcrossMinimumPort,coarseSpacing=8*finestSpacing;
-        if(!(finestSpacing>0) || !std::isfinite(coarseSpacing))
-            throw std::runtime_error("Derived port-based spacing is invalid.");
-        std::cout << std::setprecision(12);
-        for(const auto& port:ports)
-            std::cout << "Port Face " << port.faceID << ": area-equivalent diameter=" << port.areaEquivalentDiameter
-                      << ", minimum Feret width=" << port.minimumFeretWidth << '\n';
-        std::cout << "Selected port Face " << smallest->faceID << ", Dmin=" << minimumDiameter
-                  << ", fixed cells across Dmin=" << cellsAcrossMinimumPort << ", hmin=" << finestSpacing << '\n';
-        for(unsigned level=0; level<=3; ++level)
-            std::cout << "Level " << level << " spacing: " << std::ldexp(coarseSpacing,-static_cast<int>(level)) << '\n';
-        double bandCells=0;
-        std::cout << "Narrow wall-band thickness in finest cells (recommended 2): "; std::cin >> bandCells;
-        const double narrowBand=bandCells*finestSpacing,middleBand=2*narrowBand,wideBand=4*narrowBand;
-        if(!std::cin || !(bandCells>0) || !std::isfinite(bandCells) ||
-           !(narrowBand>0) || !std::isfinite(wideBand))
-            throw std::invalid_argument("Wall-band cell count must be finite and positive.");
-        if(wideBand>=0.5*minimumDiameter)
-            std::cout << "Warning: the widest band reaches half the minimum port width; thin branches may be fully refined.\n";
-        const auto walls=geo::fluidRegion(geometry);
-        const std::vector<geo::RefinementRule<3>> rules{
-            geo::RefinementRule<3>::surface(walls,1,wideBand,{0}),
-            geo::RefinementRule<3>::surface(walls,2,middleBand,{0}),
-            geo::RefinementRule<3>::surface(walls,3,narrowBand,{0})};
-        geo::MultilevelOptions gridOptions;
-        gridOptions.maxLevel=3; gridOptions.analysisThreads=static_cast<unsigned>(threads);
-        gridOptions.maxNodes=6000000; gridOptions.maxCells=4000000;
-        std::cout << "Generating the internal channel grid.\n"
-                  << "Limits: " << gridOptions.maxNodes << " tree nodes, " << gridOptions.maxCells << " retained slots.\n"
-                  << "These allocation guards are not preallocations or a measured memory budget.\n"
-                  << std::flush;
-        geo::MultilevelGrid<3> grid(geometry.bounds,coarseSpacing,gridOptions);
-        std::cout << "Initial level-0 topology cells: " << grid.nodes().size() << '\n' << std::flush;
-        grid.generate(geometry,rules);
+                std::cout << "STL branched channel: multilevel partition metadata\n"
+                          << "Four topology levels (0,1,2,3), eight equal-capacity MPI ranks.\n"
+                          << "Cost model: ranks 0..3 on node 0, 4..7 on node 1; this does not identify physical hosts.\n"
+                          << "Resolution is fixed at 25 cells across the minimum port Feret width.\n"
+                          << "Only Other Surface (Face 0) seeds wall bands. Port-rim cells may still refine.\n\n";
 
-        part::PartitionOptions options;
-        options.ranks=8; options.blockLevel=0; options.graphThreads=std::min(8,threads);
-        options.hardware.computeRates.assign(8,1.0);
-        options.hardware.nodeIds={0,0,0,0,1,1,1,1};
-        // Retain the initial cost model defaults; these are not hardware measurements.
-        std::cout << "Partitioning with METIS...\n" << std::flush;
-        const auto plan=part::partition(grid,options);
-        std::ostringstream description;
-        description << std::setprecision(17) << "Internal smooth_irregular_branched_channel.stl.\n"
-                    << "Minimum port Face=" << smallest->faceID << ", minimum Feret Dmin=" << minimumDiameter
-                    << ", fixed cells across Dmin=" << cellsAcrossMinimumPort << ".\n"
-                    << "hmin=" << finestSpacing << ", h0=" << coarseSpacing << ", topology levels 0/1/2/3.\n"
-                    << "Level-1 wall band=" << wideBand << ", level-2 wall band=" << middleBand
-                    << ", level-3 wall band=" << narrowBand
-                    << " (" << bandCells << " finest cells).\n"
-                    << "Limits: " << gridOptions.maxNodes << " tree nodes and " << gridOptions.maxCells
-                    << " retained slots; these guards are not preallocations or a measured memory budget.\n"
-                    << "Face 0 is the only wall-band seed; planar port caps are excluded as seeds.\n"
-                    << "Cells at port rims may refine through side-wall proximity and 2:1 balancing.\n"
-                    << "The entire port cap is not guaranteed to remain coarse.";
-        writePartitionOutputs(MPI_TEST_OUTPUT_DIR,"test_partition_branched_channel_vtks",
-            grid,plan,options,description.str(),gridOptions.analysisThreads);
-        return 0;
+                const int threads=globalThreads;
+                omp_set_num_threads(threads);
+                const auto file=std::filesystem::path(MPI_TEST_SOURCE_DIR)/
+                    "stls"/"smooth_irregular_branched_channel.stl";
+                std::cout << "Reading and validating STL: " << file << '\n' << std::flush;
+                auto data=ntic::lbm::stl::read(file.string());
+                ntic::lbm::stl::FacetTopology topology;
+                ntic::lbm::stl::validate(data,"full",topology);
+                const geo::STLGeometry geometry(std::move(topology),geo::FlowType::Internal);
+                const auto ports=measurePorts(geometry);
+                const auto smallest=std::min_element(ports.begin(),ports.end(),[](const auto& a,const auto& b) {
+                    return a.minimumFeretWidth<b.minimumFeretWidth;
+                });
+                constexpr unsigned cellsAcrossMinimumPort=25;
+                const double minimumDiameter=smallest->minimumFeretWidth;
+                const double finestSpacing=minimumDiameter/cellsAcrossMinimumPort,coarseSpacing=8*finestSpacing;
+                if(!(finestSpacing>0) || !std::isfinite(coarseSpacing))
+                    throw std::runtime_error("Derived port-based spacing is invalid.");
+                std::cout << std::setprecision(12);
+                for(const auto& port:ports)
+                    std::cout << "Port Face " << port.faceID << ": area-equivalent diameter=" << port.areaEquivalentDiameter
+                              << ", minimum Feret width=" << port.minimumFeretWidth << '\n';
+                std::cout << "Selected port Face " << smallest->faceID << ", Dmin=" << minimumDiameter
+                          << ", fixed cells across Dmin=" << cellsAcrossMinimumPort << ", hmin=" << finestSpacing << '\n';
+                for(unsigned level=0; level<=3; ++level)
+                    std::cout << "Level " << level << " spacing: " << std::ldexp(coarseSpacing,-static_cast<int>(level)) << '\n';
+                double bandCells=0;
+                std::cout << "Narrow wall-band thickness in finest cells (recommended 2): "; std::cin >> bandCells;
+                const double narrowBand=bandCells*finestSpacing,middleBand=2*narrowBand,wideBand=4*narrowBand;
+                if(!std::cin || !(bandCells>0) || !std::isfinite(bandCells) ||
+                   !(narrowBand>0) || !std::isfinite(wideBand))
+                    throw std::invalid_argument("Wall-band cell count must be finite and positive.");
+                if(wideBand>=0.5*minimumDiameter)
+                    std::cout << "Warning: the widest band reaches half the minimum port width; thin branches may be fully refined.\n";
+                const auto walls=geo::fluidRegion(geometry);
+                const std::vector<geo::RefinementRule<3>> rules{
+                    geo::RefinementRule<3>::surface(walls,1,wideBand,{0}),
+                    geo::RefinementRule<3>::surface(walls,2,middleBand,{0}),
+                    geo::RefinementRule<3>::surface(walls,3,narrowBand,{0})};
+                geo::MultilevelOptions gridOptions;
+                gridOptions.maxLevel=3; gridOptions.analysisThreads=static_cast<unsigned>(threads);
+                gridOptions.maxNodes=6000000; gridOptions.maxCells=4000000;
+                std::cout << "Generating the internal channel grid.\n"
+                          << "Limits: " << gridOptions.maxNodes << " tree nodes, " << gridOptions.maxCells << " retained slots.\n"
+                          << "These allocation guards are not preallocations or a measured memory budget.\n"
+                          << std::flush;
+                globalGrid=std::make_unique<Grid>(geometry.bounds,coarseSpacing,gridOptions);
+                auto& grid=*globalGrid;
+                std::cout << "Initial level-0 topology cells: " << grid.nodes().size() << '\n' << std::flush;
+                grid.generate(geometry,rules);
+                globalLinks=geo::linkNeighbors(grid);
+
+
+                options.ranks=8; options.blockLevel=0; options.graphThreads=std::min(8,threads);
+                options.hardware.computeRates.assign(8,1.0);
+                options.hardware.nodeIds={0,0,0,0,1,1,1,1};
+                // Retain the initial cost model defaults; these are not hardware measurements.
+                std::cout << "Partitioning with METIS...\n" << std::flush;
+                globalPlan=part::partition(grid,options);
+                const auto& plan=*globalPlan;
+                std::ostringstream description;
+                description << std::setprecision(17) << "Internal smooth_irregular_branched_channel.stl.\n"
+                            << "Minimum port Face=" << smallest->faceID << ", minimum Feret Dmin=" << minimumDiameter
+                            << ", fixed cells across Dmin=" << cellsAcrossMinimumPort << ".\n"
+                            << "hmin=" << finestSpacing << ", h0=" << coarseSpacing << ", topology levels 0/1/2/3.\n"
+                            << "Level-1 wall band=" << wideBand << ", level-2 wall band=" << middleBand
+                            << ", level-3 wall band=" << narrowBand
+                            << " (" << bandCells << " finest cells).\n"
+                            << "Limits: " << gridOptions.maxNodes << " tree nodes and " << gridOptions.maxCells
+                            << " retained slots; these guards are not preallocations or a measured memory budget.\n"
+                            << "Face 0 is the only wall-band seed; planar port caps are excluded as seeds.\n"
+                            << "Cells at port rims may refine through side-wall proximity and 2:1 balancing.\n"
+                            << "The entire port cap is not guaranteed to remain coarse.";
+                rootDescription=description.str(); rootAnalysisThreads=gridOptions.analysisThreads;
+                builder=std::make_unique<Builder>(grid,*globalLinks,plan);
+
+            }
+            catch(const std::exception& e) {rootError=e.what();}
+            catch(...) {rootError="Unknown root geometry/partition error.";}
+        }
+        omp_set_num_threads(localThreads);
+        const auto input=part::distributeLayoutInput<3,Grid::latticeType>(builder.get(),MPI_COMM_WORLD,0,rootError);
+        const auto layout=part::initializeLocalLayout(input,MPI_COMM_WORLD);
+        std::array<std::uint64_t,10> summary{};
+        summary[0]=layout.cells.size();summary[1]=layout.sourceIDs.size();
+        for(const auto& cell:layout.cells) {summary[2]+=cell.ghost;summary[3]+=cell.halo;}
+        summary[4]=layout.candidates;summary[5]=layout.selectedCandidate;summary[6]=layout.score.communicationRanges;
+        summary[7]=layout.score.interfaceRanges;summary[8]=layout.score.boundaryRanges;summary[9]=layout.score.anchorDistance;
+        std::vector<std::uint64_t> summaries;part::detail::LayoutError summaryError;
+        try {if(rank==0) summaries.resize(static_cast<std::size_t>(size)*summary.size());}
+        catch(const std::exception& e) {summaryError=e.what();}
+        part::detail::layoutErrorGate(MPI_COMM_WORLD,summaryError);
+        part::detail::layoutMpiCheck(MPI_Gather(summary.data(),static_cast<int>(summary.size()),MPI_UINT64_T,
+            rank==0 ? summaries.data() : nullptr,static_cast<int>(summary.size()),MPI_UINT64_T,0,MPI_COMM_WORLD),MPI_COMM_WORLD);
+        if(rank==0)
+        {
+            std::cout << "Actual MPI ranks=" << size << "; rank-local layouts were built on their respective ranks.\n"
+                      << "Node IDs in the cost model are modeled placement, not physical host detection.\n";
+            for(int peer=0;peer<size;++peer)
+            {
+                const auto offset=static_cast<std::size_t>(peer)*summary.size();
+                std::cout << "Local layout rank " << peer << ": cells=" << summaries[offset] << ", sources=" << summaries[offset+1]
+                          << ", Ghost=" << summaries[offset+2] << ", Halo=" << summaries[offset+3]
+                          << ", candidates=" << summaries[offset+4] << ", selected=" << summaries[offset+5]
+                          << ", score=(" << summaries[offset+6] << ',' << summaries[offset+7] << ','
+                          << summaries[offset+8] << ',' << summaries[offset+9] << ")\n";
+            }
+            writePartitionOutputs(MPI_TEST_OUTPUT_DIR,"test_partition_branched_channel_vtks",*globalGrid,*globalPlan,options,rootDescription,rootAnalysisThreads);
+        }
     }
-    catch(const std::exception& error)
-    {
-        std::cerr << "Error: " << error.what() << '\n';
-        return 1;
-    }
+    catch(const std::exception& e) {std::cerr << "Error on rank " << rank << ": " << e.what() << '\n';MPI_Abort(MPI_COMM_WORLD,1);return 1;}
+    MPI_Allreduce(MPI_IN_PLACE,&result,1,MPI_INT,MPI_MAX,MPI_COMM_WORLD);MPI_Finalize();return result;
 }

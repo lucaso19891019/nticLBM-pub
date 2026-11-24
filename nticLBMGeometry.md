@@ -571,10 +571,15 @@ cmake_hpcc -S . -B build -DCMAKE_BUILD_TYPE=Release
 Record the actual compiler flags, thread count, and OpenMP waiting policy.
 Compare algorithm or scheduling changes using the same build configuration;
 an unset build type must not be assumed to enable compiler optimization.
-For GNU/Clang C++ builds, the project disables implicit floating-point
-multiply-add contraction so separately written operations retain their rounding
-steps in optimized builds. Explicit `std::fma` calls remain fused. This keeps
-the historical exact Q checks without adding geometric tolerances.
+For GNU/Clang C++ builds, the project uses `-fno-fast-math` followed by
+`-ffp-contract=off`: Inf/NaN validation remains effective, and separately
+written multiply/add operations retain their rounding steps in optimized
+builds. Explicit `std::fma` calls remain fused. This keeps the historical
+exact Q checks without adding geometric tolerances. On server 79, system
+compiler specs inject Ofast/fast-math defaults; disabling finite-only
+assumptions in an otherwise unchanged build restored the original invalid-input
+checks. The project options make this requirement explicit rather than relying
+on a machine-specific CMake cache override.
 
 ## Manual tests and ParaView output
 
@@ -908,8 +913,14 @@ coverage. They represent storage endpoints, not newly wet cells. They have no
 PDF allocation, rank, owner or Halo information. Only original real/auxiliary
 sources have neighbor rows; Ghosts are not recursively expanded. Partition
 continues to consume the unchanged grid and does not assign these extra IDs.
-Their future allocation and rank-local addressing belong to subsequent solver
-and communication work.
+For optional post-partition localization and sorting, use
+`mpi::LocalLayoutBuilder` from `local_layout.hpp` (see `nticLBMMPI.md`).
+It preserves geometry IDs, remaps storage endpoints to one rank-local address
+space, and distinguishes geometry Ghosts from remote Halo entries. Its
+`prepare(rank)` input is self-contained: optional `partition_mpi.hpp` transport
+lets each MPI rank independently sort/build its own layout after root-only
+global geometry generation. PDF allocation
+and actual odd/even solver communication remain future work.
 
 ### Coarse/fine interface representation
 

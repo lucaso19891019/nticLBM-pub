@@ -3,10 +3,10 @@
 The MPI module is in `src/mpi/`, parallel to `geometry` and `input`. Its
 initialization partition functionality is in `src/mpi/partition/`, in namespace
 `ntic::lbm::mpi`. It uses bundled METIS for weighted
-graph partitioning. Geometry generation, MPI message transport, LBM evolution,
-and AMR migration are separate responsibilities. This implementation prepares
-ownership and communication metadata; it does not call `MPI_Init` or move
-field data between processes yet.
+graph partitioning. Geometry generation, LBM evolution and AMR migration remain separate responsibilities.
+The module partitions geometry, prepares rank-local inputs and transports
+initialization metadata with MPI. The library does not initialize/finalize MPI
+or move PDF/velocity/pressure fields; executable callers own the MPI runtime.
 
 ## Dependencies and build layout
 
@@ -16,7 +16,7 @@ src/
         partition/            partition sources; future MPI functions use sibling directories
 tests/
     mpi_tests/
-        partition_tests/      six automatic tests, two interactive cases and shared checks
+        partition_tests/      seven automatic tests, two interactive cases and shared checks
         stls/                 MPI-owned STL fixtures
         outputs/              MPI-local VTK helpers and untracked per-case *_vtks results
 cmake/
@@ -316,6 +316,145 @@ if the total cell count did not change. Global CellIndex is not an AMR-stable
 identity. Field migration and incremental AMR repartitioning are not yet
 implemented; the ownership/local-index interfaces provide their future input.
 
+## Rank-local storage layout
+
+`local_layout.hpp` supplies a separate post-partition step. The existing
+`partition` and `localPartition` APIs retain their behavior and ID order.
+The global geometry tree, CellPool, partition boxes and ownership are unchanged.
+
+```cpp
+#include "local_layout.hpp"
+
+auto links = ntic::lbm::geometry::linkNeighbors(grid);
+auto plan = ntic::lbm::mpi::partition(grid, options);
+ntic::lbm::mpi::LocalLayoutBuilder<decltype(grid)::dimension,
+    decltype(grid)::latticeType> builder(grid, links, plan);
+auto input = builder.prepare(rank);
+auto layout = ntic::lbm::mpi::buildLocalLayout(input);
+auto endpoint = layout.anchor(ownedSourceLocalID, direction);
+```
+
+The builder borrows immutable grid/links/plan snapshots; keep them alive and
+unchanged while preparing inputs. Prepare one builder and reuse it for the required
+ranks. `prepare(rank)` creates a self-contained sparse `RankLayoutInput`;
+`buildLocalLayout(input, options)` sorts and remaps without reading any global
+grid, links or plan. The old `builder.build(rank)` remains a thin serial
+prepare/build convenience wrapper. It resolves Ghost ownership and cross-rank anchor requests once, rather
+than scanning every global anchor for each rank. Rebuild it and its layouts
+after any geometry/topology/finalization or partition change, even when sizes
+happen to match. No persistent invalidation/cache protocol is introduced.
+
+`layout.cells[localID]` is the unified address space. Each record stores its
+geometry/global storage ID, level, metadata owner and independent owned/Ghost/
+Halo/send/receive-dependent flags. Original storage IDs retain their partition
+owner. A geometry Ghost is assigned to the smallest owner rank among its
+original source referrers. This is a storage-metadata convention; it adds no
+wet work or partition weight. A Ghost referenced by another rank is also a
+Halo there. Halo and Ghost are therefore overlapping attributes.
+
+Owned original real/auxiliary cells have compact rows in `sourceIDs` and
+`anchors`. Every K-entry row is remapped to final local endpoint IDs; the
+lattice trait selects a direction's slot, with self implicit. Ghosts and
+remote Halo sources do not acquire recursive neighbor rows. The layout adds
+any anchor-specific remote requests to the old conservative adjacency and
+complete coarse/fine interface dependencies. An included auxiliary child
+brings its complete family, which remains contiguous in original child order.
+
+Final order is level first, then storage class (owned real, owned auxiliary,
+local Ghost, remote Halo), then communication class (receive-dependent, only
+send, internal), then interface role and physical type. Auxiliary families are
+indivisible sorting atoms: their bucket uses the union of member attributes,
+while each child's actual flags remain unchanged. No `ownedCount` prefix is
+assumed. `levelRanges[level]` is a direct offset/length view, including empty
+levels. Each logical `groups` entry references `selectionRanges` and
+`selectionPoints`; singleton selections use points. Groups can overlap, but
+members are unique within a group, and ranges never span different levels.
+Groups cover owned/computing/auxiliary/Ghost/Halo/send/receive/
+receive-dependent/Interior/Boundary/fine-interface/coarse-interface work.
+
+The baseline classification order is always a candidate. Optional candidates
+use Morton order only inside those hard buckets, and/or swap the final
+interface/type priority. Morton uses all 32 bits per coordinate (96 bits in
+3D); it never changes partitioning or splits auxiliary families. If a storage
+coordinate lies outside uint32, Morton candidates are skipped rather than
+truncating it. Stable histogram/prefix/scatter radix passes are parallel for
+large inputs and remain serial in an active OpenMP team. Equal keys preserve
+input order. Candidate scores compare lexicographically: communication runs
+(including actual owned source send/dependency selections), interface runs,
+Face runs, then total local anchor distance. Runs are counted separately by
+level. Ties keep the earlier candidate. This is a finite local layout search,
+not a globally optimal memory-order claim. Disable alternatives with
+`LocalLayoutOptions::tryMorton` / `tryTypeFirst`.
+
+Only candidate index permutations are evaluated. Sparse anchor addresses are
+resolved once; the selected cells, neighbor rows, Face/Q records, interfaces,
+peer lists and sparse tree view are materialized once. Face membership remains
+many-to-one and Q rows are unchanged. Peer lists retain canonical global-ID
+order so opposite ranks still match; local-contiguity scoring never changes
+that message order. `lookupGlobal`/`lookupLocal` provide sparse indirect
+lookup. `nodes` is a compact source-node/ancestor closure with local parent/child
+indices and retained global node/child keys. Missing remote children have
+invalid local indices. Each original cell has `localSourceNode`; auxiliary
+slots never overwrite a tree node's real-cell reference. The compatible
+`treeCells` view retains global NodeIndex identities. Integer coordinates and
+the origin/coarse-spacing frame are local, so `layout.center(localID)` needs
+no rank-zero arrays.
+
+Send classification includes owned endpoints requested remotely and the owned
+sources accessing such endpoints. Receive-dependent source work includes
+cross-rank anchors and conservative coarse/fine/adjacency dependencies.
+These are cell/anchor dependency metadata: no PDF storage, odd/even PDF
+communication phases or communication-hiding streams are implemented.
+The two interactive cases print rank-local counts and candidate scores without
+changing their existing VTK products.
+
+## Distributed MPI initialization
+
+`partition_mpi.hpp` adds metadata transport while the pure layout header
+remains independent of `mpi.h`. Executables call `MPI_Init_thread` with
+`MPI_THREAD_FUNNELED`, verify the provided level/main thread, and finalize MPI.
+OpenMP workers do not call MPI.
+
+Initialization has two stages. The root alone generates the global geometry,
+links storage anchors, partitions and creates the builder. It calls
+`prepare(destination)` for each rank, sending one self-contained input at a
+time. Each receiving rank independently chooses its local sorting candidate
+and builds all local references. The root does not sort other ranks' layouts
+in the production path; it only builds its own.
+
+```cpp
+#include "partition_mpi.hpp"
+
+// All communicator ranks participate; only root owns builder/global geometry.
+auto input = ntic::lbm::mpi::distributeLayoutInput<3,
+    ntic::lbm::lattice::LatticeType::D3Q19>(builder.get(), comm, 0, rootError);
+auto layout = ntic::lbm::mpi::initializeLocalLayout(input, comm);
+```
+
+Catch root geometry/partition errors into `rootError` and still enter the
+distribution call on every rank. Non-root callers pass a null builder. Inputs
+contain only that rank's storage metadata, integer coordinates, global-ID
+anchor/peer/interface/Face-Q references and necessary tree ancestors. Once an
+input is prepared/decoded it owns its data and can outlive every global object.
+`encodeLayoutInput`/`decodeLayoutInput` use a versioned, dimension/lattice-
+checked fixed-width wire format, preserve binary64 bits, reject truncated or
+unrepresentable counts/IDs, and never transmit C++ vector/struct memory images.
+
+Private duplicated communicators isolate tags and error handlers. Distribution
+uses size/status headers, receiver-allocation readiness and bounded chunks;
+there is no 32-bit Scatterv limit on the total packet. Ordinary preparation,
+decoding and local-build errors are propagated collectively before the next
+phase. MPI communication failures abort the private communicator. Error text
+is bounded; it is not a geometry tolerance. Call each collective API on all
+communicator ranks, in the same order, from the MPI main thread.
+
+After local construction, ranks exchange counts and the actual canonical
+global storage-ID lists to verify every peer exactly, independently of local
+ordering. This is initialization consistency checking, not a ready-made
+odd/even PDF exchange schedule. Root-only VTK writing continues to use global
+geometry/partition data; workers do not allocate the full geometry or write the
+same output paths.
+
 ## Automatic tests
 
 Each `.cpp` below is one executable; shared checks are in
@@ -329,11 +468,22 @@ Each `.cpp` below is one executable; shared checks are in
 | `test_partition_blocks` | Unique wet-cell box coverage, default `2^level` frequencies, hardware capacities, analytic ring communication and multi-rank refinement |
 | `test_partition_boundary_costs` | Analytic box load, per-membership boundary costs, multi-Face extra work without duplicate wet updates and zero surcharge |
 | `test_partition_intra_rank` | Single-box L-shaped/disconnected wet regions, accessible internal dependencies, no spurious local exchange and node classes |
+| `test_partition_layout` | Four lattice layouts, shared Ghost/Halo ownership, canonical peers, complete Face/Q and interface remaps, auxiliary atoms, level/range/point views, single/empty ranks, deterministic 96-bit radix, actual MPI 1/2/4-rank distribution, packet rejection, collective root failure and split/nonzero-root communicators |
 
-All six automatic targets are included by `cmake/tests/mpi_tests.cmake`; the project-root
+All seven automatic targets are included by `cmake/tests/mpi_tests.cmake`; the project-root
 `run_mpi_tests.sh` invokes them without interactive input. It follows existing
 runner style and does not aggregate exit codes: inspect each program's result.
-These are partition-metadata tests and do not require `mpirun`.
+The six original algorithm tests remain single-process and do not require
+MPI runtime initialization. `test_partition_layout` runs with actual MPI at
+1, 2 and 4 ranks; `MPIEXEC` can override the runner's default `mpiexec`.
+Only this test and the two interactive programs link `MPI::MPI_CXX`; existing
+serial APIs and tests do not gain an MPI header/runtime dependency.
+GNU/Clang C++ compilation explicitly uses `-fno-fast-math` and then
+`-ffp-contract=off`, retaining Inf/NaN input checks and explicit `std::fma`
+behavior. Server 79's system compiler specs inject Ofast/fast-math defaults;
+an otherwise unchanged build with finite-only assumptions disabled passed the
+original validation test. No partition rule, rejection criterion or reference
+value was changed.
 The root runner and CMake entry retain their MPI names so other MPI test groups
 can be added later; their current partition executables are under
 `build/mpi/partition/`. The two interactive applications below are not invoked
@@ -342,7 +492,7 @@ by the automatic runner.
 ## Interactive partition cases
 
 These applications generate geometry, multilevel grids and partition metadata;
-they do not advance LBM or launch MPI ranks. The annulus reads finest spacing
+they run actual MPI initialization but do not advance LBM or transfer PDF fields. The annulus reads finest spacing
 `hmin`, then the narrow wall-band thickness in finest-cell units. The STL case
 derives `hmin` from its smallest port and reads only the wall-band cell count.
 Both fix `blockLevel=0` and equal rank compute capacities.
@@ -358,9 +508,20 @@ measured execution times.
 Run from the project root and enter the case-specific values when prompted:
 
 ```bash
-OMP_NUM_THREADS=32 ./build/mpi/partition/test_partition_taylor_couette
-OMP_NUM_THREADS=128 ./build/mpi/partition/test_partition_branched_channel
+OMP_NUM_THREADS=32 mpiexec -n 4 ./build/mpi/partition/test_partition_taylor_couette
+OMP_NUM_THREADS=16 mpiexec -n 8 ./build/mpi/partition/test_partition_branched_channel
 ```
+
+Only rank zero reads the prompts and writes VTK. Rank counts are fixed at 4
+and 8 respectively; a different launch size is rejected collectively.
+`OMP_NUM_THREADS` is the rank-local build budget; when unset, visible CPUs are
+shared conservatively among ranks on the same host. During the root-only
+global geometry phase, the root temporarily uses up to 32/128 visible CPUs
+(TC/STL), then restores its local budget before prepare/distribution. Hardware
+binding still limits visible CPUs; the program does not change affinity. For
+a launcher that binds each rank narrowly, explicitly configure the intended
+binding if the root should use the full available host during geometry setup.
+The STL node IDs remain cost-model parameters, not evidence of two physical hosts.
 
 The Taylor-Couette case sets `Rin=900*hmin` and `Rout=1000*hmin`. Thus the
 inner/outer radius and diameter ratios are 9:10, and the radial gap is exactly
@@ -452,7 +613,8 @@ geometry test output helpers are maintained independently.
 The statistics are also printed to the console. Per-level slot work excludes
 coarse/fine pair work, which is reported separately; auxiliary costs remain
 charged at their source-coarse update frequency. The automatic runner still
-contains only its six noninteractive applications.
+contains the six serial algorithm applications and MPI layout launches at
+1/2/4 ranks; it does not launch the interactive applications.
 
 Boundary records carry explicit window-local `boundaryCells` scalar indices.
 Multilevel assembly maps these to grid CellIndex values before partition-local

@@ -331,7 +331,7 @@ void vtkWritePartitionSummary(std::ostream& out,const Grid& grid,
 {
     const auto& stats=plan.statistics;
     out << std::setprecision(10) << description << '\n'
-        << "Partition metadata only: one box per rank with bounded global refinement; no MPI transport, LBM evolution or communication hiding.\n"
+        << "Partition metadata only: one box per rank with bounded global refinement; no PDF transport, LBM evolution or communication hiding.\n"
         << "Hardware costs are uncalibrated model units, not measured seconds.\n"
         << "Node -1 means unspecified; it does not assert a physical node assignment.\n"
         << "Ranks: " << options.ranks << ", blockLevel: " << options.blockLevel

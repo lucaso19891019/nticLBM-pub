@@ -1,6 +1,7 @@
 #!/bin/bash
 
 MPI_PARTITION_APP_DIR=./build/mpi/partition
+MPIEXEC=${MPIEXEC:-mpiexec}
 
 
 #=============================================================================
@@ -43,3 +44,11 @@ $MPI_PARTITION_APP_DIR/test_partition_boundary_costs
 #=============================================================================
 
 $MPI_PARTITION_APP_DIR/test_partition_intra_rank
+
+#=============================================================================
+# 7. Rank-local neighbor layout and operation selections
+#=============================================================================
+
+$MPIEXEC -n 1 $MPI_PARTITION_APP_DIR/test_partition_layout
+$MPIEXEC -n 2 $MPI_PARTITION_APP_DIR/test_partition_layout
+$MPIEXEC -n 4 $MPI_PARTITION_APP_DIR/test_partition_layout
