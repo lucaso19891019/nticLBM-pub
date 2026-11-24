@@ -858,6 +858,59 @@ Currently there is one Face-offset table combining all levels and both real
 and auxiliary entries. A separate `level x Face` offset table is not exposed.
 Use `grid.level(cell)` and `grid.cells().isAuxiliary(cell)` to select entries.
 
+### Esoteric Twist storage linking
+
+After the last geometry finalization, build an independent storage-index snapshot:
+
+```cpp
+#include "neighbor_linking.hpp"
+
+auto links = ntic::lbm::geometry::linkNeighbors(grid);
+auto endpoint = links.anchor(cell, direction);
+```
+
+This optional final geometry stage does not modify the grid, its cell ordering,
+Face/Q offsets, coarse/fine interfaces or partition input. Rebuild the snapshot
+after regeneration, refinement/derefinement or finalization, just as other
+index-based views must be rebuilt after their source changes.
+
+`lattice::Twist<Type>` derives anchors and opposite directions from the existing
+velocity arrays. A direction uses the mask of its **negative** components:
+`a_d(q) = (e_d(q) < 0)`. Thus +x uses self, -x uses the +x storage endpoint,
+and (+x,-y) uses +y. The two endpoint masks satisfy
+`a(opposite(q)) - a(q) = e(q)`. This specifies address layout, not a collision
+kernel or a time-stepping implementation. No assumption about opposite-direction
+numbering is made.
+
+| Model | Stored positive-coordinate anchors per original cell |
+|---|---|
+| D2Q9 | 3: x, y, xy |
+| D3Q15 | 7: x, y, xy, z, xz, yz, xyz |
+| D3Q19 | 6: x, y, xy, z, xz, yz |
+| D3Q27 | 7: x, y, xy, z, xz, yz, xyz |
+
+Mask order is ascending with x=1, y=2, z=4. Trait
+`directionAnchor[q]` is zero for self and otherwise one plus the index in
+`anchorMasks`; `links.anchors[cell]` stores only those non-self IDs.
+D3Q15 needs all seven anchors because its mixed-sign body diagonals require
+face-diagonal storage endpoints even though these are not physical velocities.
+
+The address space is contiguous: `[0, links.originalCount)` preserves every
+real and auxiliary CellPool ID; `[links.originalCount, links.size())` contains
+Ghost endpoints. A target is reused only at the identical level and integer
+coordinate, including existing auxiliary slots. A coarser/finer cell is never
+substituted for an absent same-level address. Missing positions are deduplicated
+and sorted by level and integer coordinate; `ghostLevels` gives their global
+ID ranges. `ghosts[id-originalCount]` contains level/coordinate metadata.
+
+Ghost coordinates can lie in dry space, outside the domain, or under refined
+coverage. They represent storage endpoints, not newly wet cells. They have no
+PDF allocation, rank, owner or Halo information. Only original real/auxiliary
+sources have neighbor rows; Ghosts are not recursively expanded. Partition
+continues to consume the unchanged grid and does not assign these extra IDs.
+Their future allocation and rank-local addressing belong to subsequent solver
+and communication work.
+
 ### Coarse/fine interface representation
 
 After refinement and balance, a full coarse-cell neighbour ring outside the
@@ -917,9 +970,9 @@ dense analysis tile; `analysisThreads` caps simultaneous tiles to bound memory.
 Selection, topology creation, balancing and interface-role detection also use
 OpenMP. Allocation and canonical sorting are deterministic serial stages.
 
-The automatic acceptance suite is split into seven `.cpp` files, each with its
+The automatic acceptance suite is split into eight `.cpp` files, each with its
 own executable and no case-selection arguments. Together they cover
-16 test points:
+18 test points:
 
 | Executable under `build/geometry/multilevel` | Coverage |
 | --- | --- |
@@ -930,6 +983,7 @@ own executable and no case-selection arguments. Together they cover
 | `test_multilevel_lattice` | D3Q15/19/27 topology and physical Q |
 | `test_multilevel_stl` | STL Face bands, arbitrary-depth refinement volumes and nonbinary-spacing tile scalar/Face/Q regression |
 | `test_multilevel_determinism` | Identical 1/4-thread topology, storage, interfaces and Q |
+| `test_multilevel_neighbors` | Four Twist traits, analytic Ghost counts, sparse/auxiliary reuse, nested calls and rebuilt snapshots |
 
 Remote validation on 2026-11-11 passed all 306 historical primitive cases
 without changing their reference hashes, STL boundary acceptance, all 22
@@ -942,7 +996,7 @@ by ParaView 6.0.1 without errors or warnings and synchronized locally with
 per-file SHA256 verification.
 
 `test_multilevel_checks.hpp` supplies shared verification functions and fixtures
-included by the seven automatic tests. Every test `.cpp` has its own executable;
+included by the eight automatic tests. Every test `.cpp` has its own executable;
 shared helpers live in this header. `test_multilevel_acceptance` is a build-only
 aggregate target, not an executable. Use:
 
@@ -953,7 +1007,7 @@ bash run_geometry_multilevel_tests.sh
 ```
 
 Like the existing runners, run the shell script from the project root. It
-invokes the seven independent automatic applications directly. Interactive
+invokes the eight independent automatic applications directly. Interactive
 visualization is split into three separate sources and executables:
 
 | Manual executable under `build/geometry/multilevel` | Geometry and refinement | Output directory under `tests/geometry_tests/outputs` |
@@ -998,6 +1052,7 @@ arguments, not interactive input.
 | `multilevel/test_multilevel_edits` | None | Refine/derefine, stale views, invalid input and capacity limits |
 | `multilevel/test_multilevel_lattice` | None | D3Q15/19/27 octrees, cell storage, adjacency and scalar/Q comparison |
 | `multilevel/test_multilevel_stl` | None | STL Face bands, arbitrary-depth refinement volumes and nonbinary-spacing tile scalar/Face/Q regression |
+| `multilevel/test_multilevel_neighbors` | None | Twist traits, analytic Ghost counts, sparse/multilevel reuse, nested calls, thread determinism and edit/rebuild snapshots |
 | `multilevel/test_multilevel_determinism` | None | Identical 1/4-thread tree, cell order, interfaces and boundary Q |
 
 The existing STL command-line case names are:
@@ -1029,7 +1084,7 @@ Two geometry shell runners are provided in the project root:
 | Script | Programs invoked |
 | --- | --- |
 | `run_geometry_stl_tests.sh` | STL construction/feature detection, containment, flow interpretation and translation with the listed fixture combinations |
-| `run_geometry_multilevel_tests.sh` | Seven independent multilevel automatic executables, covering 16 test points |
+| `run_geometry_multilevel_tests.sh` | Eight independent multilevel automatic executables, covering 18 test points |
 
 The primitive and STL boundary acceptance executables are run directly; the
 two scripts do not invoke them. Boolean currently has the five manual cases

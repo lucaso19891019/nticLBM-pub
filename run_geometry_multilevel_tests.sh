@@ -50,3 +50,9 @@ $GEOMETRY_APP_DIR/test_multilevel_stl
 #=============================================================================
 
 $GEOMETRY_APP_DIR/test_multilevel_determinism
+
+#=============================================================================
+# 8. Esoteric Twist storage anchors
+#=============================================================================
+
+$GEOMETRY_APP_DIR/test_multilevel_neighbors

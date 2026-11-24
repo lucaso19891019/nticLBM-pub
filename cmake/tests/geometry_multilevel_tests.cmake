@@ -331,6 +331,31 @@ configure_geometry_multilevel_test(
 
 
 #====================================================
+# test_multilevel_neighbors
+#====================================================
+
+add_executable(test_multilevel_neighbors
+    tests/geometry_tests/multilevel_tests/test_multilevel_neighbors.cpp
+)
+
+target_include_directories(
+    test_multilevel_neighbors
+    PRIVATE
+    ${GEOMETRY_MULTILEVEL_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    test_multilevel_neighbors
+    PRIVATE
+    geometry_multilevel_test_support
+)
+
+configure_geometry_multilevel_test(
+    test_multilevel_neighbors
+)
+
+
+#====================================================
 # Multilevel acceptance build target
 #====================================================
 
@@ -343,4 +368,5 @@ add_custom_target(test_multilevel_acceptance
     test_multilevel_lattice
     test_multilevel_stl
     test_multilevel_determinism
+    test_multilevel_neighbors
 )

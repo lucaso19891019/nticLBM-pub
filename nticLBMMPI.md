@@ -247,6 +247,7 @@ when topology permits further splitting.
 
 ```cpp
 #include "partition.hpp"
+#include "neighbor_linking.hpp"
 
 namespace part = ntic::lbm::mpi;
 part::PartitionOptions options;
@@ -254,6 +255,8 @@ options.ranks = 4;
 options.blockLevel = 1;
 options.hardware.computeRates = {1.0, 1.0, 2.0, 2.0};
 options.hardware.nodeIds = {0, 0, 1, 1};
+// Optional final geometry snapshot; it does not change partition input IDs.
+auto storageLinks = ntic::lbm::geometry::linkNeighbors(grid);
 auto plan = part::partition(grid, options);
 auto local = part::localPartition(grid, plan, rank);
 ```
@@ -295,6 +298,10 @@ and match in global-cell order. They describe potential dependencies, not an
 implemented time-stepping communication schedule. Local interfaces use local
 indices for coarse, auxiliary and fine cells.
 `local.cellBlocks` maps each owned/ghost local index to its final block.
+These remote-rank storage entries are partition Halo metadata, distinct from
+geometry Twist Ghost endpoints. `linkNeighbors(grid)` preserves the existing
+CellPool ID prefix and adds storage-only IDs in its own snapshot; partition
+does not allocate or assign ownership to that suffix.
 `local.intraRankExchanges` is empty under the single-box-per-rank contract.
 Internal wet-cell dependencies remain reachable through the owned local
 indices, including disconnected wet pieces within the same Dry-padded box.
@@ -317,7 +324,7 @@ Each `.cpp` below is one executable; shared checks are in
 | Executable under `build/mpi/partition/` | Coverage |
 | --- | --- |
 | `test_partition_ownership` | Uniform and weighted multilevel ownership, auxiliary binding and unchanged geometry storage |
-| `test_partition_connectivity` | 2D/3D ghosts, reciprocal peer order, local interfaces, Face/Q remapping and single-rank case |
+| `test_partition_connectivity` | 2D/3D ghosts, reciprocal peer order, local interfaces, Face/Q remapping, unchanged indices after geometry linking and single-rank case |
 | `test_partition_validation` | Thread-count determinism, invalid input, infeasible rank counts and fully Dry domain |
 | `test_partition_blocks` | Unique wet-cell box coverage, default `2^level` frequencies, hardware capacities, analytic ring communication and multi-rank refinement |
 | `test_partition_boundary_costs` | Analytic box load, per-membership boundary costs, multi-Face extra work without duplicate wet updates and zero surcharge |
